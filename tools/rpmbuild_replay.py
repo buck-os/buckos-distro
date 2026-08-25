@@ -27,10 +27,15 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 
 from _isolation import resolve_isolation, run_isolated
-from _rpm import extract_rpm, reproducible_env, require_tool, run
+from _rpm import (
+    extract_rpm,
+    reproducible_env,
+    require_tool,
+    run,
+    scratch_dir,
+)
 
 TOPDIR_SUBDIRS = ("BUILD", "BUILDROOT", "RPMS", "SOURCES", "SPECS", "SRPMS")
 
@@ -252,7 +257,7 @@ def main():
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work, exist_ok=True)
     else:
-        work = tempfile.mkdtemp(prefix="buckos-distro-replay-")
+        work = scratch_dir("buckos-distro-replay-")
 
     topdir = os.path.join(work, "topdir")
     copy_topdir(args.topdir, topdir)

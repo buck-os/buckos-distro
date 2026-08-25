@@ -99,6 +99,24 @@ SourcePackageInfo = provider(fields = [
     "flavor",           # str
 ])
 
+# ── Boot artifacts ───────────────────────────────────────────────────
+#
+# What a bootloader needs from an image, split out from the image itself.
+# A rootfs is a tarball for reasons defs/rules/rootfs.bzl explains; a
+# bootloader needs plain files it can read.
+
+BootInfo = provider(fields = [
+    "vmlinuz",          # artifact: the kernel, lifted out of the rootfs tar
+    "initramfs",        # artifact | None: built separately, see boot.bzl
+    # An *artifact* holding the version string, not a str.  Which kernel an
+    # image contains is discovered by reading the tarball, which happens
+    # when the action runs -- long after analysis, where a string attribute
+    # would have to be filled in.  Making it a file is what keeps the
+    # kernel version out of the BUCK files, where it would rot on every
+    # kernel update and be wrong in a way nothing checks.
+    "kver",             # artifact: the kernel version, no trailing newline
+])
+
 # ── Native binary package artifacts ──────────────────────────────────
 
 RpmArtifactInfo = provider(fields = [

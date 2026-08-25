@@ -58,10 +58,9 @@ import os
 import shlex
 import shutil
 import sys
-import tempfile
 
 from _isolation import ISOLATION_MODES, resolve_isolation, run_isolated
-from _rpm import make_dirs_writable, reproducible_env
+from _rpm import make_dirs_writable, reproducible_env, scratch_dir
 
 
 def collect_rpms(paths):
@@ -111,7 +110,8 @@ def stage_rpms(rpms, staging):
     per build, and a real image is thousands.
 
     Hardlinked where the filesystem allows it, which is the normal case --
-    buck-out's tmp and gen trees are the same device -- so this is a
+    the scratch root defaults to /var/tmp precisely so it shares a device
+    with buck-out, see scratch_dir in tools/_rpm.py -- so this is a
     directory entry per package rather than a copy of the payload.  Buck
     inputs are read-only and rpm only reads them, so sharing the inode is
     safe.
@@ -183,7 +183,7 @@ def main():
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work, exist_ok=True)
     else:
-        work = tempfile.mkdtemp(prefix="buckos-distro-rootfs-")
+        work = scratch_dir("buckos-distro-rootfs-")
 
     out = os.path.abspath(args.out)
     try:

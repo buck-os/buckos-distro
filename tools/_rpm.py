@@ -8,6 +8,52 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
+
+# Where trees that rpm unpacks are allowed to live.  Deliberately outside
+# the project root, and this is not a preference.
+#
+# Buck2 points TMPDIR at a scratch path under buck-out, which is right for
+# almost everything and wrong for these trees, because they contain a
+# filename buck2 cannot represent.  systemd-udev ships
+#
+#   usr/lib/systemd/system/system-systemd\x2dcryptsetup.slice
+#
+# with a literal backslash -- legal in a filename, legal in rpm, and not
+# expressible as a buck2 project-relative path.  When buck2 walks buck-out
+# and meets it the build dies with
+#
+#   Error relativizing: `...system-systemd\x2dcryptsetup.slice;6553f100`
+#     is not relative to project root
+#
+# and it dies in a way that does not stay fixed.  The unrepresentable path
+# is recorded in daemon state, so every later invocation fails instantly on
+# a file that no longer exists; the only escape is `buck2 kill`, which
+# discards the action cache, which re-runs the install, which recreates the
+# file.  Deleting the tree does not help and neither does waiting.
+#
+# Keeping these trees out of the project root breaks that loop at the only
+# point where it can be broken: buck2 never sees the path at all.
+#
+# /var/tmp rather than /tmp because an unpacked image is gigabytes and /tmp
+# is a small tmpfs on many systems.  The one property that matters for
+# speed is that it share a device with buck-out, which is what lets rpm
+# staging hardlink instead of copying half a gigabyte; override
+# BUCKOS_SCRATCH_ROOT if that is not true locally.
+#
+# The tradeoff, stated plainly: a hard kill now litters /var/tmp instead of
+# buck-out, and `buck2 clean` will not sweep it.  That is not a regression
+# -- buck2 could not delete a path it cannot name either -- but it does
+# mean the litter is the user's to remove.
+SCRATCH_ROOT_ENV = "BUCKOS_SCRATCH_ROOT"
+_DEFAULT_SCRATCH_ROOT = "/var/tmp"
+
+
+def scratch_dir(prefix):
+    """A private scratch directory for a tree Buck must not walk."""
+    base = os.environ.get(SCRATCH_ROOT_ENV) or _DEFAULT_SCRATCH_ROOT
+    os.makedirs(base, exist_ok=True)
+    return tempfile.mkdtemp(prefix=prefix, dir=base)
 
 
 def run(cmd, **kwargs):

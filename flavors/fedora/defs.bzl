@@ -12,8 +12,25 @@ the generated diff reviewable.
 
 load("//defs:flavor.bzl", "package")
 load("//defs:releases.bzl", "release_suffix")
+load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_buildroot")
 load("//defs/rules/rootfs.bzl", "rootfs")
+
+# Which dracut modules an image set's initramfs has to be told to include.
+#
+# Listed per set rather than inferred, because it cannot be inferred: the
+# `live` set contains dracut-live, but a package being *installed* is not
+# the same as its module being *enabled*, and dracut's own host-only
+# autodetection is exactly what --no-hostonly turns off.  So the decision
+# is written down here, next to the set it belongs to.
+#
+# dmsquash-live is what teaches the initramfs to find a squashfs on
+# removable media and pivot into it.  Without it a live ISO boots as far as
+# a dracut emergency shell and no further -- and the build stays green,
+# because nothing between here and a boot attempt can tell.
+_INITRAMFS_MODULES = {
+    "live": ["dmsquash-live"],
+}
 
 # Where an rpm is fetched from, by digest.  Content-addressed: the sha256
 # leads, so re-pinning a package changes the URL and buck2 cannot serve
@@ -236,6 +253,34 @@ def fedora_image_rootfs(data, suffix):
             visibility = ["PUBLIC"],
         )
 
+def fedora_boot(data, suffix):
+    """Kernel and initramfs per image set: what a bootloader loads.
+
+    Only for sets that have a kernel, which in practice means the ones
+    meant to boot.  A set without one still gets its targets defined --
+    they fail when built, naming the set, rather than being silently
+    absent, which is the difference between "this image does not boot" and
+    "I cannot find the target that would tell me".
+    """
+    buildroot = fedora_buildroot_target(suffix)
+
+    for name in sorted(data.IMAGE_SETS):
+        rootfs_target = ":rootfs-" + name + suffix
+
+        kernel_image(
+            name = "kernel-" + name + suffix,
+            rootfs = rootfs_target,
+            visibility = ["PUBLIC"],
+        )
+
+        initramfs(
+            name = "initramfs-" + name + suffix,
+            buildroot = buildroot,
+            rootfs = rootfs_target,
+            add_modules = _INITRAMFS_MODULES.get(name, []),
+            visibility = ["PUBLIC"],
+        )
+
 # ── Per-release fan-out ──────────────────────────────────────────────
 #
 # Each release gets a `-<release>` suffix, and the default release gets a
@@ -292,13 +337,20 @@ def fedora_packages_for(releases, default, data_by_release):
     fedora_packages(_data_for(data_by_release, default), "")
 
 def fedora_rootfs_for(releases, default, data_by_release):
-    """rootfs targets for every release, plus the unsuffixed default."""
+    """rootfs and boot targets for every release, plus the default.
+
+    Boot targets are defined in the same pass, after the rootfs they read:
+    Buck needs a target to exist before it is referenced, and
+    kernel-<set> / initramfs-<set> both take :rootfs-<set>.
+    """
     for release in releases:
         data = _data_for(data_by_release, release)
         suffix = release_suffix(release)
         fedora_rootfs(data, suffix)
         fedora_image_rootfs(data, suffix)
+        fedora_boot(data, suffix)
 
     default_data = _data_for(data_by_release, default)
     fedora_rootfs(default_data, "")
     fedora_image_rootfs(default_data, "")
+    fedora_boot(default_data, "")

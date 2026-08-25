@@ -60,6 +60,17 @@ python_binary(
 
 # ── Image pipeline ───────────────────────────────────────────────────
 
+# Reading a rootfs tarball's index without unpacking it.  Separate from
+# _rpm because it needs nothing from rpm: the questions the boot pipeline
+# asks of an image -- which kernel, where is its vmlinuz -- are answered by
+# the tar's own headers.
+python_library(
+    name = "_image",
+    srcs = ["_image.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
 python_binary(
     name = "rootfs_install",
     main = "rootfs_install.py",
@@ -68,6 +79,31 @@ python_binary(
         ":_rpm",
     ],
     visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "kernel_extract",
+    main = "kernel_extract.py",
+    deps = [":_image"],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "initramfs_build",
+    main = "initramfs_build.py",
+    deps = [
+        ":_image",
+        ":_isolation",
+        ":_rpm",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+python_test(
+    name = "image_test",
+    srcs = ["image_test.py"],
+    base_module = "",
+    deps = [":_image"],
 )
 
 # ── Solver (runs out-of-band, not in the build graph) ────────────────
@@ -117,4 +153,16 @@ python_test(
     name = "re_contract_test",
     srcs = ["re_contract_test.py"],
     base_module = "",
+)
+
+# Also a source lint.  Guards where scratch trees live, which sounds like a
+# style question and is not: an rpm payload can contain a filename buck2
+# cannot represent, and putting the tree under buck-out turns that into a
+# build failure that survives deleting the file and re-arms itself on
+# `buck2 kill`.  The module docstring has the whole loop.
+python_test(
+    name = "scratch_contract_test",
+    srcs = ["scratch_contract_test.py"],
+    base_module = "",
+    deps = [":_rpm"],
 )
