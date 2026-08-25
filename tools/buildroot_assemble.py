@@ -6,10 +6,11 @@ here is fetched by sha256 from upstream and is *not* built from source; the
 set is deliberately small -- roughly Fedora's @buildsys-build group -- and
 its size is the repo's honest bootstrap-debt metric.
 
-Payloads are unpacked with rpm2archive | tar, so no scriptlets run.  The
-database is then written separately, by a real `rpm --justdb` transaction
-run inside the tree itself -- see _register_rpmdb below for why those two
-halves are done by different mechanisms.
+Payloads are unpacked with rpm2archive | tar; the database is then written
+separately, by a real `rpm --justdb` transaction run inside the tree
+itself.  See _register_rpmdb below for why those two halves are done by
+different mechanisms, and why the scriptlets run with the second one
+rather than the first.
 """
 
 import argparse
@@ -54,19 +55,27 @@ def _repair_dangling_bindir_links(out):
     /usr/sbin is a symlink to bin.  But `filesystem` ships only /sbin ->
     usr/sbin in its payload -- the /usr/sbin -> bin link itself is created
     by its %pretrans lua scriptlet, because rpm cannot swap a directory for
-    a symlink inside a transaction.  We unpack payloads and run no
-    scriptlets (see the module docstring), so /usr/sbin simply never
-    appears and every /sbin/<tool> path dangles one link short.
+    a symlink inside a transaction.  Unpacking payloads alone therefore
+    never produces /usr/sbin, and every /sbin/<tool> path dangles one link
+    short.
 
     That is not a theoretical gap.  redhat-rpm-config's brp-ldconfig, which
     runs in the %install of anything shipping a library, calls
     /sbin/ldconfig by absolute path and fails with "No such file or
     directory" -- with a perfectly good ldconfig sitting in /usr/bin.
 
-    Only created when nothing already occupies the path, so this stays
-    correct for releases and distros that predate the merge: there, an rpm
-    ships /usr/sbin as a real directory full of real binaries, and turning
-    that into a symlink would silently discard them.
+    A fallback rather than the main path, now that _register_rpmdb runs
+    scriptlets: on the normal route `filesystem`'s own %pretrans creates
+    this link and the loop below finds it already there.  What is left for
+    it is the route where no transaction happens at all -- isolation
+    "none", which skips rpmdb registration entirely because there is no
+    tree to chroot into -- and that route still needs a buildroot whose
+    /sbin/ldconfig resolves.
+
+    Only created when nothing already occupies the path, which is also
+    what keeps it correct for releases and distros that predate the merge:
+    there, an rpm ships /usr/sbin as a real directory full of real
+    binaries, and turning that into a symlink would silently discard them.
     """
     for rel, target in SCRIPTLET_LINKS.items():
         link = os.path.join(out, rel)
@@ -129,11 +138,37 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
     of a different vintage writes a different format in a different place,
     and the resulting tree would be one no rpmbuild inside it can read.
 
-    --noscripts because the payloads were laid down by tar: a %post that
-    expected to run during unpacking has already missed its chance, and
-    running it now against a half-configured tree is worse than not
-    running it.  That is the remaining honest gap, and it is why
-    SCRIPTLET_LINKS above exists.
+    Scriptlets *do* run here, and that is a deliberate reversal.  The
+    argument for --noscripts was that the payloads were laid down by tar,
+    so a %post expecting to run during unpacking had already missed its
+    chance and firing it against a half-configured tree was worse than not
+    firing it.  The premise was wrong in one important way: by the time
+    this function runs the tree is not half-configured, it is complete.
+    Every payload is already extracted.  A %post that wants to walk
+    /usr/lib and build a cache finds the whole of /usr/lib there.
+
+    What that buys, measured on the image-tools set rather than assumed:
+
+      * `filesystem`'s %pretrans creates /usr/sbin -> bin for real, so the
+        fabrication below stops being load-bearing.
+      * systemd's sysusers scriptlets populate /etc/passwd and /etc/group
+        -- dbus, systemd-coredump, systemd-oom, systemd-timesync.  A
+        package whose build needs one of those ids to exist now finds it
+        instead of failing somewhere unhelpful.
+
+    Reproducibility was the thing worth checking before believing any of
+    it, because sysusers allocates uids dynamically from the top of a
+    range and an allocation that moved between runs would rehash the tree
+    and invalidate every package built against it.  Two clean runs produce
+    a byte-identical rpmdb and an identical tree: rpm orders the
+    transaction from the dependency graph, so the allocation order is a
+    function of the package set and not of the clock.
+
+    --notriggers stays.  A trigger fires on *another* package's
+    installation, so in a single transaction that installs everything at
+    once the firing order is a property of rpm's internal ordering rather
+    than of anything this repo decides -- and nothing in the seed set
+    needs one.  Turning them on is a change that should come with a case.
 
     No --nodeps.  The seed set is dependency-closed by construction --
     tools/solve.py computes its closure -- so rpm checking that claim is
@@ -171,7 +206,7 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
         # kernel's 128 KB single-argument limit to be a latent failure.
         script = (
             'set -e\n'
-            'exec rpm --justdb --install --noscripts --notriggers '
+            'exec rpm --justdb --install --notriggers '
             '--nosignature "$1"/*.rpm\n'
         )
         run_isolated(
@@ -204,6 +239,56 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
     # The transaction created the database as the namespace's root, which
     # is us, but rpm sets restrictive modes on some of what it writes.
     make_dirs_writable(out)
+
+    _check_ownership(out)
+
+
+def _check_ownership(out):
+    """Fail now if anything in the tree stopped being ours.
+
+    Running scriptlets is what makes this worth checking.  Inside the
+    namespace a scriptlet is root and may chown a file to any id in the
+    subordinate range; outside, that id belongs to nobody the Buck daemon
+    can act as, so the file cannot be deleted or re-materialised.
+
+    Nothing in the seed or image-tools sets does this today -- both were
+    measured at zero.  It is checked anyway because of *when* the damage
+    would otherwise surface: not in this build, which would succeed, but
+    in the next one, as "Error cleaning up output path ... Permission
+    denied" naming a path nobody asked about, from an action that is not
+    this one.  That is the same delayed, misattributed failure the
+    backslash trap has, and it is worth the one walk to convert it into a
+    message that names the file and the cause.
+
+    Not repaired automatically, because the repair would have to run
+    inside a namespace this function no longer has, and because a
+    buildroot whose ownership a scriptlet cares about is a situation that
+    deserves a human rather than a silent chown.
+    """
+    uid = os.getuid()
+    strays = []
+    for root, dirnames, filenames in os.walk(out):
+        for name in dirnames + filenames:
+            path = os.path.join(root, name)
+            try:
+                if os.lstat(path).st_uid != uid:
+                    strays.append(path)
+            except OSError:
+                continue
+        if len(strays) > 10:
+            break
+    if not strays:
+        return
+
+    sys.exit(
+        "buckos-distro: a scriptlet left {} file(s) owned by an id this "
+        "user does not have, so Buck cannot delete its own output on the "
+        "next build:\n  {}\n"
+        "Re-run the transaction with --noscripts, or add the offending "
+        "package to a set that does not need scriptlets.".format(
+            len(strays), "\n  ".join(sorted(strays)[:10])
+        )
+    )
 
 
 def main():

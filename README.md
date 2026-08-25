@@ -384,13 +384,13 @@ equivalent in hermeticity, so neither is a prerequisite.
 
 Stated plainly, because each one is load-bearing:
 
-- **Scriptlets do not run, so a few tree invariants are fabricated.**
-  `tools/buildroot_assemble.py` creates the FHS skeleton and the
-  `/usr/sbin -> bin` compat link, which on a real system is made by
-  `filesystem`'s `%pretrans`. Fedora 43 completed the sbin merge, so
-  without it `brp-ldconfig`'s hardcoded `/sbin/ldconfig` dangles one link
-  short of a perfectly good `/usr/bin/ldconfig`. Each such fabrication is
-  listed explicitly in that file rather than inferred.
+- **The FHS skeleton is still fabricated.** `tools/buildroot_assemble.py`
+  creates `/dev`, `/proc`, `/sys`, `/tmp` and friends, because several
+  `brp-*` scripts and `%__os_install_post` steps fail on a missing one and
+  no package owns them. Each fabrication is listed explicitly in that file
+  rather than inferred. The `/usr/sbin -> bin` compat link used to be on
+  this list and no longer is — `filesystem`'s `%pretrans` now makes it for
+  real, see below.
 - **Ambiguous capabilities need a human.** Real repodata has capabilities
   with many providers — `glibc-langpack` has 211, `system-release` 34 —
   and the solver refuses to guess. `--override cap=package` settles each
@@ -496,13 +496,42 @@ Stated plainly, because each one is load-bearing:
   for `evmctl ima_setxattr`, which goes through the kernel and therefore
   silently no-ops unprivileged. So this is a genuine gap in both repos, not a
   shortcut taken in this one.
-- **No scriptlets *in a buildroot*.** Trees are unpacked with `rpm2archive | tar` — GNU
-  tar's `--delay-directory-restore`, not `cpio`, because rpm payloads ship
+- **Scriptlets run in a buildroot, but after the payloads rather than with
+  them.** Trees are unpacked with `rpm2archive | tar` — GNU tar's
+  `--delay-directory-restore`, not `cpio`, because rpm payloads ship
   read-only directories with files beneath them and cpio applies a
-  directory's mode as soon as it creates it. Nothing runs `%post`, so a
-  package whose install-time scriptlet matters cannot be satisfied this
-  way. This is deliberate and does not extend to images: `rootfs` runs
-  them, because that is where they matter.
+  directory's mode as soon as it creates it. So the payloads go down
+  without rpm's involvement, and the scriptlets fire afterwards, with the
+  `rpm --justdb` transaction that writes the database.
+
+  That ordering is not what rpm does, and it is worth being precise about
+  what it costs and what it does not. It does *not* mean a half-configured
+  tree: by the time the transaction runs every payload is already
+  extracted, so a `%post` that walks `/usr/lib` finds all of it. What it
+  does mean is that a scriptlet which cares about running *between* two
+  packages' payloads sees both. Nothing in the seed or image-tools sets
+  does. Triggers stay off (`--notriggers`) for the same reason inverted: a
+  trigger fires on another package's installation, and in one transaction
+  that installs everything the firing order is rpm's internal business
+  rather than anything this repo decides.
+
+  What it buys, measured rather than assumed: `filesystem`'s `%pretrans`
+  creates `/usr/sbin -> bin` itself, and systemd's sysusers scriptlets
+  populate `/etc/passwd` and `/etc/group`, so a package whose build needs
+  `dbus` or `systemd-timesync` to exist finds it. Two clean runs produce a
+  byte-identical rpmdb and an identical tree — worth checking before
+  believing, since sysusers allocates uids dynamically and an allocation
+  that moved between runs would rehash the buildroot and invalidate every
+  package built against it.
+
+  The hazard this reintroduces is ownership. Inside the namespace a
+  scriptlet is root and may `chown` a file to any id in the subordinate
+  range; outside, that id belongs to nobody the Buck daemon can act as, so
+  the file cannot be deleted and the *next* build fails cleaning an output
+  path it cannot name. Nothing does this today — both sets measured zero —
+  and `_check_ownership` walks the tree afterwards to make sure, so if it
+  ever starts the error names the file instead of arriving a build later
+  as a permissions error from an unrelated action.
 - **Backslashes in payload paths become directories, in buildroots only.**
   buck2 reserves the backslash as a path separator and cannot address a
   file whose name contains one. systemd escapes a dash in a unit name as
