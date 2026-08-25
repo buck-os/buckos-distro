@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Run the dynamic-BuildRequires probes and collect their answers.
+
+Most Fedora specs list their BuildRequires and mean it.  Anything
+packaged with rust-packaging, go-rpm-macros or pyproject-rpm-macros does
+not: it computes them from a lockfile in a %generate_buildrequires shell
+block, and repodata carries only the handful of static entries that let
+that block run.  Solving from repodata alone therefore produces a
+buildroot that is missing most of what the package needs, and the gap
+does not surface until %build fails somewhere unrecognisable.
+
+The only way to learn the rest is to run the block.  `rpmbuild -br` does
+that and reports what came out, which is what //flavors/fedora:probe-<pkg>
+wraps.  This drives one probe per source package and merges the results
+into a single file that solve.py can read.
+
+    buck2 run //tools:probe -- --release 43
+
+Why this is a separate step and not part of the build
+-----------------------------------------------------
+Buck resolves dependencies during analysis.  An edge discovered by
+*running* an action exists only after analysis is over, so there is no
+way to add it -- and a rule that tried would be a rule that cannot be
+scheduled remotely, since the RE worker would have to be told its inputs
+before they were known.  So the discovery happens here, at lock time, and
+its result is written into the lockfile where it becomes an ordinary
+declared dependency like any other.
+
+That makes the update loop two solves deep:
+
+    solve  ->  generate  ->  probe  ->  solve  ->  generate
+
+The first solve produces a buildroot good enough to run the generators;
+the second one knows what they asked for.  mock does the same thing at
+build time, installing the static set and then re-running; the difference
+is only that a lockfile has to remember the answer.
+
+`tools/relock.py --probe` runs that whole loop.  This tool is separate so
+the probe can also be run on its own, which is what you want when a
+single package's generator starts asking for something new.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+import relock
+# For PROBE_SCHEMA only: the reader defines the version, so a file written
+# here can never claim a version the solver does not accept.
+import solve
+
+# Probing means building the package's %prep and running arbitrary shell
+# out of its spec.  Under host provenance that shell reads the host's
+# /usr, so the answer describes this machine rather than the flavor --
+# and the host's rpmbuild may not even be rpm's (a site wrapper that
+# refuses to run is the friendly version of that failure).
+DEFAULT_CONFIG = ["-c", "buckos.fedora.buildroot=binary-seed"]
+
+
+def probe_targets(lock, release):
+    """One target per source package on the build list.
+
+    Named from the lockfile rather than discovered with `buck2 targets`,
+    so a probe run covers exactly the set that was solved.  A package
+    that has been added to --build but not yet generated fails here as a
+    missing target, which is the correct complaint.
+    """
+    return [
+        "//flavors/fedora:probe-{}-{}".format(src, release)
+        for src in sorted(lock["solve"]["build"])
+    ]
+
+
+def run_probes(buck2, targets, config, cwd):
+    """Build every probe and return {target: output path}.
+
+    One invocation, not one per package: the probes share a buildroot and
+    most of their inputs, and buck2 schedules them against each other far
+    better than a loop out here could.
+    """
+    if not targets:
+        return {}
+    argv = [buck2, "build"] + list(config) + ["--show-json-output"] + targets
+    print("$ {}".format(" ".join(argv)), file=sys.stderr)
+    proc = subprocess.run(argv, cwd=cwd, stdout=subprocess.PIPE, text=True)
+    if proc.returncode != 0:
+        sys.exit("probe build failed ({})".format(proc.returncode))
+
+    # buck2 prints its progress on stderr and the JSON map on stdout, but
+    # only the last line of stdout is that map.
+    for line in reversed(proc.stdout.splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            return json.loads(line)
+    sys.exit("buck2 --show-json-output printed no output map")
+
+
+def collect(outputs, cwd):
+    """Merge the per-package reports, keyed by the package each declares."""
+    packages = {}
+    for target, path in sorted(outputs.items()):
+        with open(os.path.join(cwd, path)) as fh:
+            report = json.load(fh)
+        name = report.get("package")
+        if not name:
+            sys.exit("{} produced a report with no package name".format(target))
+        packages[name] = {
+            k: report[k]
+            for k in ("buildrequires", "dynamic", "static", "generated",
+                      "unmet", "spec")
+            if k in report
+        }
+    return packages
+
+
+def resolve_buck2(root, override=None):
+    """Which buck2 to shell out to.
+
+    The repo's own `buck2` first. A checkout that pins its buck2 does so
+    because the one on PATH is a different version or, at some sites, a
+    wrapper that refuses to run at all -- and a probe answered by the wrong
+    buck2 is a probe answered against the wrong graph.
+    """
+    if override:
+        return override
+    local = os.path.join(root, "buck2")
+    return local if os.path.exists(local) else "buck2"
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        description=__doc__.split("\n")[0],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ap.add_argument("--release", action="append", default=[], metavar="N",
+                    help="release to probe (repeatable; default: every "
+                         "release with a lockfile)")
+    ap.add_argument("--lock-dir", default=None)
+    ap.add_argument("--buck2", default=None,
+                    help="buck2 to invoke (default: ./buck2 in the repo, or "
+                         "whatever is on PATH)")
+    ap.add_argument("-c", "--config", action="append", default=[],
+                    metavar="SECTION.KEY=VALUE",
+                    help="extra buck2 -c flag (repeatable); replaces the "
+                         "default buildroot selection if given")
+    args = ap.parse_args(argv)
+
+    root = relock.repo_root()
+    lock_dir = args.lock_dir or os.path.join(root, "flavors", "fedora", "lock")
+
+    config = []
+    for flag in args.config:
+        config += ["-c", flag]
+    config = config or DEFAULT_CONFIG
+
+    releases = args.release or relock.lockfile_releases(lock_dir)
+    for release in releases:
+        write_probe_file(release, lock_dir, root, config,
+                         buck2=resolve_buck2(root, args.buck2))
+
+
+def probe_path(lock_dir, release):
+    """Where a release's probe results live.
+
+    Beside the lockfile and named for it, because it is the same kind of
+    thing: a recorded answer from upstream that gets reviewed as a diff.
+    Separate from it rather than merged in because the two are produced by
+    different machinery -- repodata is fetched, this is executed -- and a
+    reviewer reading a lockfile diff should be able to tell which.
+    """
+    return os.path.join(lock_dir, "fedora-{}.probe.json".format(release))
+
+
+def write_probe_file(release, lock_dir, root, config=None, buck2=None):
+    lock_path = os.path.join(lock_dir, "fedora-{}.lock.json".format(release))
+    if not os.path.exists(lock_path):
+        sys.exit("no lockfile at {}".format(lock_path))
+    with open(lock_path) as fh:
+        lock = json.load(fh)
+
+    config = DEFAULT_CONFIG if config is None else config
+    print("fedora {}: probing {} source package(s)".format(
+        release, len(lock["solve"]["build"])), file=sys.stderr)
+    outputs = run_probes(resolve_buck2(root, buck2),
+                         probe_targets(lock, release), config, root)
+    packages = collect(outputs, root)
+
+    out = probe_path(lock_dir, release)
+    with open(out, "w") as fh:
+        json.dump(
+            {
+                "schema": solve.PROBE_SCHEMA,
+                "flavor": "fedora",
+                "release": lock["release"],
+                # What the probes were run against.  A probe answer is only
+                # as good as the buildroot that produced it -- a generator
+                # can and does branch on the version of its own toolchain --
+                # so the file says which one that was.
+                "buildroot": " ".join(config),
+                "packages": packages,
+            },
+            fh,
+            indent=2,
+            sort_keys=True,
+        )
+        fh.write("\n")
+
+    generated = sorted(n for n, p in packages.items() if p.get("generated"))
+    unmet = sorted(n for n, p in packages.items() if p.get("unmet"))
+    print("  wrote {} ({} with a generator{})".format(
+        os.path.relpath(out, root), len(generated),
+        ", {} still unmet".format(len(unmet)) if unmet else "",
+    ), file=sys.stderr)
+    for name in unmet:
+        # Worth naming rather than counting: an unmet probe means the
+        # generator asked for something the buildroot does not have, so
+        # the *next* solve is the one that fixes it -- and if the name
+        # persists across two probe runs, it is not going to.
+        print("  unmet: {} -> {}".format(
+            name, ", ".join(packages[name]["dynamic"]) or "(nothing new)"),
+            file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

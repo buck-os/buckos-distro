@@ -60,7 +60,12 @@ import shutil
 import sys
 
 from _isolation import ISOLATION_MODES, resolve_isolation, run_isolated
-from _rpm import make_dirs_writable, reproducible_env, scratch_dir
+from _rpm import (
+    make_dirs_writable,
+    reproducible_env,
+    scratch_dir,
+    stage_rpms,
+)
 
 
 def collect_rpms(paths):
@@ -99,59 +104,6 @@ def collect_rpms(paths):
     # order Buck passed the deps in.  rpm still computes its own install
     # order from the dependency graph; this only fixes the input.
     return sorted(set(found))
-
-
-def stage_rpms(rpms, staging):
-    """Gather the rpms into one directory the sandbox already exposes.
-
-    The alternative was bind-mounting each artifact's directory into the
-    chroot, and it does not scale: Buck gives every http_file its own
-    output directory, so even the modest seed set is 287 separate mounts
-    per build, and a real image is thousands.
-
-    Hardlinked where the filesystem allows it, which is the normal case --
-    the scratch root defaults to /var/tmp precisely so it shares a device
-    with buck-out, see scratch_dir in tools/_rpm.py -- so this is a
-    directory entry per package rather than a copy of the payload.  Buck
-    inputs are read-only and rpm only reads them, so sharing the inode is
-    safe.
-
-    Names collide in principle (a locally built package can have the same
-    filename as the pinned one it replaces), so a collision gets a numeric
-    suffix rather than silently dropping one of the two.
-
-    Every staged name is given a .rpm suffix if it lacks one.  That is not
-    cosmetic: the transaction is handed to rpm as the glob `*.rpm` rather
-    than as 289 explicit paths, because the argument list would otherwise
-    approach the kernel's 128 KB limit on a single argument string, and a
-    pinned package arrives from http_file named after its Buck target with
-    no extension (see collect_rpms).  Unsuffixed, it would simply not be in
-    the transaction, and rpm would report the resulting hole as a missing
-    dependency somewhere else entirely.
-    """
-    os.makedirs(staging, exist_ok=True)
-    staged = []
-    used = set()
-    for source in rpms:
-        name = os.path.basename(source)
-        if not name.endswith(".rpm"):
-            name += ".rpm"
-        if name in used:
-            stem, dot, ext = name.rpartition(".")
-            for n in range(1, 1000):
-                candidate = "{}-{}{}{}".format(stem or name, n, dot, ext)
-                if candidate not in used:
-                    name = candidate
-                    break
-        used.add(name)
-        dest = os.path.join(staging, name)
-        try:
-            os.link(source, dest)
-        except OSError:
-            # Cross-device, or a filesystem without hardlinks.
-            shutil.copy2(source, dest)
-        staged.append(dest)
-    return staged
 
 
 def main():

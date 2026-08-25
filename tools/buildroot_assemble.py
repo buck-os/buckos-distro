@@ -6,10 +6,10 @@ here is fetched by sha256 from upstream and is *not* built from source; the
 set is deliberately small -- roughly Fedora's @buildsys-build group -- and
 its size is the repo's honest bootstrap-debt metric.
 
-Unpacked with rpm2archive | tar: no rpmdb, no scriptlets.  The tree is
-therefore self-contained enough to bind-mount as / under bubblewrap but
-does not have a package database, so `rpm -q` inside it will not work and
-specs whose %post populates state cannot be satisfied from the seed.
+Payloads are unpacked with rpm2archive | tar, so no scriptlets run.  The
+database is then written separately, by a real `rpm --justdb` transaction
+run inside the tree itself -- see _register_rpmdb below for why those two
+halves are done by different mechanisms.
 """
 
 import argparse
@@ -17,7 +17,14 @@ import os
 import shutil
 import sys
 
-from _rpm import extract_rpm, make_dirs_writable
+from _isolation import ISOLATION_MODES, resolve_isolation, run_isolated
+from _rpm import (
+    extract_rpm,
+    make_dirs_writable,
+    reproducible_env,
+    scratch_dir,
+    stage_rpms,
+)
 
 # Directories rpm's own macros and the FHS assume exist.  Several brp-*
 # scripts and %__os_install_post steps fail on a missing /tmp or /dev.
@@ -72,6 +79,133 @@ def _repair_dangling_bindir_links(out):
         os.symlink(target, link)
 
 
+# sqlite's write-ahead log and its shared-memory index.  Both are runtime
+# scaffolding rather than database content: sqlite recreates them on the
+# next open, and rpm checkpoints the WAL into the main file when it closes
+# the transaction cleanly.  They are removed because their contents are not
+# reproducible even when the database itself is, and this tree is hashed by
+# Buck -- see the epoch discussion in _register_rpmdb.
+_DB_TRANSIENTS = ("rpmdb.sqlite-shm", "rpmdb.sqlite-wal", ".rpm.lock")
+
+
+def _clean_db_transients(dbdir):
+    """Drop sqlite scratch files, but never a WAL with data still in it."""
+    for name in _DB_TRANSIENTS:
+        path = os.path.join(dbdir, name)
+        if not os.path.exists(path):
+            continue
+        # A non-empty WAL means rpm did not checkpoint, and deleting it
+        # would silently discard committed rows.  Leave it and accept a
+        # non-reproducible tree over a corrupt one.
+        if name.endswith("-wal") and os.path.getsize(path) > 0:
+            print(
+                "buckos-distro: WARNING: {} is non-empty; leaving it in "
+                "place. The buildroot is correct but not bit-for-bit "
+                "reproducible.".format(path),
+                file=sys.stderr,
+            )
+            continue
+        os.unlink(path)
+
+
+def _register_rpmdb(out, rpms, isolation, source_date_epoch):
+    """Populate the tree's rpmdb from the same rpms whose payloads it holds.
+
+    Why a real transaction rather than unpacking the headers ourselves:
+    the database is what rpmbuild consults for BuildRequires, so a
+    hand-written one is a reimplementation of rpm semantics that has to
+    stay correct as rpm changes -- exactly what SPEC.md section 1 forbids.
+
+    Why `--justdb` rather than a plain install: the payloads are already
+    on disk, unpacked by tar as the invoking user.  A real install would
+    chown them into the subordinate id range, and Buck -- which does not
+    own those ids -- could then neither delete nor re-materialize its own
+    output directory.  --justdb writes the database and touches nothing
+    else, so the tree stays deletable and stays a directory artifact that
+    other actions can chroot into.
+
+    Why rpm from inside the tree rather than the host's: Fedora 43 ships
+    rpm 6, whose database is sqlite at /usr/lib/sysimage/rpm.  A host rpm
+    of a different vintage writes a different format in a different place,
+    and the resulting tree would be one no rpmbuild inside it can read.
+
+    --noscripts because the payloads were laid down by tar: a %post that
+    expected to run during unpacking has already missed its chance, and
+    running it now against a half-configured tree is worse than not
+    running it.  That is the remaining honest gap, and it is why
+    SCRIPTLET_LINKS above exists.
+
+    No --nodeps.  The seed set is dependency-closed by construction --
+    tools/solve.py computes its closure -- so rpm checking that claim is
+    free verification, and if it ever fails it means the solver is wrong.
+
+    SOURCE_DATE_EPOCH is load-bearing here, not decoration.  rpm records
+    an install time per package and a transaction id for the set; left to
+    the clock they change every run, the tree's hash changes with them,
+    and since every package in the distro is built against this tree, one
+    unpinned timestamp invalidates the entire downstream cache.  rpm 6
+    honours the epoch for both fields and derives per-package times as
+    epoch + n, so install order is still recorded -- just not wall-clock.
+    """
+    if not rpms:
+        return
+    if isolation == "none":
+        # Nothing to chroot into means the host's rpm would write the
+        # host's database format into the tree.  Better to ship a tree
+        # with no database, which callers already handle, than one whose
+        # database its own rpm cannot open.
+        print(
+            "buckos-distro: isolation=none, skipping rpmdb registration; "
+            "`rpm -q` inside this buildroot will not work.",
+            file=sys.stderr,
+        )
+        return
+
+    work = scratch_dir("buckos-distro-buildroot-")
+    try:
+        staging = os.path.join(work, "rpms")
+        stage_rpms(rpms, staging)
+
+        # Handed to rpm as a glob expanded by the shell inside the sandbox,
+        # not as argv out here: 292 absolute paths is close enough to the
+        # kernel's 128 KB single-argument limit to be a latent failure.
+        script = (
+            'set -e\n'
+            'exec rpm --justdb --install --noscripts --notriggers '
+            '--nosignature "$1"/*.rpm\n'
+        )
+        run_isolated(
+            ["/bin/sh", "-c", script, "sh", staging],
+            isolation,
+            work=work,
+            chdir=work,
+            sysroot=out,
+            env=reproducible_env(
+                {
+                    "PATH": "/usr/bin:/usr/sbin:/bin:/sbin",
+                    "HOME": "/builddir",
+                },
+                source_date_epoch=source_date_epoch,
+            ),
+        )
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        # The sandbox binds the work area at its own absolute path, which
+        # means it had to create that path *inside* the tree as a mount
+        # point.  The mount is gone with the namespace but the empty
+        # directory is not, and its name contains mkdtemp's random suffix
+        # -- so leaving it would make this output differ on every build
+        # for no reason a reader could ever guess.
+        leftover = os.path.join(out, os.path.relpath(work, "/"))
+        shutil.rmtree(leftover, ignore_errors=True)
+
+    _clean_db_transients(os.path.join(out, "usr", "lib", "sysimage", "rpm"))
+
+    # The transaction created the database as the namespace's root, which
+    # is us, but rpm sets restrictive modes on some of what it writes.
+    make_dirs_writable(out)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, help="buildroot tree to create")
@@ -79,6 +213,9 @@ def main():
                     help="seed rpm to unpack (repeatable)")
     ap.add_argument("--macros", default=None,
                     help="extra rpm macro file to install into the tree")
+    ap.add_argument("--isolation", default="auto", choices=ISOLATION_MODES,
+                    help="how to enter the tree to write its rpmdb")
+    ap.add_argument("--source-date-epoch", default="1700000000")
     args = ap.parse_args()
 
     out = os.path.abspath(args.out)
@@ -129,6 +266,16 @@ def main():
         dest_dir = os.path.join(out, "usr", "lib", "rpm", "macros.d")
         os.makedirs(dest_dir, exist_ok=True)
         shutil.copy2(args.macros, os.path.join(dest_dir, "macros.buckos-distro"))
+
+    # Last, and after the macros: the transaction runs the tree's own rpm,
+    # which reads macros.d on startup, so a macro file dropped in
+    # afterwards would not have applied to the database being written.
+    _register_rpmdb(
+        out,
+        sorted(args.rpm),
+        resolve_isolation(args.isolation),
+        args.source_date_epoch,
+    )
 
     print(
         "buckos-distro: assembled buildroot from {} seed rpm(s)".format(

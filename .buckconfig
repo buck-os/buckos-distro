@@ -83,9 +83,24 @@
 #                binary-seed  fetch @buildsys-build RPMs by hash (production)
 #                host         use the host's installed rpm toolchain
 #                             (non-hermetic, local_only, development only)
+#
+# binary-seed is the default rather than host, and the reason is
+# compatibility rather than purity.  The host here is whatever machine ran
+# the build -- on CentOS Stream 9 that is rpm 4.16 and gcc 11 -- and with
+# `host` those produce artifacts stamped .fc43.  Two ways that bites:
+# rpm 4.16 writes an rpmdb the target release's rpm may not read back, and
+# a package compiled against the host's glibc can reference a symbol
+# version the target's glibc does not have.  Both fail at *runtime*, in the
+# image, long after a green build.
+#
+# binary-seed pins Fedora's own gcc, glibc and rpm at the versions that
+# release shipped, so the toolchain matches the distro being built.  It is
+# also what makes the graph remote-executable: a seeded buildroot is
+# hermetic, and defs/buildroot_helpers.bzl turns that into local_only =
+# False with cache upload enabled, where `host` forces the opposite.
 [buckos.fedora]
   releases = 43,44
-  buildroot = host
+  buildroot = binary-seed
 
 [buckos.ubuntu]
   releases = jammy,noble

@@ -23,6 +23,7 @@ load(
     "prebuilt_rpm",
     "rpm_subpackage",
     "srpm_build",
+    "srpm_buildrequires",
     "srpm_unpack",
 )
 
@@ -47,15 +48,22 @@ def _fedora_package(
         use_bcond = None,
         defines = None,
         nocheck = True,
+        # Named rather than left in **kwargs because two rules need it and
+        # only one would get it otherwise.  A probe that ran against the
+        # flavor's default buildroot instead of the release's would answer
+        # a question about the wrong Fedora -- silently, since it produces
+        # a plausible dependency list either way.
+        buildroot = None,
         visibility = None,
         **kwargs):
     """Replay one source rpm.
 
     Creates:
-        :name-topdir   the unpacked srpm
-        :name-build    the rpmbuild replay (the expensive action)
-        :name-<sub>    one cheap projection per subpackage
-        :name          alias to the binary package sharing the source name
+        :name-topdir          the unpacked srpm
+        :name-buildrequires   what the spec really needs (lock-time only)
+        :name-build           the rpmbuild replay (the expensive action)
+        :name-<sub>           one cheap projection per subpackage
+        :name                 alias to the binary package sharing the source name
 
     `source_name` decouples the target name from the source package's own
     name.  Two things need that: bootstrap stages, where gcc-stage1 and
@@ -75,6 +83,30 @@ def _fedora_package(
 
     with_bconds, without_bconds = _resolve_bconds(use, use_bcond)
 
+    # Nothing depends on this, by construction -- it is how the lockfile
+    # learns what to put in build_deps in the first place, so a build that
+    # needed it would be a build asking a question it has already been
+    # given the answer to.  `tools/relock.py --probe` builds it, reads the
+    # JSON, and records the result; see srpm_buildrequires.
+    #
+    # Emitted for every package rather than only the ones with a
+    # %generate_buildrequires block, because whether a spec has one is a
+    # property of the spec, and the recipe generator only sees repodata.
+    # A probe of a spec without a generator is cheap and returns an empty
+    # dynamic set, which is a useful thing to have recorded.
+    srpm_buildrequires(
+        name = name + "-buildrequires",
+        topdir = ":" + name + "-topdir",
+        package_name = source_name,
+        build_deps = build_deps,
+        defines = defines,
+        with_bconds = with_bconds,
+        without_bconds = without_bconds,
+        buildroot = buildroot,
+        fedora_release = read_config("buckos.fedora", "release", None),
+        visibility = visibility,
+    )
+
     srpm_build(
         name = name + "-build",
         topdir = ":" + name + "-topdir",
@@ -86,6 +118,7 @@ def _fedora_package(
         with_bconds = with_bconds,
         without_bconds = without_bconds,
         nocheck = nocheck,
+        buildroot = buildroot,
         fedora_release = read_config("buckos.fedora", "release", None),
         # Only the frontend knows the ambient rpmbuild may be a wrapper;
         # host provenance needs the real binary.
@@ -119,6 +152,18 @@ def _fedora_package(
         actual = actual,
         visibility = visibility,
     )
+
+def subpackage_target(name, source_name, sub):
+    """The target name package() gives a subpackage projection.
+
+    Public because a build_deps entry in a lockfile is a *binary* package
+    name -- "xz-libs" -- and turning it into something buck2 can depend on
+    means knowing what package() called that projection.  A caller that
+    reconstructed the rule would be a second copy of it, wrong the first
+    time the naming changes and wrong silently, since a mistyped label
+    fails as "no such target" rather than as a naming bug.
+    """
+    return _subpackage_target(name, source_name, sub)
 
 def _subpackage_target(name, source_name, sub):
     """Target name for a subpackage projection.

@@ -75,6 +75,15 @@ def _seeded_buildroot_impl(ctx: AnalysisContext) -> list[Provider]:
     if ctx.attrs.macros:
         cmd.add(cmd_args("--macros", ctx.attrs.macros))
 
+    # Writing the tree's rpmdb means running the tree's own rpm inside it,
+    # so this action needs a sandbox exactly as a replay does.  "auto" and
+    # not "bwrap": the mechanism is a property of the machine, and the
+    # assembler hard-errors rather than silently producing a database
+    # written by whatever rpm the host happens to have.  Kept in step with
+    # defs/buildroot_helpers.bzl's _isolation_for() for a seeded root.
+    cmd.add("--isolation", ctx.attrs.isolation)
+    cmd.add("--source-date-epoch", ctx.attrs.source_date_epoch)
+
     ctx.actions.run(
         cmd,
         category = "buildroot_assemble",
@@ -105,10 +114,19 @@ seeded_buildroot = rule(
     attrs = {
         "dist_tag": attrs.string(default = ""),
         "env": attrs.dict(attrs.string(), attrs.string(), default = {}),
+        "isolation": attrs.enum(
+            ["auto", "bwrap", "unshare", "none"],
+            default = "auto",
+        ),
         "macros": attrs.option(attrs.source(), default = None),
         # The @buildsys-build closure, pinned by sha256 upstream via
         # http_file.  This set is where the dependency graph is cut.
         "seed_rpms": attrs.list(attrs.dep(), default = []),
+        # Pins the install times and transaction id rpm writes into the
+        # database.  Without it this tree's hash changes every build, and
+        # since every package compiles against it, so does the whole
+        # downstream cache.
+        "source_date_epoch": attrs.string(default = "1700000000"),
         "target_cpu": attrs.string(default = "x86_64"),
         "_assemble": attrs.default_only(
             attrs.exec_dep(default = "//tools:buildroot_assemble"),

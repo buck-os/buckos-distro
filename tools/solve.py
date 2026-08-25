@@ -49,6 +49,22 @@ from depgraph import (
 RPM_NS = "http://linux.duke.edu/metadata/rpm"
 COMMON_NS = "http://linux.duke.edu/metadata/common"
 
+# Lockfile format version, written here and read by tools/generate.py --
+# which imports it rather than repeating it, so a bump cannot land on one
+# side of the pair alone.  A checked-in lockfile and the .bzl generated
+# from it are reviewed together and have to be produced by tools that
+# agree; a generator reading a newer lockfile with an older understanding
+# emits plausible, wrong data instead of failing.
+#
+#   1: initial.
+#   2: dynamic_buildrequires is a record, not a list of macro names, and
+#      solve.probe names the probe file the solve consumed.
+LOCK_SCHEMA = 2
+
+# tools/probe.py's format version, checked separately because the two
+# files are produced by different tools on different cadences.
+PROBE_SCHEMA = 1
+
 # rpm's internal feature capabilities. They are satisfied by rpm itself and
 # have no providing package, so they must be filtered or every solve fails.
 # Verified against a real SRPM header: `rpm -qp --requires` emits
@@ -576,9 +592,12 @@ def detect_dynamic_buildrequires(source_pkg_record):
     Dynamic BuildRequires are computed by running a script during the
     build, so they are absent from static repodata (SPEC.md section 3a).
     A package that declares one of these generators almost certainly has
-    them.  Packages flagged here need an `rpmbuild -br` probe pass before
-    their buildroot is complete; the lockfile records the flag so the gap
-    is visible rather than silent.
+    them.
+
+    Only a guess, and only used where there is nothing better: the real
+    answer comes from running the generator, which tools/probe.py does.
+    This is what the lockfile records for a package that has not been
+    probed, so the gap is visible rather than silent.
     """
     markers = (
         "rust-packaging",
@@ -592,9 +611,63 @@ def detect_dynamic_buildrequires(source_pkg_record):
     return sorted(m for m in markers if m in brs)
 
 
-def solve(universe, build_set, overrides=None, strict=False):
-    """Resolve every build package's BuildRequires into pinned deps."""
+def probed_buildrequires(report, implicit=BUILDSYS_BUILD):
+    """BuildRequires as `rpmbuild -br` reported them for one package.
+
+    Same shape as build_requires_of, and deliberately so: this is the
+    same question answered by a better instrument.  repodata carries what
+    the spec says; a probe carries what the spec *does*, which for
+    anything using rust-packaging or pyproject-rpm-macros is most of the
+    list.
+
+    The implicit group is still prepended.  A probe runs inside a
+    buildroot that already has @buildsys-build, so the generator never
+    mentions it, and dropping it here would quietly remove make and gcc
+    from every probed package's buildroot.
+    """
+    declared = [
+        c for c in report.get("buildrequires", [])
+        if not is_pseudo_capability(c)
+    ]
+    return list(implicit) + declared
+
+
+def load_probe(path, build_set):
+    """Read a probe file, keeping only the packages being solved.
+
+    Filtered against build_set because a probe file outlives the build
+    list that produced it: dropping a package from --build leaves its
+    report behind, and a stale report would go on contributing
+    BuildRequires for something no longer built.  The reverse -- a package
+    on the build list with no report -- is normal and handled by falling
+    back to repodata, since that is exactly the state of a release whose
+    first solve has not been probed yet.
+    """
+    if not path:
+        return {}
+    with open(path) as fh:
+        data = json.load(fh)
+    if data.get("schema") != PROBE_SCHEMA:
+        sys.exit("{}: probe schema {} not understood (this solver reads {})"
+                 .format(path, data.get("schema"), PROBE_SCHEMA))
+    packages = data.get("packages", {})
+    known = {k: v for k, v in packages.items() if k in build_set}
+    stale = sorted(set(packages) - set(known))
+    print("probe: {} of {} package(s) from {}{}".format(
+        len(known), len(packages), os.path.basename(path),
+        " (ignoring {})".format(", ".join(stale)) if stale else "",
+    ), file=sys.stderr)
+    return known
+
+
+def solve(universe, build_set, overrides=None, strict=False, probe=None):
+    """Resolve every build package's BuildRequires into pinned deps.
+
+    `probe` is {source: report} from tools/probe.py, and where it has an
+    entry it wins over repodata -- see probed_buildrequires.
+    """
     overrides = overrides or {}
+    probe = probe or {}
     build_deps = {}
     resolutions = {}
     dynamic = {}
@@ -612,12 +685,36 @@ def solve(universe, build_set, overrides=None, strict=False):
             build_deps[src] = set()
             continue
 
-        dyn = detect_dynamic_buildrequires(record)
-        if dyn:
-            dynamic[src] = dyn
+        report = probe.get(src)
+        if report is None:
+            requires = build_requires_of(record)
+            dynamic[src] = {
+                "source": "repodata",
+                "capabilities": [],
+                "suspected": detect_dynamic_buildrequires(record),
+                # Same keys in both branches: a record whose shape depends
+                # on which branch produced it makes every reader carry a
+                # default, and one of them eventually gets it wrong.
+                "unmet": False,
+            }
+        else:
+            requires = probed_buildrequires(report)
+            dynamic[src] = {
+                "source": "probe",
+                "capabilities": sorted(report.get("dynamic", [])),
+                "suspected": [],
+                # The generator asked for something the buildroot it ran in
+                # did not have.  Recorded, deliberately not a problem: on
+                # the first probe of a package that has any dynamic
+                # BuildRequires at all this is the expected state, and
+                # resolving them here is what fixes it.  It only means
+                # something if it survives a re-probe, which is a
+                # comparison between two runs and so not solve's to make.
+                "unmet": bool(report.get("unmet")),
+            }
 
         direct = []
-        for cap in build_requires_of(record):
+        for cap in requires:
             base = strip_capability_version(cap)
             if is_rich_dep(base):
                 problems.append(("rich", base, src))
@@ -794,7 +891,16 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             # The cut: which deps are built here vs taken from the seed.
             "deps_built": [pin_binary(d) for d in built],
             "deps_seed": [pin_binary(d) for d in seeded],
-            "dynamic_buildrequires": dynamic.get(src, []),
+            # Where this package's BuildRequires came from, and what the
+            # generator added if one ran.  A record rather than a list
+            # because "probed, nothing dynamic" and "never probed, and the
+            # spec looks like it has a generator" are opposite states that a
+            # bare empty list cannot tell apart -- and the second one means
+            # deps_built below is incomplete.  See tools/probe.py.
+            "dynamic_buildrequires": dynamic.get(src, {
+                "source": "repodata", "capabilities": [], "suspected": [],
+                "unmet": False,
+            }),
         }
 
     # The stage-1 buildroot: every build dependency of every package,
@@ -812,7 +918,7 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
     seed_closure = sorted({d for deps in build_deps.values() for d in deps})
 
     lock = {
-        "schema": 1,
+        "schema": LOCK_SCHEMA,
         "flavor": "fedora",
         "release": args.release,
         "dist_tag": args.dist_tag,
@@ -845,13 +951,32 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             "stages": args.stages,
             "images": sorted(args.image),
             "image_overrides": sorted(args.image_override),
+            # Basename only, on the same reasoning as `repos` above: the
+            # directory it sat in is a local accident, and in a committed
+            # file a disclosed home directory.  Present so a refresh keeps
+            # reading the probe results instead of quietly falling back to
+            # repodata and shrinking every buildroot.
+            "probe": os.path.basename(args.probe) if args.probe else None,
         },
         "summary": dict(
             depth,
             cycles=len(plan["cycles"]),
             staged_targets=len(plan["staged"]),
             problems=len(problems),
-            dynamic_buildrequires=len(dynamic),
+            # Split because they measure opposite things: the first is what
+            # the probe found, the second is what has not been probed and
+            # looks like it should be.  A refresh wants the second at zero.
+            dynamic_buildrequires=sum(
+                1 for d in dynamic.values() if d["capabilities"]),
+            dynamic_unprobed=sum(
+                1 for d in dynamic.values() if d["suspected"]),
+            # Third state: probed, and the generator wanted something the
+            # buildroot it ran in did not have.  Expected on a first probe
+            # and cleared by the re-probe this solve enables; a count that
+            # does not fall is the signal that something is genuinely
+            # unresolvable rather than merely not yet resolved.
+            dynamic_unmet=sum(
+                1 for d in dynamic.values() if d.get("unmet")),
             image_sets={k: len(v) for k, v in sorted(image_sets.items())},
             # Universe-wide, so much larger than anything pinned here: it
             # measures the input repos, and is the number that goes to zero
@@ -938,6 +1063,13 @@ def main(argv=None):
     ap.add_argument("--stages", type=int, default=3)
     ap.add_argument("--strict", action="store_true",
                     help="fail on any unresolved capability")
+    # Optional by necessity, not by preference: the probe results are
+    # produced by building the packages, and the packages cannot be built
+    # until a lockfile exists.  The first solve of a release has no probe
+    # file and cannot; the second one should.  See tools/probe.py.
+    ap.add_argument("--probe", default=None, metavar="PATH",
+                    help="probe results from tools/probe.py; where present "
+                         "they replace repodata's BuildRequires")
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
 
@@ -1015,7 +1147,8 @@ def main(argv=None):
     universe = build_universe(binary_pkgs, source_pkgs,
                               target_cpu=args.target_cpu)
     build_deps, resolutions, problems, dynamic = solve(
-        universe, build_set, overrides, strict=args.strict
+        universe, build_set, overrides, strict=args.strict,
+        probe=load_probe(args.probe, build_set),
     )
     plan = plan_build_order(
         build_deps, universe["source_of"], build_set, stages=args.stages
@@ -1049,7 +1182,7 @@ def main(argv=None):
         "  build deps from source: {} ({:.1%})\n"
         "  build deps from seed  : {}\n"
         "  cycles                : {} ({} staged targets)\n"
-        "  dynamic BuildRequires : {}\n"
+        "  dynamic BuildRequires : {} probed, {} unprobed\n"
         "  unresolved            : {}".format(
             args.out,
             s["source_packages_built"],
@@ -1059,10 +1192,31 @@ def main(argv=None):
             s["cycles"],
             s["staged_targets"],
             s["dynamic_buildrequires"],
+            s["dynamic_unprobed"],
             s["problems"],
         ),
         file=sys.stderr,
     )
+    if s["dynamic_unmet"]:
+        print("  unmet at probe time: {} (expected on a first probe; re-run "
+              "the probe against this lockfile and it should clear)".format(
+                  ", ".join(sorted(
+                      src for src, d in lock["packages"].items()
+                      if d["dynamic_buildrequires"].get("unmet")))),
+              file=sys.stderr)
+    if s["dynamic_unprobed"]:
+        # Named, because this is the one summary line that means the
+        # lockfile is knowingly incomplete: these packages compute their
+        # BuildRequires at build time and nothing has run the computation,
+        # so their buildroots are missing whatever it would have asked for.
+        print("  unprobed: {}\n"
+              "  run `buck2 run //tools:probe -- --release {}` and re-solve"
+              .format(
+                  ", ".join(sorted(
+                      src for src, d in lock["packages"].items()
+                      if d["dynamic_buildrequires"]["suspected"])),
+                  args.release or "N",
+              ), file=sys.stderr)
     for name, count in sorted(s["image_sets"].items()):
         print("  image {:<15}: {} packages".format(name, count),
               file=sys.stderr)

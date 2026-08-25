@@ -2712,6 +2712,1385 @@
   "dist_tag": ".fc44",
   "flavor": "fedora",
   "image_sets": {
+    "image-tools": [
+      {
+        "arch": "x86_64",
+        "evr": "1.33-5.fc44",
+        "location": "Packages/a/alternatives-1.33-5.fc44.x86_64.rpm",
+        "name": "alternatives",
+        "repo": "binary-releases",
+        "sha256": "0179df0fadb4de141ec94d765a539cf4ebfaf986de19b7a81850a1ed324d290c",
+        "source": "chkconfig"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "4.1.4-1.fc44",
+        "location": "Packages/a/audit-libs-4.1.4-1.fc44.x86_64.rpm",
+        "name": "audit-libs",
+        "repo": "binary-releases",
+        "sha256": "5dcea7a072a4d5b7bd7dbeb11badf011ce3299097a9816ffe1ec6fd17b79328f",
+        "source": "audit"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.7.1-1.fc44",
+        "location": "Packages/a/authselect-1.7.1-1.fc44.x86_64.rpm",
+        "name": "authselect",
+        "repo": "binary-releases",
+        "sha256": "3dd63f279248807a0b96e2c35288117eb987ac1a68bdabc575c87c174e2700ba",
+        "source": "authselect"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.7.1-1.fc44",
+        "location": "Packages/a/authselect-libs-1.7.1-1.fc44.x86_64.rpm",
+        "name": "authselect-libs",
+        "repo": "binary-releases",
+        "sha256": "ecdc8487654c247e74b72e101a7071a1d93572b7488c588dd6d05929bcf9c019",
+        "source": "authselect"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "5.3.9-3.fc44",
+        "location": "Packages/b/bash-5.3.9-3.fc44.x86_64.rpm",
+        "name": "bash",
+        "repo": "binary-releases",
+        "sha256": "2ccb046d638f5ad23f5613222a78ee71067dc43f0bdf03b60ce311536bc4bed5",
+        "source": "bash"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.0.8-23.fc44",
+        "location": "Packages/b/bzip2-libs-1.0.8-23.fc44.x86_64.rpm",
+        "name": "bzip2-libs",
+        "repo": "binary-releases",
+        "sha256": "ead652ccea75f1345305c82e97759a360da5e4f46b2f1862a18ebf0f8547d2b9",
+        "source": "bzip2"
+      },
+      {
+        "arch": "noarch",
+        "evr": "2025.2.80_v9.0.304-6.fc44",
+        "location": "Packages/c/ca-certificates-2025.2.80_v9.0.304-6.fc44.noarch.rpm",
+        "name": "ca-certificates",
+        "repo": "binary-releases",
+        "sha256": "8cafab44ee1d744480860f18e06f9060cc1a2afd87ce926ec33abf5ae11a8980",
+        "source": "ca-certificates"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "9.10-3.fc44",
+        "location": "Packages/c/coreutils-9.10-3.fc44.x86_64.rpm",
+        "name": "coreutils",
+        "repo": "binary-releases",
+        "sha256": "a418ac69e4d9b6b22c2e6db27cf8121abb6fa31512a79ee16c66211ed359bbe6",
+        "source": "coreutils"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "9.10-3.fc44",
+        "location": "Packages/c/coreutils-common-9.10-3.fc44.x86_64.rpm",
+        "name": "coreutils-common",
+        "repo": "binary-releases",
+        "sha256": "556c75b9c32e60499ba83f6464a143621d971362af21203ea7e73f13037ad455",
+        "source": "coreutils"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.15-9.fc44",
+        "location": "Packages/c/cpio-2.15-9.fc44.x86_64.rpm",
+        "name": "cpio",
+        "repo": "binary-releases",
+        "sha256": "8b8688840d6464f0462ab6284ca8024f119a03aef11da2fbca220506f7976269",
+        "source": "cpio"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.9.11-10.fc44",
+        "location": "Packages/c/cracklib-2.9.11-10.fc44.x86_64.rpm",
+        "name": "cracklib",
+        "repo": "binary-releases",
+        "sha256": "f644c25594b5b7190804e737c0857461710cc92e29d824e1e7283ea1a44c47d7",
+        "source": "cracklib"
+      },
+      {
+        "arch": "noarch",
+        "evr": "20251128-3.git19878fe.fc44",
+        "location": "Packages/c/crypto-policies-20251128-3.git19878fe.fc44.noarch.rpm",
+        "name": "crypto-policies",
+        "repo": "binary-releases",
+        "sha256": "bc91e5ceafb7c9884654dc86da14187493a16cec8e6a279d625efb0e3aa4d005",
+        "source": "crypto-policies"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.8.4-1.fc44",
+        "location": "Packages/c/cryptsetup-libs-2.8.4-1.fc44.x86_64.rpm",
+        "name": "cryptsetup-libs",
+        "repo": "binary-releases",
+        "sha256": "f8ae96eca560476b9681060ee31ccff8d8bb0bada48b96500ed0a89692d130af",
+        "source": "cryptsetup"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "8.18.0-4.fc44",
+        "location": "Packages/c/curl-8.18.0-4.fc44.x86_64.rpm",
+        "name": "curl",
+        "repo": "binary-releases",
+        "sha256": "c0339c79fc1e20070a2b35518072552dfa53508e1acfdb7d03530aea87fd5c6a",
+        "source": "curl"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.02.212-2.fc44",
+        "location": "Packages/d/device-mapper-1.02.212-2.fc44.x86_64.rpm",
+        "name": "device-mapper",
+        "repo": "binary-releases",
+        "sha256": "d559d7d859ef61fc8676e8dda182ad8df88aac68fc64dea195076dae93210cc4",
+        "source": "lvm2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.02.212-2.fc44",
+        "location": "Packages/d/device-mapper-libs-1.02.212-2.fc44.x86_64.rpm",
+        "name": "device-mapper-libs",
+        "repo": "binary-releases",
+        "sha256": "faaf83a68262d5bff1e09ae4f7b5596b1acd349b410b3cf3baf7d73e80017b2a",
+        "source": "lvm2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.12-5.fc44",
+        "location": "Packages/d/diffutils-3.12-5.fc44.x86_64.rpm",
+        "name": "diffutils",
+        "repo": "binary-releases",
+        "sha256": "45001ec4ea4d2c56a879ad55dc94c426525100bfa421f2ed41224ed08adb9cc3",
+        "source": "diffutils"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "4.2-18.fc44",
+        "location": "Packages/d/dosfstools-4.2-18.fc44.x86_64.rpm",
+        "name": "dosfstools",
+        "repo": "binary-releases",
+        "sha256": "11a1ddea2c27bcd9c764f086a1b8fed459a39d9a56be5db14a95128a9df074d0",
+        "source": "dosfstools"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "108-6.fc44",
+        "location": "Packages/d/dracut-108-6.fc44.x86_64.rpm",
+        "name": "dracut",
+        "repo": "binary-releases",
+        "sha256": "21ec8eb34e1833bce43a76b8e424e7636b4fed6da95b8ff9cbfb632ff8790068",
+        "source": "dracut"
+      },
+      {
+        "arch": "noarch",
+        "evr": "6-6.fc44",
+        "location": "Packages/e/efi-filesystem-6-6.fc44.noarch.rpm",
+        "name": "efi-filesystem",
+        "repo": "binary-releases",
+        "sha256": "a020b0886b2e034004edf5dfa8d4a0b6f6038503819090d531c7e689c8caa9a1",
+        "source": "efi-rpm-macros"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "39-12.fc44",
+        "location": "Packages/e/efivar-libs-39-12.fc44.x86_64.rpm",
+        "name": "efivar-libs",
+        "repo": "binary-releases",
+        "sha256": "98ad957f0924d8cdf877ec757c9a917628a0254350598f2f259dfa36e0f46e48",
+        "source": "efivar"
+      },
+      {
+        "arch": "noarch",
+        "evr": "44-1",
+        "location": "Packages/f/fedora-gpg-keys-44-1.noarch.rpm",
+        "name": "fedora-gpg-keys",
+        "repo": "binary-releases",
+        "sha256": "586631445cb43412af8125af71c44d3eca2851f074154a81093faec6514dac5f",
+        "source": "fedora-repos"
+      },
+      {
+        "arch": "noarch",
+        "evr": "44-17",
+        "location": "Packages/f/fedora-release-44-17.noarch.rpm",
+        "name": "fedora-release",
+        "repo": "binary-releases",
+        "sha256": "c7e33c968399c79130abe3bb8c0581cf00aa5a6980659ebe708f91b21198b584",
+        "source": "fedora-release"
+      },
+      {
+        "arch": "noarch",
+        "evr": "44-17",
+        "location": "Packages/f/fedora-release-common-44-17.noarch.rpm",
+        "name": "fedora-release-common",
+        "repo": "binary-releases",
+        "sha256": "bb924ec01ceadcd2aee69c8e7352a73cb9ebf1826eeb33ba82b87938994379cf",
+        "source": "fedora-release"
+      },
+      {
+        "arch": "noarch",
+        "evr": "44-17",
+        "location": "Packages/f/fedora-release-identity-basic-44-17.noarch.rpm",
+        "name": "fedora-release-identity-basic",
+        "repo": "binary-releases",
+        "sha256": "42eba834594cf3ab9a4cc09991e0dc2e471499092a3ea7c14b64b4ac4f083538",
+        "source": "fedora-release"
+      },
+      {
+        "arch": "noarch",
+        "evr": "44-1",
+        "location": "Packages/f/fedora-repos-44-1.noarch.rpm",
+        "name": "fedora-repos",
+        "repo": "binary-releases",
+        "sha256": "8ea372905db4c40c2fb53048e6bf008eafc1c448416c7cd638bedfd6836de48f",
+        "source": "fedora-repos"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "5.46-9.fc44",
+        "location": "Packages/f/file-5.46-9.fc44.x86_64.rpm",
+        "name": "file",
+        "repo": "binary-releases",
+        "sha256": "438b0c4f24261097cede21b087ddaf46aaed47a4fd6fd7c1904b10e76460ce89",
+        "source": "file"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "5.46-9.fc44",
+        "location": "Packages/f/file-libs-5.46-9.fc44.x86_64.rpm",
+        "name": "file-libs",
+        "repo": "binary-releases",
+        "sha256": "1ecfcc3aaedbeeb56d1afd4b8bb966515932b10b49603f3a0e94780d33ec290e",
+        "source": "file"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.18-52.fc44",
+        "location": "Packages/f/filesystem-3.18-52.fc44.x86_64.rpm",
+        "name": "filesystem",
+        "repo": "binary-releases",
+        "sha256": "7abc643d653bf2773c38e183e0e33489cab4880c8a540b315fcd7fff09c6c52c",
+        "source": "filesystem"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:4.10.0-7.fc44",
+        "location": "Packages/f/findutils-4.10.0-7.fc44.x86_64.rpm",
+        "name": "findutils",
+        "repo": "binary-releases",
+        "sha256": "b1f9fe72be7a0cf0fb53ec00ef9e6b8ccc9987cb5f55e9de02bbc67f9cf3b5cf",
+        "source": "findutils"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.14.1-2.fc44",
+        "location": "Packages/f/freetype-2.14.1-2.fc44.x86_64.rpm",
+        "name": "freetype",
+        "repo": "binary-releases",
+        "sha256": "a2f74dc83391bf63b4db0a2bf006e07b040a4f92c48918aa504f6519909ac585",
+        "source": "freetype"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.18.2-1.fc44",
+        "location": "Packages/f/fuse3-libs-3.18.2-1.fc44.x86_64.rpm",
+        "name": "fuse3-libs",
+        "repo": "binary-releases",
+        "sha256": "b236de21338ae23b4a5470a8e19068d10aaa3bde11435fdd9aa3d15dd0c9138b",
+        "source": "fuse3"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "5.3.2-3.fc44",
+        "location": "Packages/g/gawk-5.3.2-3.fc44.x86_64.rpm",
+        "name": "gawk",
+        "repo": "binary-releases",
+        "sha256": "4059b760d3c8dd654d555bd54b38ede197b89317021de6bd75e4c93c3333e2f4",
+        "source": "gawk"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:1.23-11.fc44",
+        "location": "Packages/g/gdbm-1.23-11.fc44.x86_64.rpm",
+        "name": "gdbm",
+        "repo": "binary-releases",
+        "sha256": "3cab341f8d7325a3645764038eaf5deacc5e4343b104472354ee67f5ff1cca9f",
+        "source": "gdbm"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:1.23-11.fc44",
+        "location": "Packages/g/gdbm-libs-1.23-11.fc44.x86_64.rpm",
+        "name": "gdbm-libs",
+        "repo": "binary-releases",
+        "sha256": "3fb13a4e2d4292ef3482732f51de572ded34bdf4c657c2dc4dbafe8d0ba2d4b8",
+        "source": "gdbm"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "0.26-4.fc44",
+        "location": "Packages/g/gettext-envsubst-0.26-4.fc44.x86_64.rpm",
+        "name": "gettext-envsubst",
+        "repo": "binary-releases",
+        "sha256": "b05d7760a5fceb64b865590f46b9bcb3cab23ebac5bcab18b7bc1725e2e10839",
+        "source": "gettext"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "0.26-4.fc44",
+        "location": "Packages/g/gettext-libs-0.26-4.fc44.x86_64.rpm",
+        "name": "gettext-libs",
+        "repo": "binary-releases",
+        "sha256": "82b9189e1cdb86051cf7192f50472149efc508e74115c09c0f6318192af61664",
+        "source": "gettext"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "0.26-4.fc44",
+        "location": "Packages/g/gettext-runtime-0.26-4.fc44.x86_64.rpm",
+        "name": "gettext-runtime",
+        "repo": "binary-releases",
+        "sha256": "2c26beb870a6c6c853657e575f892a9e2295c24014939723c508e26997f63fab",
+        "source": "gettext"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.88.0-1.fc44",
+        "location": "Packages/g/glib2-2.88.0-1.fc44.x86_64.rpm",
+        "name": "glib2",
+        "repo": "binary-releases",
+        "sha256": "e0b5895e0ea8e760e53423eea8d531ce5f9988f3ae992c4b791cdd3a2958d558",
+        "source": "glib2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.43-2.fc44",
+        "location": "Packages/g/glibc-2.43-2.fc44.x86_64.rpm",
+        "name": "glibc",
+        "repo": "binary-releases",
+        "sha256": "90ddf81832ba518f8768264a6944d0b02e030acc7e78aa2ed907d7e77d0a069f",
+        "source": "glibc"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.43-2.fc44",
+        "location": "Packages/g/glibc-common-2.43-2.fc44.x86_64.rpm",
+        "name": "glibc-common",
+        "repo": "binary-releases",
+        "sha256": "379fd21487772fc584d7ad40490452ca56844a7690b3506a99cc0b366cb41868",
+        "source": "glibc"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.43-2.fc44",
+        "location": "Packages/g/glibc-gconv-extra-2.43-2.fc44.x86_64.rpm",
+        "name": "glibc-gconv-extra",
+        "repo": "binary-releases",
+        "sha256": "b40c06bf66819b056297ab4241645fa68e933950e1709b6837c5efa64fe077cb",
+        "source": "glibc"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.43-2.fc44",
+        "location": "Packages/g/glibc-minimal-langpack-2.43-2.fc44.x86_64.rpm",
+        "name": "glibc-minimal-langpack",
+        "repo": "binary-releases",
+        "sha256": "93370d17e3ed960b26c7b9fb79582366b718ec5bad32d259af80459e17aea21e",
+        "source": "glibc"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:6.3.0-5.fc44",
+        "location": "Packages/g/gmp-6.3.0-5.fc44.x86_64.rpm",
+        "name": "gmp",
+        "repo": "binary-releases",
+        "sha256": "94b960c5eaba00c1cb56abdbed05bd348d1256360cf68fd9cd7a24b3232d6558",
+        "source": "gmp"
+      },
+      {
+        "arch": "noarch",
+        "evr": "20241231-2.fc44",
+        "location": "Packages/g/gnulib-l10n-20241231-2.fc44.noarch.rpm",
+        "name": "gnulib-l10n",
+        "repo": "binary-releases",
+        "sha256": "5e55fb0fd56734e71aa6ebeba0a66fde69c07964b43591464a0bb2edf96d18e7",
+        "source": "gnulib-l10n"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.8.12-1.fc44",
+        "location": "Packages/g/gnutls-3.8.12-1.fc44.x86_64.rpm",
+        "name": "gnutls",
+        "repo": "binary-releases",
+        "sha256": "a1338ac7c9621e221a6813e1ba8b6c1f832e55ecfa61eaa650e6a2b5d6c0f411",
+        "source": "gnutls"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.3.14-20.fc44",
+        "location": "Packages/g/graphite2-1.3.14-20.fc44.x86_64.rpm",
+        "name": "graphite2",
+        "repo": "binary-releases",
+        "sha256": "0385b48da1c8691c084df8638ed63b874afc4532427014dfbd78e8c0fa0e0f23",
+        "source": "graphite2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.12-3.fc44",
+        "location": "Packages/g/grep-3.12-3.fc44.x86_64.rpm",
+        "name": "grep",
+        "repo": "binary-releases",
+        "sha256": "0b1e3d96f14f6346d0af992a8cdc1af696ff8e616311abfdee49d6a3a3f1e746",
+        "source": "grep"
+      },
+      {
+        "arch": "noarch",
+        "evr": "1:2.12-56.fc44",
+        "location": "Packages/g/grub2-common-2.12-56.fc44.noarch.rpm",
+        "name": "grub2-common",
+        "repo": "binary-releases",
+        "sha256": "a77fdcb6c51465d00811e025b31208119ec7183911b18283971ec7947ddb1a2e",
+        "source": "grub2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:2.12-56.fc44",
+        "location": "Packages/g/grub2-efi-x64-2.12-56.fc44.x86_64.rpm",
+        "name": "grub2-efi-x64",
+        "repo": "binary-releases",
+        "sha256": "567c34501ac6f00af8a809cf16291711148f19a777834d9b35985407374c11d3",
+        "source": "grub2"
+      },
+      {
+        "arch": "noarch",
+        "evr": "1:2.12-56.fc44",
+        "location": "Packages/g/grub2-efi-x64-modules-2.12-56.fc44.noarch.rpm",
+        "name": "grub2-efi-x64-modules",
+        "repo": "binary-releases",
+        "sha256": "9d9c7f1112f3b21658d0be7caf1170efec9222f1cc63ec8d8b66566ae380d5a8",
+        "source": "grub2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:2.12-56.fc44",
+        "location": "Packages/g/grub2-tools-2.12-56.fc44.x86_64.rpm",
+        "name": "grub2-tools",
+        "repo": "binary-releases",
+        "sha256": "ea98d90de522f5344ad0f49f75d193392a0d7c49bd416a0c7e9d3d2807e06c6f",
+        "source": "grub2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:2.12-56.fc44",
+        "location": "Packages/g/grub2-tools-extra-2.12-56.fc44.x86_64.rpm",
+        "name": "grub2-tools-extra",
+        "repo": "binary-releases",
+        "sha256": "1c20950ab0c1c10b5d14e42cfb32ac1edaccedf67bcea70683b544bee76fac11",
+        "source": "grub2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:2.12-56.fc44",
+        "location": "Packages/g/grub2-tools-minimal-2.12-56.fc44.x86_64.rpm",
+        "name": "grub2-tools-minimal",
+        "repo": "binary-releases",
+        "sha256": "ddb6ecc4890e8db91edede03f828499c7436e414e7981980a3c9cd551bbc7492",
+        "source": "grub2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.14-2.fc44",
+        "location": "Packages/g/gzip-1.14-2.fc44.x86_64.rpm",
+        "name": "gzip",
+        "repo": "binary-releases",
+        "sha256": "a94d5384a9e8c30b31f5a85ae2ca953f8b0af946f425103f942457770fb268b4",
+        "source": "gzip"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "12.3.2-1.fc44",
+        "location": "Packages/h/harfbuzz-12.3.2-1.fc44.x86_64.rpm",
+        "name": "harfbuzz",
+        "repo": "binary-releases",
+        "sha256": "7463b2d0585947990a2c7f2c54aa6aed68ad307bd1bacb29c88b782c4e10e48d",
+        "source": "harfbuzz"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "0.18-8.fc44",
+        "location": "Packages/j/json-c-0.18-8.fc44.x86_64.rpm",
+        "name": "json-c",
+        "repo": "binary-releases",
+        "sha256": "af4cf667585ec8618b8bf352b4323bb69422130be253fdc4803e2f720dfd893c",
+        "source": "json-c"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.9.0-3.fc44",
+        "location": "Packages/k/kbd-2.9.0-3.fc44.x86_64.rpm",
+        "name": "kbd",
+        "repo": "binary-releases",
+        "sha256": "328a0c13e89f21cd71362e13ddb9424da0a1f854431563f1ec742fd4444671e8",
+        "source": "kbd"
+      },
+      {
+        "arch": "noarch",
+        "evr": "2.9.0-3.fc44",
+        "location": "Packages/k/kbd-legacy-2.9.0-3.fc44.noarch.rpm",
+        "name": "kbd-legacy",
+        "repo": "binary-releases",
+        "sha256": "8921ca506c4ad119c297a5c33af2d8f959c736744a01ef68de23511cd8f389f4",
+        "source": "kbd"
+      },
+      {
+        "arch": "noarch",
+        "evr": "2.9.0-3.fc44",
+        "location": "Packages/k/kbd-misc-2.9.0-3.fc44.noarch.rpm",
+        "name": "kbd-misc",
+        "repo": "binary-releases",
+        "sha256": "8fbb817f5b7909c3057f8d64745bf263aa67f8fb383dbb592e7943c6b18b3452",
+        "source": "kbd"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "5-7.fc44",
+        "location": "Packages/k/kde-filesystem-5-7.fc44.x86_64.rpm",
+        "name": "kde-filesystem",
+        "repo": "binary-releases",
+        "sha256": "b915762b4e3234fb39fc374af25e76c60dd49529216d60fa4fe925857664f6e5",
+        "source": "kde-filesystem"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.6.3-7.fc44",
+        "location": "Packages/k/keyutils-libs-1.6.3-7.fc44.x86_64.rpm",
+        "name": "keyutils-libs",
+        "repo": "binary-releases",
+        "sha256": "28b1b356688c24c51affa429feaf908425d52e42758ee068836cdb547aedf8dc",
+        "source": "keyutils"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "5.116.0-6.fc44",
+        "location": "Packages/k/kf5-filesystem-5.116.0-6.fc44.x86_64.rpm",
+        "name": "kf5-filesystem",
+        "repo": "binary-releases",
+        "sha256": "b9260db50408a78377a54e3bb7afe126f79dcc6539059a9834f1a2dfa3fb0ccd",
+        "source": "kf5"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "34.2-4.fc44",
+        "location": "Packages/k/kmod-34.2-4.fc44.x86_64.rpm",
+        "name": "kmod",
+        "repo": "binary-releases",
+        "sha256": "a43624a70c2f9782a3dc75c8e8c789a65004835e2ea23ab63cb52b8ad2d8a5f0",
+        "source": "kmod"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "34.2-4.fc44",
+        "location": "Packages/k/kmod-libs-34.2-4.fc44.x86_64.rpm",
+        "name": "kmod-libs",
+        "repo": "binary-releases",
+        "sha256": "f048ca8c013278d1ffc8a6b8ff1b6c1782fc19878fe9a55068b1441771fa2c10",
+        "source": "kmod"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.22.2-2.fc44",
+        "location": "Packages/k/krb5-libs-1.22.2-2.fc44.x86_64.rpm",
+        "name": "krb5-libs",
+        "repo": "binary-releases",
+        "sha256": "29be5c79ea96c3594f8512117397250eef0831ec3d4fb377cb0af0b59538eb70",
+        "source": "krb5"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.3.2-6.fc44",
+        "location": "Packages/l/libacl-2.3.2-6.fc44.x86_64.rpm",
+        "name": "libacl",
+        "repo": "binary-releases",
+        "sha256": "38a4c106c2b56c6b3701f7bdbb6f0874159da347a2ffbbe48a6233cf5b91abaa",
+        "source": "acl"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.8.4-2.fc44",
+        "location": "Packages/l/libarchive-3.8.4-2.fc44.x86_64.rpm",
+        "name": "libarchive",
+        "repo": "binary-releases",
+        "sha256": "40c57e51dbf9e79105154bf8c2659bd54c7d6cfef1c6c0fe38208a19b4a84389",
+        "source": "libarchive"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.5.2-8.fc44",
+        "location": "Packages/l/libattr-2.5.2-8.fc44.x86_64.rpm",
+        "name": "libattr",
+        "repo": "binary-releases",
+        "sha256": "524d8916b69977f52dc74a447a1b3bca4f2e106ab8a59788e8953f33527ffb30",
+        "source": "attr"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.41.3-12.fc44",
+        "location": "Packages/l/libblkid-2.41.3-12.fc44.x86_64.rpm",
+        "name": "libblkid",
+        "repo": "binary-releases",
+        "sha256": "1cc22f556069fbd183b817e79e0881a504f0adbaab371bc34fbea41239839972",
+        "source": "util-linux"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.2.0-3.fc44",
+        "location": "Packages/l/libbrotli-1.2.0-3.fc44.x86_64.rpm",
+        "name": "libbrotli",
+        "repo": "binary-releases",
+        "sha256": "3f678e2c3eadfb559b3f91489cea1118cffe230219366426038a023bb34f5054",
+        "source": "brotli"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.5.6-8.fc44",
+        "location": "Packages/l/libburn-1.5.6-8.fc44.x86_64.rpm",
+        "name": "libburn",
+        "repo": "binary-releases",
+        "sha256": "32adc1254c0e89deb244d818492477da2abd3f2137ba41b4895688d6930203fd",
+        "source": "libburn"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.77-2.fc44",
+        "location": "Packages/l/libcap-2.77-2.fc44.x86_64.rpm",
+        "name": "libcap",
+        "repo": "binary-releases",
+        "sha256": "4601aa22a90d64d022c203203fed150231aa052945ad37a74527ebc2ecd3db96",
+        "source": "libcap"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "0.9.2-1.fc44",
+        "location": "Packages/l/libcap-ng-0.9.2-1.fc44.x86_64.rpm",
+        "name": "libcap-ng",
+        "repo": "binary-releases",
+        "sha256": "0e774e3ce39521be43ec7fc55e2ca79fe6af7fcc6cefd50b0d597e0271899e00",
+        "source": "libcap-ng"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.47.3-4.fc44",
+        "location": "Packages/l/libcom_err-1.47.3-4.fc44.x86_64.rpm",
+        "name": "libcom_err",
+        "repo": "binary-releases",
+        "sha256": "c163f4fce53aa42e032c04299cecf9cc57e69437515a095e667b5a91b7859878",
+        "source": "e2fsprogs"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "8.18.0-4.fc44",
+        "location": "Packages/l/libcurl-minimal-8.18.0-4.fc44.x86_64.rpm",
+        "name": "libcurl-minimal",
+        "repo": "binary-releases",
+        "sha256": "b1dc521a1636c591bddba12b27755501360f13abcd8e7c1f1d6074541ca96e11",
+        "source": "curl"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "0.7.9-3.fc44",
+        "location": "Packages/l/libeconf-0.7.9-3.fc44.x86_64.rpm",
+        "name": "libeconf",
+        "repo": "binary-releases",
+        "sha256": "f8212f510faaa3d6dca692478a686f44f0c27bdad9741e83e3940c17a2d4eb69",
+        "source": "libeconf"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.41.3-12.fc44",
+        "location": "Packages/l/libfdisk-2.41.3-12.fc44.x86_64.rpm",
+        "name": "libfdisk",
+        "repo": "binary-releases",
+        "sha256": "4ebde883059a1fe70ab80bcde9f92a942793f8617b4beb9d3b22b749df32cfee",
+        "source": "util-linux"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.5.2-2.fc44",
+        "location": "Packages/l/libffi-3.5.2-2.fc44.x86_64.rpm",
+        "name": "libffi",
+        "repo": "binary-releases",
+        "sha256": "a7dae96d30d007140c7dab605df40e55f90ef16f04392dd8ded32fa230c10dd6",
+        "source": "libffi"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "16.0.1-0.10.fc44",
+        "location": "Packages/l/libgcc-16.0.1-0.10.fc44.x86_64.rpm",
+        "name": "libgcc",
+        "repo": "binary-releases",
+        "sha256": "a541f09bf0efded051844bbe65be14c8ebbc327f4201548718d6d1ee106d7075",
+        "source": "gcc"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.3.8-3.fc44",
+        "location": "Packages/l/libidn2-2.3.8-3.fc44.x86_64.rpm",
+        "name": "libidn2",
+        "repo": "binary-releases",
+        "sha256": "430ed4991a4364fe88bc220c1771c768b8ef4ebcc9ad6af3afcfea8ab609fa18",
+        "source": "libidn2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.5.6-9.fc44",
+        "location": "Packages/l/libisoburn-1.5.6-9.fc44.x86_64.rpm",
+        "name": "libisoburn",
+        "repo": "binary-releases",
+        "sha256": "41faae63d7517ffeb5166b0767a3df37e4476e8fbf625303313386f85a9f4b0c",
+        "source": "libisoburn"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.5.6-8.fc44",
+        "location": "Packages/l/libisofs-1.5.6-8.fc44.x86_64.rpm",
+        "name": "libisofs",
+        "repo": "binary-releases",
+        "sha256": "5928cc6c860a3ff6acbd8b2838269c3bbce8e7c606e485e0a6fd0b6efce8a21e",
+        "source": "libisofs"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.5.0-7.fc44",
+        "location": "Packages/l/libkcapi-1.5.0-7.fc44.x86_64.rpm",
+        "name": "libkcapi",
+        "repo": "binary-releases",
+        "sha256": "da899d4a10f249b514ef56139b5a6a4948279e4171005d580458c519cac692a9",
+        "source": "libkcapi"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.5.0-7.fc44",
+        "location": "Packages/l/libkcapi-hasher-1.5.0-7.fc44.x86_64.rpm",
+        "name": "libkcapi-hasher",
+        "repo": "binary-releases",
+        "sha256": "e10e5cc6698d86772769844543dec160ddb657b777abc26751b38057d20dd7f3",
+        "source": "libkcapi"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.5.0-7.fc44",
+        "location": "Packages/l/libkcapi-hmaccalc-1.5.0-7.fc44.x86_64.rpm",
+        "name": "libkcapi-hmaccalc",
+        "repo": "binary-releases",
+        "sha256": "d84f2a17a995c83903df9d5a052ff8be5c539676fc8a6a268e0e5e136955f660",
+        "source": "libkcapi"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.41.3-12.fc44",
+        "location": "Packages/l/liblastlog2-2.41.3-12.fc44.x86_64.rpm",
+        "name": "liblastlog2",
+        "repo": "binary-releases",
+        "sha256": "407949f993e60da2a4124edbceca0b454e4be38ce28a6e411ce04ff7175a1b55",
+        "source": "util-linux"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.41.3-12.fc44",
+        "location": "Packages/l/libmount-2.41.3-12.fc44.x86_64.rpm",
+        "name": "libmount",
+        "repo": "binary-releases",
+        "sha256": "1dcdadd3515c2998694c5928eca95e701134aaa0f267eb541ff612759a54fb6c",
+        "source": "util-linux"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.68.0-3.fc44",
+        "location": "Packages/l/libnghttp2-1.68.0-3.fc44.x86_64.rpm",
+        "name": "libnghttp2",
+        "repo": "binary-releases",
+        "sha256": "5e3ad64d5ba88c7dbc553b743b42eb91c279a408e175156aa806637803bb8a14",
+        "source": "nghttp2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.0.1-5.fc44",
+        "location": "Packages/l/libnsl2-2.0.1-5.fc44.x86_64.rpm",
+        "name": "libnsl2",
+        "repo": "binary-releases",
+        "sha256": "23373b28ffac80ed35b4d39f0e7133c05b9cf72b7e45811ecda1decd3489ad1a",
+        "source": "libnsl2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.5.1-1.fc44",
+        "location": "Packages/l/libpkgconf-2.5.1-1.fc44.x86_64.rpm",
+        "name": "libpkgconf",
+        "repo": "binary-releases",
+        "sha256": "b59040138169f46c60b79230941ffc0dbce15b9e897bd46d1e83361a393400b8",
+        "source": "pkgconf"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2:1.6.55-1.fc44",
+        "location": "Packages/l/libpng-1.6.55-1.fc44.x86_64.rpm",
+        "name": "libpng",
+        "repo": "binary-releases",
+        "sha256": "8184900bf4799de0a4e7ecaf38f4cde801cca0427bf84459d110877b7cc7f448",
+        "source": "libpng"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.4.5-15.fc44",
+        "location": "Packages/l/libpwquality-1.4.5-15.fc44.x86_64.rpm",
+        "name": "libpwquality",
+        "repo": "binary-releases",
+        "sha256": "d388f6f45ddc2f20f35be561117392a9a5bf4701bc059a6fc2ac56532d16f1a7",
+        "source": "libpwquality"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.6.0-3.fc44",
+        "location": "Packages/l/libseccomp-2.6.0-3.fc44.x86_64.rpm",
+        "name": "libseccomp",
+        "repo": "binary-releases",
+        "sha256": "79e590043e47b09369e7757f2c62ed4f2fe56e4d90c70f5f61fab7b52ba33ef2",
+        "source": "libseccomp"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.10-1.fc44",
+        "location": "Packages/l/libselinux-3.10-1.fc44.x86_64.rpm",
+        "name": "libselinux",
+        "repo": "binary-releases",
+        "sha256": "a87a2a7dcb22f68c9df32a6036f0c4431cf7e06e4e862cd3c1ee28d089232ace",
+        "source": "libselinux"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.10-1.fc44",
+        "location": "Packages/l/libsepol-3.10-1.fc44.x86_64.rpm",
+        "name": "libsepol",
+        "repo": "binary-releases",
+        "sha256": "d1557823d5ee478dd8d6955df961c596503963d3cc62b9eea3ec55ccedd01e6e",
+        "source": "libsepol"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.41.3-12.fc44",
+        "location": "Packages/l/libsmartcols-2.41.3-12.fc44.x86_64.rpm",
+        "name": "libsmartcols",
+        "repo": "binary-releases",
+        "sha256": "0fb43ce71eaed2512e7eac7e5b513289845b9174f66d918e0cd7c8d612b6fe15",
+        "source": "util-linux"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "16.0.1-0.10.fc44",
+        "location": "Packages/l/libstdc++-16.0.1-0.10.fc44.x86_64.rpm",
+        "name": "libstdc++",
+        "repo": "binary-releases",
+        "sha256": "b1cc45a89d1785f1fc6404f430ff1fec40f577b2822e78b5ef8ba82e46797591",
+        "source": "gcc"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "4.21.0-1.fc44",
+        "location": "Packages/l/libtasn1-4.21.0-1.fc44.x86_64.rpm",
+        "name": "libtasn1",
+        "repo": "binary-releases",
+        "sha256": "32806a98942dc5492838b4642cb830ce20f478609733326fb9388539930d6596",
+        "source": "libtasn1"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "0.26-4.fc44",
+        "location": "Packages/l/libtextstyle-0.26-4.fc44.x86_64.rpm",
+        "name": "libtextstyle",
+        "repo": "binary-releases",
+        "sha256": "5cad8140cf0466ec3b36c9160eb20f09b15c308cf1cc7317e11c623a35bae44d",
+        "source": "gettext"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.3.7-2.fc44",
+        "location": "Packages/l/libtirpc-1.3.7-2.fc44.x86_64.rpm",
+        "name": "libtirpc",
+        "repo": "binary-releases",
+        "sha256": "4024c6a9601cb6244f5e06a58a4a54bb6b7a65be2d9f79dd660276b306274eb3",
+        "source": "libtirpc"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.1-11.fc44",
+        "location": "Packages/l/libunistring-1.1-11.fc44.x86_64.rpm",
+        "name": "libunistring",
+        "repo": "binary-releases",
+        "sha256": "578749cc0f7ac197be5434e65c42f9e88112e3561be731edd52c820cdcacfae5",
+        "source": "libunistring"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.41.3-12.fc44",
+        "location": "Packages/l/libuuid-2.41.3-12.fc44.x86_64.rpm",
+        "name": "libuuid",
+        "repo": "binary-releases",
+        "sha256": "123dca469014499c008df49d3a7a1052f18455ae3b96bf56e559ba1f0f7d8efb",
+        "source": "util-linux"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "0.3.2-12.fc44",
+        "location": "Packages/l/libverto-0.3.2-12.fc44.x86_64.rpm",
+        "name": "libverto",
+        "repo": "binary-releases",
+        "sha256": "3e2ef69df14272b2f666be05312242cb65c0e385bd813007362204b5e19c7cb0",
+        "source": "libverto"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "4.5.2-3.fc44",
+        "location": "Packages/l/libxcrypt-4.5.2-3.fc44.x86_64.rpm",
+        "name": "libxcrypt",
+        "repo": "binary-releases",
+        "sha256": "4be1ebfa6079b11d5b4e5119c702df69153788cef8c5b71600482617bdc4ab25",
+        "source": "libxcrypt"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.12.10-6.fc44",
+        "location": "Packages/l/libxml2-2.12.10-6.fc44.x86_64.rpm",
+        "name": "libxml2",
+        "repo": "binary-releases",
+        "sha256": "8df2fb3b424781f56306909f83e9cedd64b68eaa14dc8d52e050b79867d9714d",
+        "source": "libxml2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.5.7-5.fc44",
+        "location": "Packages/l/libzstd-1.5.7-5.fc44.x86_64.rpm",
+        "name": "libzstd",
+        "repo": "binary-releases",
+        "sha256": "af98832cf1d93eabb442d18520bad10f03f4278a99d54c5d071b2903f6f50fac",
+        "source": "zstd"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "5.4.8-5.fc44",
+        "location": "Packages/l/lua-libs-5.4.8-5.fc44.x86_64.rpm",
+        "name": "lua-libs",
+        "repo": "binary-releases",
+        "sha256": "f0e198863835e3e159457fe8de7f47e60896277aaf380fdd3363875a0c985586",
+        "source": "lua"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.10.0-4.fc44",
+        "location": "Packages/l/lz4-libs-1.10.0-4.fc44.x86_64.rpm",
+        "name": "lz4-libs",
+        "repo": "binary-releases",
+        "sha256": "3e5697a9804a0c9fe1f1cd2b5a9c99e474bc6c6e2b543a8b1794f2649c013077",
+        "source": "lz4"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.10-16.fc44",
+        "location": "Packages/l/lzo-2.10-16.fc44.x86_64.rpm",
+        "name": "lzo",
+        "repo": "binary-releases",
+        "sha256": "60c3891e156fee41e3ac6ecfd31a14e9a17f3cc0d06763d4439f54a7d7c7c41e",
+        "source": "lzo"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2:0.7.2-3.fc44",
+        "location": "Packages/m/mokutil-0.7.2-3.fc44.x86_64.rpm",
+        "name": "mokutil",
+        "repo": "binary-releases",
+        "sha256": "bf78719f9fea98f6c344bdaaefbb247c6417032b8a0fb1a2574f39f8f3d54e81",
+        "source": "mokutil"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "4.2.2-3.fc44",
+        "location": "Packages/m/mpfr-4.2.2-3.fc44.x86_64.rpm",
+        "name": "mpfr",
+        "repo": "binary-releases",
+        "sha256": "18846facd61a5858ac6703bc9f49d55b515a92f183d0e12dda295c0efadb91d4",
+        "source": "mpfr"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "4.0.49-3.fc44",
+        "location": "Packages/m/mtools-4.0.49-3.fc44.x86_64.rpm",
+        "name": "mtools",
+        "repo": "binary-releases",
+        "sha256": "934375f55eca0de9013b9600a14b58d892602369ddfd64ba118b328ec6d9ea4e",
+        "source": "mtools"
+      },
+      {
+        "arch": "noarch",
+        "evr": "6.6-1.fc44",
+        "location": "Packages/n/ncurses-base-6.6-1.fc44.noarch.rpm",
+        "name": "ncurses-base",
+        "repo": "binary-releases",
+        "sha256": "19c6053ad3e76d47f330da92e5c97e2b9a3617b4ddd8fa2139d9066092cfc181",
+        "source": "ncurses"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "6.6-1.fc44",
+        "location": "Packages/n/ncurses-libs-6.6-1.fc44.x86_64.rpm",
+        "name": "ncurses-libs",
+        "repo": "binary-releases",
+        "sha256": "d9afd13714bac08fdfbe9b9f5bc5d298497fc1c3fee31fb2e1274ed95ab3d96a",
+        "source": "ncurses"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.10.1-3.fc44",
+        "location": "Packages/n/nettle-3.10.1-3.fc44.x86_64.rpm",
+        "name": "nettle",
+        "repo": "binary-releases",
+        "sha256": "36d7fea745c4d0b17f6dbee48c8f6fe3ca444984aee8ecab863dffa5b5042114",
+        "source": "nettle"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:3.5.5-1.fc44",
+        "location": "Packages/o/openssl-libs-3.5.5-1.fc44.x86_64.rpm",
+        "name": "openssl-libs",
+        "repo": "binary-releases",
+        "sha256": "2f02efa7a21a6a15a7b6b0be62769ff222dc88433fec355e87f78c1ee619fd3f",
+        "source": "openssl"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.81-11.fc44",
+        "location": "Packages/o/os-prober-1.81-11.fc44.x86_64.rpm",
+        "name": "os-prober",
+        "repo": "binary-releases",
+        "sha256": "68f0efad2ff1baf3aa66f6643c6057a1ce99c877c0c459aa8311457a09a00835",
+        "source": "os-prober"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "0.26.2-1.fc44",
+        "location": "Packages/p/p11-kit-0.26.2-1.fc44.x86_64.rpm",
+        "name": "p11-kit",
+        "repo": "binary-releases",
+        "sha256": "546dc2915396a230d5f8f8107d8313f2291a21f310a373d8fd7c751b6f02ecc3",
+        "source": "p11-kit"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "0.26.2-1.fc44",
+        "location": "Packages/p/p11-kit-trust-0.26.2-1.fc44.x86_64.rpm",
+        "name": "p11-kit-trust",
+        "repo": "binary-releases",
+        "sha256": "1b060cb633e2375782f62e943ba9ccced1d1286105eb350a75bd063a9dcd6fa3",
+        "source": "p11-kit"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.7.2-1.fc44",
+        "location": "Packages/p/pam-1.7.2-1.fc44.x86_64.rpm",
+        "name": "pam",
+        "repo": "binary-releases",
+        "sha256": "3d05d154fb7682875e0ba899f212b1c430bb7a0f3689990583194d284ee6ea3a",
+        "source": "pam"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.7.2-1.fc44",
+        "location": "Packages/p/pam-libs-1.7.2-1.fc44.x86_64.rpm",
+        "name": "pam-libs",
+        "repo": "binary-releases",
+        "sha256": "e5137b3eefb0c1d026ac4b6cd79e2296bcbccbb02268043d31948cdf6168b409",
+        "source": "pam"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "10.47-1.fc44.1",
+        "location": "Packages/p/pcre2-10.47-1.fc44.1.x86_64.rpm",
+        "name": "pcre2",
+        "repo": "binary-releases",
+        "sha256": "9e3498c301b011ed0f517090e45798fbd3063a10b46468f2f8359738975f8702",
+        "source": "pcre2"
+      },
+      {
+        "arch": "noarch",
+        "evr": "10.47-1.fc44.1",
+        "location": "Packages/p/pcre2-syntax-10.47-1.fc44.1.noarch.rpm",
+        "name": "pcre2-syntax",
+        "repo": "binary-releases",
+        "sha256": "f764ad48aff82dc0805ce5db071e91c805dea73dcc9696f8686583b1a2b19c16",
+        "source": "pcre2"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.5.1-1.fc44",
+        "location": "Packages/p/pkgconf-2.5.1-1.fc44.x86_64.rpm",
+        "name": "pkgconf",
+        "repo": "binary-releases",
+        "sha256": "ee3f9558c65ca0a92de766ce54e218be780e703f8d2b1353ebbbff762f067d6e",
+        "source": "pkgconf"
+      },
+      {
+        "arch": "noarch",
+        "evr": "2.5.1-1.fc44",
+        "location": "Packages/p/pkgconf-m4-2.5.1-1.fc44.noarch.rpm",
+        "name": "pkgconf-m4",
+        "repo": "binary-releases",
+        "sha256": "5b45fb58dec26385b34f937b2917608abd66d531eb7d78a878e8ed426c65eff5",
+        "source": "pkgconf"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.5.1-1.fc44",
+        "location": "Packages/p/pkgconf-pkg-config-2.5.1-1.fc44.x86_64.rpm",
+        "name": "pkgconf-pkg-config",
+        "repo": "binary-releases",
+        "sha256": "da2ce9b6c5e9fac1da7e418be923ff2bbd202180e4812d7b91f118fcd549ede5",
+        "source": "pkgconf"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.19-10.fc44",
+        "location": "Packages/p/popt-1.19-10.fc44.x86_64.rpm",
+        "name": "popt",
+        "repo": "binary-releases",
+        "sha256": "95d460bfdc12f762ead084ae00f1686ae8bb22ebeed86c097db8a80dd3cf270d",
+        "source": "popt"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "4.0.6-1.fc44",
+        "location": "Packages/p/procps-ng-4.0.6-1.fc44.x86_64.rpm",
+        "name": "procps-ng",
+        "repo": "binary-releases",
+        "sha256": "72336f2e3930ffb779fe205b461bcf5d0debb38bf31d1ee40ec85f27da647017",
+        "source": "procps-ng"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "8.3-4.fc44",
+        "location": "Packages/r/readline-8.3-4.fc44.x86_64.rpm",
+        "name": "readline",
+        "repo": "binary-releases",
+        "sha256": "d1f99a29cb7d03781bdf69ae8dcc7aebe7fe45205a36f3756bc67bbe26609608",
+        "source": "readline"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "6.0.1-2.fc44",
+        "location": "Packages/r/rpm-6.0.1-2.fc44.x86_64.rpm",
+        "name": "rpm",
+        "repo": "binary-releases",
+        "sha256": "17527fbfd103607a4cad760214196dde1dca98d879e731c239e5fbd0b27c3c84",
+        "source": "rpm"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "6.0.1-2.fc44",
+        "location": "Packages/r/rpm-libs-6.0.1-2.fc44.x86_64.rpm",
+        "name": "rpm-libs",
+        "repo": "binary-releases",
+        "sha256": "24297b88ac826cf3dd209396504695747c94851ef26f0e8bccbf92572f219a6d",
+        "source": "rpm"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.10.1-1.fc44",
+        "location": "Packages/r/rpm-sequoia-1.10.1-1.fc44.x86_64.rpm",
+        "name": "rpm-sequoia",
+        "repo": "binary-releases",
+        "sha256": "53e36d3e7b57605f8664720545b7453c3e9682993403c7e25e10640c9573e74e",
+        "source": "rust-rpm-sequoia"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "4.9-7.fc44",
+        "location": "Packages/s/sed-4.9-7.fc44.x86_64.rpm",
+        "name": "sed",
+        "repo": "binary-releases",
+        "sha256": "f1cf741fb40f3a911f32ad0161c689c4b9811a604599fc41f33c867c775cd4d1",
+        "source": "sed"
+      },
+      {
+        "arch": "noarch",
+        "evr": "2.15.0-28.fc44",
+        "location": "Packages/s/setup-2.15.0-28.fc44.noarch.rpm",
+        "name": "setup",
+        "repo": "binary-releases",
+        "sha256": "55d58325996df10b4be2f1a9b963dbec3cea3099e43f9f4295eea6e8adfaf7b8",
+        "source": "setup"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "16.1-5",
+        "location": "Packages/s/shim-x64-16.1-5.x86_64.rpm",
+        "name": "shim-x64",
+        "repo": "binary-releases",
+        "sha256": "a1bbabaca8e4398b2483c678240f4be4803e91390b512a7b618da3bc88e49917",
+        "source": "shim"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "3.51.2-1.fc44",
+        "location": "Packages/s/sqlite-libs-3.51.2-1.fc44.x86_64.rpm",
+        "name": "sqlite-libs",
+        "repo": "binary-releases",
+        "sha256": "b9a9f1ce6cd359622b100b9d313e6859adf2a0574e5e75ff166baab3e67ccd6f",
+        "source": "sqlite"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "4.6.1-8.fc44",
+        "location": "Packages/s/squashfs-tools-4.6.1-8.fc44.x86_64.rpm",
+        "name": "squashfs-tools",
+        "repo": "binary-releases",
+        "sha256": "0142193ea347a086008bed0c1f5f693dfdadf8305f72b075ff2afd7be0da6f4c",
+        "source": "squashfs-tools"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "6.04-0.35.fc44",
+        "location": "Packages/s/syslinux-6.04-0.35.fc44.x86_64.rpm",
+        "name": "syslinux",
+        "repo": "binary-releases",
+        "sha256": "815456360c6db343c87ed0d58a6cdef7fc66c6f471d90549353a74d1ef84a34b",
+        "source": "syslinux"
+      },
+      {
+        "arch": "noarch",
+        "evr": "6.04-0.35.fc44",
+        "location": "Packages/s/syslinux-nonlinux-6.04-0.35.fc44.noarch.rpm",
+        "name": "syslinux-nonlinux",
+        "repo": "binary-releases",
+        "sha256": "8e1e17a05dfe362b7b285370d8e28c341245de26b79024c78af2ef3c29c9ab73",
+        "source": "syslinux"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "259.5-1.fc44",
+        "location": "Packages/s/systemd-259.5-1.fc44.x86_64.rpm",
+        "name": "systemd",
+        "repo": "binary-releases",
+        "sha256": "7e34df0b5f65a61a6000088b9a3b1b40bda7ccd0dcc82e0dfcecd68b1dde86cf",
+        "source": "systemd"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "259.5-1.fc44",
+        "location": "Packages/s/systemd-libs-259.5-1.fc44.x86_64.rpm",
+        "name": "systemd-libs",
+        "repo": "binary-releases",
+        "sha256": "4aff97347f72c79681b4b330f2c8c37cf8810484a4f16b378ff37c85d7d57eb3",
+        "source": "systemd"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "259.5-1.fc44",
+        "location": "Packages/s/systemd-shared-259.5-1.fc44.x86_64.rpm",
+        "name": "systemd-shared",
+        "repo": "binary-releases",
+        "sha256": "5d6513561599f9d19b94f4c195f9d7554a7df5de197224abc3245edb0b4e73cf",
+        "source": "systemd"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "259.5-1.fc44",
+        "location": "Packages/s/systemd-standalone-sysusers-259.5-1.fc44.x86_64.rpm",
+        "name": "systemd-standalone-sysusers",
+        "repo": "binary-releases",
+        "sha256": "1d5a6631a20e43c6c5926a9dad5bed25646a7bea6dee33b52752b734cf6cba0f",
+        "source": "systemd"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "259.5-1.fc44",
+        "location": "Packages/s/systemd-udev-259.5-1.fc44.x86_64.rpm",
+        "name": "systemd-udev",
+        "repo": "binary-releases",
+        "sha256": "cdb28edce5db3b2d16b44c0dee56da59c322340acb3efc3649b43abfa04625d1",
+        "source": "systemd"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2:1.35-8.fc44",
+        "location": "Packages/t/tar-1.35-8.fc44.x86_64.rpm",
+        "name": "tar",
+        "repo": "binary-releases",
+        "sha256": "5b9cc358930c4fddec59c3cc13d8ebc9fbb315019a9c96dc24adaa2e38d07568",
+        "source": "tar"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.41.3-12.fc44",
+        "location": "Packages/u/util-linux-2.41.3-12.fc44.x86_64.rpm",
+        "name": "util-linux",
+        "repo": "binary-releases",
+        "sha256": "6981e614c75e0c15e0f25405d9c6f3f6db8a2014d571516c3b6e7c5801c483c8",
+        "source": "util-linux"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.41.3-12.fc44",
+        "location": "Packages/u/util-linux-core-2.41.3-12.fc44.x86_64.rpm",
+        "name": "util-linux-core",
+        "repo": "binary-releases",
+        "sha256": "e258f6d4f1aa9cc2f36af4603545a32e5c864b4f6c62b8c6d550c91278c63c67",
+        "source": "util-linux"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.5.6-9.fc44",
+        "location": "Packages/x/xorriso-1.5.6-9.fc44.x86_64.rpm",
+        "name": "xorriso",
+        "repo": "binary-releases",
+        "sha256": "cbcbf6b45e6eee4c486b5ddbf4aeb8a57152fff9ab2b8681bfd670e655c6d8bf",
+        "source": "libisoburn"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:5.8.2-2.fc44",
+        "location": "Packages/x/xz-5.8.2-2.fc44.x86_64.rpm",
+        "name": "xz",
+        "repo": "binary-releases",
+        "sha256": "96632b3a01e7a122a275d47f49c2c78c5c36737c8293bbd351e42f298d95f165",
+        "source": "xz"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1:5.8.2-2.fc44",
+        "location": "Packages/x/xz-libs-5.8.2-2.fc44.x86_64.rpm",
+        "name": "xz-libs",
+        "repo": "binary-releases",
+        "sha256": "dfe774d950f79fd04deb36c3ff3863c6b8072a41ba578de1c20d33b8e2c2aa45",
+        "source": "xz"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "2.3.3-3.fc44",
+        "location": "Packages/z/zlib-ng-compat-2.3.3-3.fc44.x86_64.rpm",
+        "name": "zlib-ng-compat",
+        "repo": "binary-releases",
+        "sha256": "53ee3cd7082b1a34e4901f13079b1840648113c809effb5b78e7725235a7d939",
+        "source": "zlib-ng"
+      },
+      {
+        "arch": "x86_64",
+        "evr": "1.5.7-5.fc44",
+        "location": "Packages/z/zstd-1.5.7-5.fc44.x86_64.rpm",
+        "name": "zstd",
+        "repo": "binary-releases",
+        "sha256": "6de5731aebf4c836a98ef1f15753afc251cee8a00359e08f37057f5c1761a329",
+        "source": "zstd"
+      }
+    ],
     "live": [
       {
         "arch": "x86_64",
@@ -6847,7 +8226,12 @@
           "source": "zstd"
         }
       ],
-      "dynamic_buildrequires": [],
+      "dynamic_buildrequires": {
+        "capabilities": [],
+        "source": "probe",
+        "suspected": [],
+        "unmet": false
+      },
       "source": {
         "evr": "1.14-2.fc44",
         "location": "Packages/g/gzip-1.14-2.fc44.src.rpm",
@@ -9273,7 +10657,12 @@
           "source": "zstd"
         }
       ],
-      "dynamic_buildrequires": [],
+      "dynamic_buildrequires": {
+        "capabilities": [],
+        "source": "probe",
+        "suspected": [],
+        "unmet": false
+      },
       "source": {
         "evr": "5.8.2-2.fc44",
         "location": "Packages/x/xz-5.8.2-2.fc44.src.rpm",
@@ -11286,7 +12675,12 @@
           "source": "zstd"
         }
       ],
-      "dynamic_buildrequires": [],
+      "dynamic_buildrequires": {
+        "capabilities": [],
+        "source": "probe",
+        "suspected": [],
+        "unmet": false
+      },
       "source": {
         "evr": "2.3.3-3.fc44",
         "location": "Packages/z/zlib-ng-2.3.3-3.fc44.src.rpm",
@@ -11319,7 +12713,7 @@
       "primary": "c2dcdc609d12c90294d8bbe3589901a14826c1f6f088c9f88853bc87a8883f9a-primary.xml.zst"
     }
   ],
-  "schema": 1,
+  "schema": 2,
   "solve": {
     "build": [
       "gzip",
@@ -11330,6 +12724,7 @@
       "live:/usr/bin/systemd-sysusers=systemd-sysusers"
     ],
     "images": [
+      "image-tools=xorriso,squashfs-tools,dosfstools,mtools,grub2-tools-extra,grub2-efi-x64-modules,grub2-efi-x64,shim-x64,syslinux,syslinux-nonlinux,bash,coreutils,findutils,sed,gawk,grep,diffutils,tar,gzip,xz,cpio,util-linux,filesystem",
       "live=kernel,systemd,systemd-udev,systemd-resolved,dracut,dracut-live,dracut-squash,dracut-config-generic,bash,coreutils,util-linux,selinux-policy-targeted,policycoreutils,dnf5,fedora-release,filesystem,shadow-utils,NetworkManager,iproute,iputils,less,vim-minimal,sudo,squashfs-tools,dosfstools,e2fsprogs,kbd,glibc-langpack-en,tzdata,ca-certificates,openssh-server,rootfiles,"
     ],
     "implicit_group": [
@@ -11373,6 +12768,7 @@
       "system-release(44)=fedora-release",
       "system-release=fedora-release"
     ],
+    "probe": "fedora-44.probe.json",
     "stages": 3
   },
   "staged": [
@@ -11480,13 +12876,16 @@
     "built_from_source": 4,
     "cycles": 1,
     "dynamic_buildrequires": 0,
+    "dynamic_unmet": 0,
+    "dynamic_unprobed": 0,
     "fraction_built": 0.0133,
     "from_seed": 296,
     "image_sets": {
+      "image-tools": 153,
       "live": 186
     },
     "pins_by_repo": {
-      "binary-releases": 1237,
+      "binary-releases": 1390,
       "source-releases": 3
     },
     "problems": 0,

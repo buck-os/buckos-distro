@@ -10,10 +10,11 @@ into targets.  Keeping the logic out of the generated file is what makes
 the generated diff reviewable.
 """
 
-load("//defs:flavor.bzl", "package")
+load("//defs:flavor.bzl", "package", "subpackage_target")
 load("//defs:releases.bzl", "release_suffix")
 load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_buildroot")
+load("//defs/rules/image.bzl", "iso_image", "squashfs")
 load("//defs/rules/rootfs.bzl", "rootfs")
 
 # Which dracut modules an image set's initramfs has to be told to include.
@@ -31,6 +32,64 @@ load("//defs/rules/rootfs.bzl", "rootfs")
 _INITRAMFS_MODULES = {
     "live": ["dmsquash-live"],
 }
+
+# Image sets that describe a set of *tools* rather than something to boot.
+#
+# They go through the solver for the same reason the bootable sets do --
+# it is the only thing that closes a package list over its Requires -- but
+# what comes out the other end is a buildroot, not a rootfs.  An ISO built
+# with the host's xorriso and the host's mksquashfs is not reproducible,
+# and "which mksquashfs" is as much a build input as any rpm in the image.
+#
+# Listed rather than inferred: nothing about a package list says whether
+# it is meant to boot.  A set left off this list silently gets kernel and
+# initramfs targets it can never satisfy, so the failure would surface as
+# a confusing dracut error rather than as "this set has no kernel".
+_TOOL_SETS = ["image-tools"]
+
+# Kernel command line for a live ISO.
+#
+# root=live:CDLABEL=<label> is what sends dracut's dmsquash-live module
+# looking for the squashfs, and the label has to match the ISO's volume id
+# exactly or the initramfs waits for a device that never appears.  The rule
+# derives it from volume_label for that reason rather than taking both.
+#
+# selinux=0 is load-bearing, not a convenience.  The image carries
+# selinux-policy-targeted, so a kernel with SELinux enabled loads that
+# policy and enforces it -- against a filesystem with no labels at all.
+#
+# Nothing in this build can label it.  setxattr("security.selinux")
+# returns EPERM inside a nested user namespace, which is where every stage
+# here runs -- even under `unshare -Ur`, where a user.* xattr on the same
+# file succeeds.  Not a blanket rule about security.*, and the exception
+# is the interesting part: security.capability *is* settable from a user
+# namespace through the kernel's v3 format, which is why these images
+# carry real file capabilities on arping, clockdiff, newuidmap and
+# newgidmap.  The kernel extends that to capabilities and withholds it
+# from labels, so rpm-plugin-selinux sets no context, mksquashfs has none
+# to carry, and a live rootfs comes out with zero labels tree-wide.
+#
+# What that costs is not subtle.  systemd fails every labelling call and
+# gives up before it starts a single unit:
+#
+#   systemd[1]: Failed to set SELinux security context
+#               system_u:object_r:systemd_unit_file_t:s0 for /run/systemd/units:
+#               Permission denied
+#   systemd[1]: Failed to allocate manager object: Permission denied
+#   systemd[1]: Freezing execution.
+#
+# enforcing=0 would also boot, but it leaves the policy loaded and every
+# file unlabeled_t, which trades a clean failure for a running system that
+# lies about being confined.  Turning SELinux off says what is true.
+# See the Limitations section of the README for what fixing it would take.
+#
+# The serial console is deliberate and stays in the shipped cmdline.  The
+# only way this repo can answer "does the image boot" is a headless VM, so
+# the console that carries the answer is part of the product, not part of
+# a debugging session.  `quiet` is the opposite: it hid the systemd
+# failure above behind a frozen splash, and the diagnosis started by
+# taking it back out.
+_LIVE_KERNEL_ARGS = "rd.live.image selinux=0 console=tty0 console=ttyS0,115200"
 
 # ── Where an rpm is fetched from ─────────────────────────────────────
 #
@@ -246,37 +305,202 @@ def fedora_buildroot_target(suffix):
     return ":buildroot-{}{}".format(provenance, suffix)
 
 def fedora_packages(data, suffix):
-    """One package() per recipe in the generated data.
+    """One package() per recipe, staged where the lockfile says to stage.
 
-    build_deps are left empty on purpose for now.  The lockfile records
-    them as binary package names, and turning those into target labels
-    needs the cycle staging in `staged` to be honoured -- xz and zlib-ng
-    genuinely depend on each other, so a naive mapping produces a cycle
-    buck2 rejects at parse time.  Until the staging is wired up, these
-    packages build against the seed alone, which is what Fedora's own
-    bootstrap does for the same set.
+    A recipe's build_deps arrive as *binary* package names -- "xz-libs",
+    not a label -- so the work here is turning each one into the target
+    that produces it, and doing that without creating a cycle buck2 will
+    reject at parse time.  gzip, xz and zlib-ng genuinely require each
+    other to build, so there is no ordering of three plain targets that
+    works.
+
+    tools/solve.py already decided how to break it, and this honours that
+    decision rather than re-deriving it: each cycle member is built once
+    per stage, every stage against the previous one's output, with stage 1
+    against the pinned upstream binaries in the seed.  Only the stage
+    marked `ships` is what the plain target name means, so `:gzip-43` is
+    an alias for `:gzip-stage3-43` and nothing outside this function needs
+    to know the package was staged at all.
+
+    A dep this repo does not build resolves to nothing on purpose: it is
+    already in the buildroot tree rpmbuild runs inside, installed there
+    from the same pinned rpm, and adding a label for it would be a second
+    copy of a package that is already present.
     """
     by_source = {entry["name"]: entry for entry in data.SOURCE_RPMS}
     buildroot = fedora_buildroot_target(suffix)
 
+    # Which recipe produces a given binary package.  Built from the
+    # subpackage lists, which are the binary names rpm will emit.
+    provider = {}
     for recipe in data.RECIPES:
-        source = by_source[recipe["source_name"]]
-        version, _, release = recipe["evr"].rpartition("-")
-        # Drop any epoch: rpm writes "1:5.8.1" in metadata but %{version}
-        # is just the version.
-        _, _, version = version.rpartition(":")
+        for sub in recipe["subpackages"]:
+            provider[sub] = recipe
 
-        package(
+    # source -> the variant that ships; and (source, stage) -> its target.
+    # Looked up rather than formatted, so the naming stays the solver's to
+    # choose.
+    ships = {}
+    stage_target = {}
+    for entry in data.STAGED:
+        stage_target[_stage_key(entry["source"], entry["stage"])] = entry["target"]
+        if entry["ships"]:
+            ships[entry["source"]] = entry["target"]
+
+    # The default answer to "which variant of this source do I depend on":
+    # its shipping stage if it is staged, else the package itself.
+    default_variant = {}
+    for recipe in data.RECIPES:
+        default_variant[recipe["name"]] = ships.get(recipe["name"], recipe["name"])
+
+    staged_sources = {entry["source"]: True for entry in data.STAGED}
+
+    for recipe in data.RECIPES:
+        if recipe["name"] in staged_sources:
+            continue
+        _fedora_one_package(
+            data, suffix, buildroot, by_source, recipe,
+            recipe["name"],
+            _variant_map(default_variant, recipe["name"], {}, ""),
+            provider,
+        )
+
+    for entry in data.STAGED:
+        recipe = _recipe_named(data, entry["source"])
+        cycle_deps = {name: True for name in entry["cycle_deps"]}
+        _fedora_one_package(
+            data, suffix, buildroot, by_source, recipe,
+            entry["target"],
+            _variant_map(
+                default_variant,
+                # Excluded, not remapped: a package's own earlier stage is
+                # reached through cycle_deps if the solver put it there,
+                # and letting it fall through to the shipping variant
+                # would make stage 1 depend on stage 3.
+                entry["source"],
+                cycle_deps,
+                entry["cycle_deps_from"],
+                stage_target,
+            ),
+            provider,
+        )
+
+    # The stable names.  Everything downstream -- an image set, another
+    # package's build_deps, a person typing a target -- says `gzip-43` and
+    # gets whichever stage the solver marked as shipping.
+    for recipe in data.RECIPES:
+        shipping = ships.get(recipe["name"])
+        if shipping == None:
+            continue
+        native.alias(
             name = recipe["name"] + suffix,
-            flavor = "fedora",
-            buildroot = buildroot,
-            srpm = ":" + source["target"] + suffix,
-            source_name = recipe["source_name"],
-            version = version,
-            release = release,
-            subpackages = recipe["subpackages"],
+            actual = ":" + shipping + suffix,
             visibility = ["PUBLIC"],
         )
+        for sub in recipe["subpackages"]:
+            native.alias(
+                name = subpackage_target(
+                    recipe["name"] + suffix, recipe["source_name"], sub,
+                ),
+                actual = ":" + subpackage_target(
+                    shipping + suffix, recipe["source_name"], sub,
+                ),
+                visibility = ["PUBLIC"],
+            )
+
+    # One probe per source package, whatever staging did to it.  What a
+    # spec BuildRequires is a property of the spec, so probing every stage
+    # would be asking one question three times.
+    #
+    # Stage 1 is the one asked, not the shipping stage, because the answer
+    # feeds the solver and the solver's world is the pinned seed -- stage 1
+    # is the variant that builds against it.  Later stages build against
+    # packages whose existence the answer is supposed to justify.
+    for recipe in data.RECIPES:
+        source = recipe["name"]
+        variant = stage_target.get(_stage_key(source, 1), source)
+        native.alias(
+            name = "probe-" + source + suffix,
+            actual = ":" + variant + suffix + "-buildrequires",
+            visibility = ["PUBLIC"],
+        )
+
+def _stage_key(source, stage):
+    return "{}/stage{}".format(source, stage)
+
+def _recipe_named(data, name):
+    for recipe in data.RECIPES:
+        if recipe["name"] == name:
+            return recipe
+    fail("STAGED names source package {}, which has no recipe".format(name))
+
+def _variant_map(default_variant, exclude, cycle_deps, from_stage, stage_target = {}):
+    """Which variant of each built source package to depend on.
+
+    `cycle_deps` are the ones the solver staged; they resolve to the stage
+    named by `from_stage`, or -- when that is "seed" -- to nothing at all,
+    which leaves the pinned upstream copy already in the buildroot to
+    satisfy them.  That is what makes stage 1 buildable.
+    """
+    out = {}
+    for source, variant in default_variant.items():
+        if source == exclude:
+            continue
+        if source in cycle_deps:
+            if from_stage == "seed":
+                continue
+            key = "{}/{}".format(source, from_stage)
+            if key not in stage_target:
+                fail("no staged target for {} at {}".format(source, from_stage))
+            out[source] = stage_target[key]
+        else:
+            out[source] = variant
+    return out
+
+def _fedora_one_package(
+        data,
+        suffix,
+        buildroot,
+        by_source,
+        recipe,
+        target_name,
+        variant,
+        provider):
+    """One package() call, with build_deps resolved to subpackage labels."""
+    source = by_source[recipe["source_name"]]
+    version, _, release = recipe["evr"].rpartition("-")
+
+    # Drop any epoch: rpm writes "1:5.8.1" in metadata but %{version} is
+    # just the version.
+    _, _, version = version.rpartition(":")
+
+    build_deps = []
+    for binary in recipe["build_deps"]:
+        producer = provider.get(binary)
+        if producer == None:
+            # Not built by this repo, so it is in the seed already.
+            continue
+        chosen = variant.get(producer["name"])
+        if chosen == None:
+            # Excluded by _variant_map: self-reference, or a cycle dep this
+            # stage deliberately takes from the seed.
+            continue
+        build_deps.append(":" + subpackage_target(
+            chosen + suffix, producer["source_name"], binary,
+        ))
+
+    package(
+        name = target_name + suffix,
+        flavor = "fedora",
+        buildroot = buildroot,
+        srpm = ":" + source["target"] + suffix,
+        source_name = recipe["source_name"],
+        version = version,
+        release = release,
+        build_deps = sorted(build_deps),
+        subpackages = recipe["subpackages"],
+        visibility = ["PUBLIC"],
+    )
 
 def fedora_rootfs(data, suffix):
     """A rootfs installed from the release's pinned seed closure.
@@ -312,6 +536,8 @@ def fedora_image_rootfs(data, suffix):
     buildroot = fedora_buildroot_target(suffix)
 
     for name in sorted(data.IMAGE_SETS):
+        if name in _TOOL_SETS:
+            continue
         rootfs(
             name = "rootfs-" + name + suffix,
             buildroot = buildroot,
@@ -319,6 +545,32 @@ def fedora_image_rootfs(data, suffix):
                 ":" + entry["target"] + suffix
                 for entry in data.IMAGE_SETS[name]
             ],
+            visibility = ["PUBLIC"],
+        )
+
+def fedora_image_tools(data, suffix):
+    """A buildroot per tool set: what assembles an image, not what boots.
+
+    seeded_buildroot rather than rootfs because the consumer is an action,
+    not a bootloader.  It wants a tree it can chroot into and run
+    mksquashfs and xorriso from, with no rpm database and no scriptlets --
+    which is precisely the difference defs/rules/rootfs.bzl's docstring
+    draws between the two, read from the other side.
+
+    Being a seeded buildroot also makes it hermetic, so the image rules
+    that consume it are RE-eligible and cacheable.  A rule reaching for the
+    host's /usr/bin/xorriso would be neither.
+    """
+    for name in sorted(data.IMAGE_SETS):
+        if name not in _TOOL_SETS:
+            continue
+        seeded_buildroot(
+            name = "buildroot-" + name + suffix,
+            seed_rpms = [
+                ":" + entry["target"] + suffix
+                for entry in data.IMAGE_SETS[name]
+            ],
+            target_cpu = "x86_64",
             visibility = ["PUBLIC"],
         )
 
@@ -334,6 +586,8 @@ def fedora_boot(data, suffix):
     buildroot = fedora_buildroot_target(suffix)
 
     for name in sorted(data.IMAGE_SETS):
+        if name in _TOOL_SETS:
+            continue
         rootfs_target = ":rootfs-" + name + suffix
 
         kernel_image(
@@ -347,6 +601,50 @@ def fedora_boot(data, suffix):
             buildroot = buildroot,
             rootfs = rootfs_target,
             add_modules = _INITRAMFS_MODULES.get(name, []),
+            visibility = ["PUBLIC"],
+        )
+
+def fedora_images(data, release, suffix):
+    """squashfs and ISO per bootable image set.
+
+    The squashfs is separate from the ISO rather than folded into it
+    because it is the expensive half -- compressing a whole root
+    filesystem -- and it does not change when the kernel command line or
+    the volume label does.  Fusing them would recompress the rootfs on
+    every ISO tweak, which is the same "split on what this actually costs"
+    argument defs/rules/boot.bzl makes for kernel_image and initramfs.
+
+    Both run in the image-tools buildroot, not the package buildroot: they
+    need mksquashfs and xorriso, which are not in @buildsys-build and have
+    no business being added to it.
+    """
+    tools = ":buildroot-image-tools" + suffix
+
+    for name in sorted(data.IMAGE_SETS):
+        if name in _TOOL_SETS:
+            continue
+
+        squashfs(
+            name = "squashfs-" + name + suffix,
+            buildroot = tools,
+            rootfs = ":rootfs-" + name + suffix,
+            visibility = ["PUBLIC"],
+        )
+
+        # Uppercase because the volume id is what ends up in the kernel
+        # command line as CDLABEL=, and genisoimage-style volume ids are
+        # upper-cased by the filesystem -- a lowercase label here would be
+        # written uppercase and then not match at boot.
+        label = "FEDORA-{}-{}".format(release, name.upper())
+
+        iso_image(
+            name = "iso-" + name + suffix,
+            buildroot = tools,
+            kernel = ":kernel-" + name + suffix,
+            initramfs = ":initramfs-" + name + suffix,
+            squashfs = ":squashfs-" + name + suffix,
+            volume_label = label,
+            kernel_args = _LIVE_KERNEL_ARGS,
             visibility = ["PUBLIC"],
         )
 
@@ -417,9 +715,13 @@ def fedora_rootfs_for(releases, default, data_by_release):
         suffix = release_suffix(release)
         fedora_rootfs(data, suffix)
         fedora_image_rootfs(data, suffix)
+        fedora_image_tools(data, suffix)
         fedora_boot(data, suffix)
+        fedora_images(data, release, suffix)
 
     default_data = _data_for(data_by_release, default)
     fedora_rootfs(default_data, "")
     fedora_image_rootfs(default_data, "")
+    fedora_image_tools(default_data, "")
     fedora_boot(default_data, "")
+    fedora_images(default_data, default, "")

@@ -90,6 +90,21 @@ def repo_root():
              "--lock-dir".format(" or ".join(seen)))
 
 
+def lockfile_releases(lock_dir):
+    """Every release that has been solved at least once.
+
+    Shared with tools/probe.py, which needs the same default and must not
+    disagree about it: a probe run that covered a different set of
+    releases than the refresh did would write results for one lockfile
+    and not the other, silently.
+    """
+    return sorted(
+        name[len("fedora-"):-len(".lock.json")]
+        for name in os.listdir(lock_dir)
+        if name.startswith("fedora-") and name.endswith(".lock.json")
+    )
+
+
 def fetch(url):
     with urllib.request.urlopen(url, timeout=120) as resp:
         return resp.read()
@@ -173,7 +188,30 @@ def sync_repo(fetch_base, dest_dir, name):
     return path
 
 
-def solve_argv(lock, repos, out):
+def recorded_probe(lock, lock_dir):
+    """The probe file a lockfile says it was solved with, if any.
+
+    Carried forward rather than re-derived: a release that has been probed
+    once must keep being solved against those results, or the next refresh
+    quietly drops every dynamically-generated BuildRequires and produces a
+    lockfile whose buildroots are smaller for no reviewable reason.
+
+    Missing on disk is an error, not a fallback, for the same reason. The
+    probe file is a committed artifact beside the lockfile; if it is gone,
+    the fix is to restore it or re-probe, not to solve without it.
+    """
+    name = lock["solve"].get("probe")
+    if not name:
+        return None
+    path = os.path.join(lock_dir, os.path.basename(name))
+    if not os.path.exists(path):
+        sys.exit("{} was solved with {}, which is not in {}. Restore it, or "
+                 "re-run with --probe to regenerate it.".format(
+                     lock.get("release"), name, lock_dir))
+    return path
+
+
+def solve_argv(lock, repos, out, probe=None):
     """Rebuild solve's argv from the lockfile's own recorded inputs.
 
     As a list, never through a shell: the overrides contain `(`, `)` and `=`
@@ -188,6 +226,8 @@ def solve_argv(lock, repos, out):
         "--stages", str(recorded["stages"]),
         "--out", out,
     ]
+    if probe:
+        argv += ["--probe", probe]
     for repo in repos:
         argv += ["--{}-repo".format(repo["kind"]), repo["name"],
                  "--{}-base".format(repo["kind"]), repo["base"],
@@ -200,17 +240,16 @@ def solve_argv(lock, repos, out):
     return argv
 
 
-def relock(release, args):
-    lock_path = os.path.join(args.lock_dir,
-                             "fedora-{}.lock.json".format(release))
-    if not os.path.exists(lock_path):
-        sys.exit("no lockfile at {}: a release has to be solved by hand once "
-                 "before it can be refreshed, because its overrides and image "
-                 "sets are not derivable from repodata".format(lock_path))
-    with open(lock_path) as fh:
-        lock = json.load(fh)
+def repo_list(release, args, offline=False):
+    """The repos to solve from, synced unless told otherwise.
 
-    print("fedora {}:".format(release), file=sys.stderr)
+    `offline` is separate from args.offline because the two mean different
+    things. The flag is a user saying "do not touch the network"; the
+    argument is a caller saying "this release was synced a moment ago" --
+    which the probe pass's second solve is, and re-fetching for it would
+    let the answer change between two solves that are supposed to differ
+    only by the probe results.
+    """
     repos = []
     for name, kind, template in FEDORA_REPOS:
         tail = template.format(release=release, arch=args.arch)
@@ -228,11 +267,11 @@ def relock(release, args):
             print("  {}: would sync {}".format(name, fetch_base),
                   file=sys.stderr)
             continue
-        if args.offline:
+        if offline or args.offline:
             path = local_primary(dest)
             if path is None:
                 if name not in OPTIONAL:
-                    sys.exit("{}: --offline but no primary.xml under {}"
+                    sys.exit("{}: no primary.xml under {} and not fetching"
                              .format(name, dest))
                 print("  {}: absent, skipping".format(name), file=sys.stderr)
             else:
@@ -243,11 +282,31 @@ def relock(release, args):
         if path:
             repos.append({"name": name, "kind": kind, "base": base,
                           "path": path})
+    return repos
+
+
+def read_lock(release, args):
+    lock_path = os.path.join(args.lock_dir,
+                             "fedora-{}.lock.json".format(release))
+    if not os.path.exists(lock_path):
+        sys.exit("no lockfile at {}: a release has to be solved by hand once "
+                 "before it can be refreshed, because its overrides and image "
+                 "sets are not derivable from repodata".format(lock_path))
+    with open(lock_path) as fh:
+        return lock_path, json.load(fh)
+
+
+def relock(release, args):
+    lock_path, lock = read_lock(release, args)
+
+    print("fedora {}:".format(release), file=sys.stderr)
+    repos = repo_list(release, args)
 
     if args.dry_run or args.fetch_only:
         return
 
-    solve.main(solve_argv(lock, repos, lock_path))
+    solve.main(solve_argv(lock, repos, lock_path,
+                          recorded_probe(lock, args.lock_dir)))
 
 
 def main(argv=None):
@@ -273,6 +332,11 @@ def main(argv=None):
                     help="sync repodata but do not re-solve")
     ap.add_argument("--no-generate", action="store_true",
                     help="re-solve but do not regenerate the .bzl data")
+    ap.add_argument("--probe", action="store_true",
+                    help="after solving, run %%generate_buildrequires for "
+                         "every package and solve again knowing what it "
+                         "asked for (slow: this builds each package's "
+                         "buildroot and %%prep)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
 
@@ -280,11 +344,7 @@ def main(argv=None):
     if args.lock_dir is None:
         args.lock_dir = os.path.join(root, "flavors", "fedora", "lock")
 
-    releases = args.release or sorted(
-        name[len("fedora-"):-len(".lock.json")]
-        for name in os.listdir(args.lock_dir)
-        if name.startswith("fedora-") and name.endswith(".lock.json")
-    )
+    releases = args.release or lockfile_releases(args.lock_dir)
     if not releases:
         sys.exit("no lockfiles in {}".format(args.lock_dir))
 
@@ -294,11 +354,51 @@ def main(argv=None):
     if args.dry_run or args.fetch_only or args.no_generate:
         return
 
+    regenerate(releases, args, root)
+    if args.probe:
+        probe_pass(releases, args, root)
+
+
+def regenerate(releases, args, root):
     generate.main(
         [os.path.join(args.lock_dir, "fedora-{}.lock.json".format(r))
          for r in releases]
         + ["--out-dir", os.path.join(root, "flavors", "fedora", "generated")]
     )
+
+
+def probe_pass(releases, args, root):
+    """The second half of the loop: probe, re-solve, regenerate.
+
+    Two solves deep because the probe needs a buildroot to run in and the
+    buildroot comes from a solve. The first one is built from repodata
+    alone, which is enough to run a %generate_buildrequires block -- that
+    is what its handful of static BuildRequires are for -- and the second
+    one knows what the block asked for. mock does the same thing at build
+    time; the difference is only that a lockfile has to remember.
+
+    Not run by default: it builds every package's buildroot and %prep, so
+    it costs a real build rather than a repodata fetch, and its answer only
+    changes when a spec's generator does.
+    """
+    # Imported here rather than at the top because probe.py imports this
+    # module for repo_root and lockfile_releases, and the two must agree
+    # about them. A local import is the honest way to say that the
+    # dependency runs one way at module scope and the other way on demand.
+    import probe as probe_mod
+
+    for release in releases:
+        lock_path, lock = read_lock(release, args)
+        probe_mod.write_probe_file(release, args.lock_dir, root)
+        # offline: the repodata was synced minutes ago by the first solve,
+        # and a second fetch could pick up an upstream push, which would
+        # make these two lockfiles differ by more than the probe results --
+        # the one thing this pass is meant to isolate.
+        solve.main(solve_argv(
+            lock, repo_list(release, args, offline=True), lock_path,
+            probe_mod.probe_path(args.lock_dir, release),
+        ))
+    regenerate(releases, args, root)
 
 
 if __name__ == "__main__":

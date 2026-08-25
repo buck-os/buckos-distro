@@ -54,7 +54,12 @@ python_binary(
 python_binary(
     name = "buildroot_assemble",
     main = "buildroot_assemble.py",
-    deps = [":_rpm"],
+    # :_isolation because the tree's rpmdb is written by the tree's own
+    # rpm, which means chrooting into it -- see _register_rpmdb.
+    deps = [
+        ":_isolation",
+        ":_rpm",
+    ],
     visibility = ["PUBLIC"],
 )
 
@@ -93,6 +98,30 @@ python_binary(
     main = "initramfs_build.py",
     deps = [
         ":_image",
+        ":_isolation",
+        ":_rpm",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# The media pipeline.  Neither of these needs :_image -- what they want
+# from the rootfs is its bytes, not its index -- but both need :_isolation,
+# because mksquashfs and xorriso come out of the image-tools buildroot
+# rather than off the host.
+python_binary(
+    name = "squashfs_build",
+    main = "squashfs_build.py",
+    deps = [
+        ":_isolation",
+        ":_rpm",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "iso_build",
+    main = "iso_build.py",
+    deps = [
         ":_isolation",
         ":_rpm",
     ],
@@ -152,10 +181,16 @@ python_binary(
 # generate step whose output is reviewed as a diff.  Making it an action
 # would put upstream's publishing schedule inside the build graph and cost
 # the property that a given commit builds the same distro tomorrow.
+#
+# probe.py is in the same library because it shares relock's repo-root and
+# release-discovery logic and must not disagree with it -- a probe run that
+# covered a different set of releases than the refresh did would write
+# results for one lockfile and not the other.
 python_library(
     name = "relock_lib",
     srcs = [
         "generate.py",
+        "probe.py",
         "relock.py",
     ],
     base_module = "",
@@ -165,6 +200,23 @@ python_library(
 python_binary(
     name = "relock",
     main_module = "relock",
+    deps = [":relock_lib"],
+    visibility = ["PUBLIC"],
+)
+
+# Discovering what %generate_buildrequires asks for, by running it.
+#
+#     buck2 run //tools:probe -- --release 43
+#
+# Out of the build graph for a stronger reason than relock's: this one
+# *invokes buck2*.  It builds every //flavors/fedora:probe-<pkg> target and
+# merges the reports, so as an action it would be a build inside a build.
+# The recursion is not incidental either -- the answer only exists once the
+# package's buildroot has been assembled and its %prep has run, which is to
+# say once most of a build has happened.  See the module docstring.
+python_binary(
+    name = "probe",
+    main_module = "probe",
     deps = [":relock_lib"],
     visibility = ["PUBLIC"],
 )
@@ -191,6 +243,16 @@ python_test(
     srcs = ["rpmvercmp_test.py"],
     base_module = "",
     deps = [":rpmvercmp"],
+)
+
+# Composing a buildroot means laying a locally built package over the
+# pinned copy the seed already ships, so every collision case here is on
+# the path of any package built from source rather than downloaded.
+python_test(
+    name = "overlay_test",
+    srcs = ["overlay_test.py"],
+    base_module = "",
+    deps = [":_rpm"],
 )
 
 # A source lint, not a unit test: it reads the checked-in .bzl files and

@@ -6,10 +6,24 @@ hand it to rpmbuild unchanged and control the build purely through
 --define, --with/--without, and the contents of the buildroot.  See
 SPEC.md section 1.
 
-Outputs:
-    --out-rpms         directory of produced binary .rpm files
-    --out-installroot  the unpacked BUILDROOT tree, which becomes
-                       PackageInfo.prefix and feeds rootfs assembly
+Two stages, selected with --stage:
+
+    bb  (default)  build binary rpms
+        --out-rpms         directory of produced binary .rpm files
+        --out-installroot  the unpacked BUILDROOT tree, which becomes
+                           PackageInfo.prefix and feeds rootfs assembly
+
+    br             run %generate_buildrequires and stop
+        --out-buildrequires  JSON: the spec's full BuildRequires set and
+                             which of them only exist once the generator
+                             has run
+
+The probe exists because a spec's dependencies are not always in the
+spec.  Anything packaged with rust-packaging, go-rpm-macros or
+pyproject-rpm-macros computes its BuildRequires from a lockfile at build
+time, so repodata cannot answer what it needs -- see SPEC.md section 3a.
+Buck cannot grow an edge mid-build either, so the probe runs at lock
+time and its answer is recorded in the lockfile.
 
 Isolation
 ---------
@@ -24,13 +38,14 @@ import argparse
 import glob
 import json
 import os
+import shlex
 import shutil
-import subprocess
 import sys
 
 from _isolation import resolve_isolation, run_isolated
 from _rpm import (
     extract_rpm,
+    overlay_tree,
     reproducible_env,
     require_tool,
     run,
@@ -79,13 +94,19 @@ def compose_buildroot(seed_root, dep_roots, dest):
     Copy, not symlink: rpmbuild's %__os_install_post and the brp-*
     scripts rewrite files in place, and a symlink farm makes them rewrite
     the dependency instead of the output.
+
+    Replace, not merge, within a layer: a dep_root is nearly always a
+    locally built copy of something the seed already pins -- that is the
+    whole point of a bootstrap stage -- so its paths must supersede the
+    seed's rather than collide with them.  overlay_tree does that; plain
+    copytree cannot.
     """
     os.makedirs(dest, exist_ok=True)
     layers = ([seed_root] if seed_root else []) + list(dep_roots)
     for layer in layers:
         if not os.path.isdir(layer):
             continue
-        shutil.copytree(layer, dest, symlinks=True, dirs_exist_ok=True)
+        overlay_tree(layer, dest)
     return dest
 
 
@@ -130,8 +151,18 @@ def sysroot_env(sysroot, env):
     return overrides
 
 
-def build_rpmbuild_cmd(spec, topdir, args, buildroot_dir):
-    cmd = [args.rpmbuild, "-bb"]
+def spec_macro_args(topdir, args):
+    """The macro state a spec must be read under, for any rpm tool.
+
+    Shared with rpmspec rather than inlined into the rpmbuild command,
+    because the two have to agree.  A spec that guards BuildRequires with
+    `%if 0%{?fedora} >= 43` or `%{with foo}` -- most of them do -- reports
+    a different dependency set under a different macro state, and the
+    dynamic-BuildRequires probe subtracts one tool's answer from the
+    other's.  Any disagreement between them shows up as a phantom
+    dependency, or as a real one going missing.
+    """
+    cmd = []
 
     # Extra flavor macros are *loaded on top of* the normal macro path.
     # Not --macros=, which replaces %_macrofiles wholesale and would drop
@@ -164,29 +195,199 @@ def build_rpmbuild_cmd(spec, topdir, args, buildroot_dir):
     for name in args.without or []:
         cmd += ["--without", name]
 
+    return cmd
+
+
+def build_rpmbuild_cmd(spec, topdir, args, buildroot_dir):
+    cmd = [args.rpmbuild, "-" + args.stage]
+    cmd += spec_macro_args(topdir, args)
+
     if args.nocheck:
         cmd += ["--nocheck"]
 
-    # The buildroot is assembled by unpacking rpm payloads, so it has no
-    # rpmdb (SPEC.md section 3a).  rpmbuild's BuildRequires check queries
-    # that database rather than the filesystem, so without --nodeps every
-    # single BuildRequires fails -- "gcc is needed by gzip" with
-    # /usr/bin/gcc sitting right there in the tree.
+    # On by request only.  This used to be unconditional, because the
+    # buildroot was payloads unpacked by tar with no rpmdb at all, and
+    # rpmbuild answers BuildRequires from the database rather than from
+    # the filesystem -- so every single one failed, "gcc is needed by
+    # gzip" with /usr/bin/gcc sitting right there in the tree.
     #
-    # Dropping the check is not dropping the dependencies.  Which packages
-    # are in the buildroot is decided by tools/solve.py, pinned by sha256
-    # in the lockfile, and reviewed as a diff; rpm re-deriving the same
-    # answer from a database we would have to fabricate adds nothing.  It
-    # does cost one thing worth naming: rpm no longer catches a buildroot
-    # the solver got wrong, so a missing BuildRequires now surfaces as a
-    # compile error rather than a clear dependency error.
-    cmd += ["--nodeps"]
+    # tools/buildroot_assemble.py now registers the seed set with a real
+    # `rpm --justdb` transaction, so the database agrees with the tree and
+    # the check is worth having: it is what turns a buildroot the solver
+    # got wrong from a confusing compile error deep in %build into a named
+    # missing dependency before %prep starts.  It is also the mechanism a
+    # dynamic-BuildRequires probe needs, since `rpmbuild -br` reports what
+    # is missing by consulting exactly this database.
+    if args.nodeps:
+        cmd += ["--nodeps"]
 
-    if buildroot_dir:
+    # -br stops before %build, so there is no install tree to direct.
+    if buildroot_dir and args.stage == "bb":
         cmd += ["--buildroot", os.path.abspath(buildroot_dir)]
 
     cmd.append(spec)
     return cmd
+
+
+# rpmbuild's own exit code for "%generate_buildrequires produced dependencies
+# that are not installed".  Not a failure in probe mode -- it is the answer.
+BUILDREQUIRES_UNMET = 11
+
+# What `rpmbuild -br` writes when the generator asked for something the
+# buildroot does not have.  The name is rpm's, not ours: <nvr>.buildreqs,
+# with the nosrc suffix because the sources are left out of a header that
+# exists only to carry a dependency list.  Written together with exit 11.
+_NOSRC_GLOB = "*.buildreqs.nosrc.rpm"
+
+# What it writes otherwise -- which is *two* different situations, not one.
+# A spec with no %generate_buildrequires has nothing to compute, so `-br`
+# degrades to plain `-bs`.  A spec that has one whose output is already
+# installed gets past the check and goes on to write an ordinary source
+# package too, with the generated dependencies merged into its header.
+# Both look identical from out here, which is why "did a generator run" is
+# answered by comparing the header against the spec rather than by which
+# file appeared.  Either way its Requires are the BuildRequires, so one
+# code path reads all three cases.
+_SRC_GLOB = "*.src.rpm"
+
+
+def probe_buildrequires(spec, topdir, work, args, sysroot, env):
+    """Run %generate_buildrequires and report what it asked for.
+
+    Dynamic BuildRequires are computed by a shell script in the spec, so
+    they cannot be read out of repodata -- the only way to learn them is
+    to run the script (SPEC.md section 3a).  `rpmbuild -br` does exactly
+    that and stops: it runs %prep and %generate_buildrequires, merges what
+    came out into a source header, and stops before %build.  If any of the
+    generated dependencies is missing from the buildroot it exits 11 and
+    the header is a `.buildreqs.nosrc.rpm`; otherwise it exits 0 with an
+    ordinary `.src.rpm`.  Both carry the same list, so both answer.
+
+    Two queries, because the interesting number is a difference.  The
+    header carries the *union* of the spec's static BuildRequires and
+    whatever the generator emitted -- a source header's Requires are its
+    BuildRequires, which is why one query answers both.  `rpmspec -q
+    --buildrequires` carries the static ones alone, since it parses the
+    spec without running anything.  Subtracting gives the dynamic set.
+
+    The difference is not merely which capabilities appear, either: it is
+    also how tightly they are versioned.  python-appdirs's header asks for
+    `python3dist(pip) >= 19` where Fedora's own repodata records a bare
+    `python3dist(pip)`, so the probe is strictly better information even
+    for a package whose dependency *names* were already known.
+
+    Everything runs inside the buildroot rather than out here.  The header
+    was written by the buildroot's rpm, and rpm 6 headers are not
+    reliably readable by whatever rpm the host happens to ship -- and the
+    host is not supposed to be part of the answer anyway.
+    """
+    requires_out = os.path.join(work, "br-all.txt")
+    static_out = os.path.join(work, "br-static.txt")
+    rc_out = os.path.join(work, "br-rc.txt")
+    header_out = os.path.join(work, "br-header.txt")
+
+    build = build_rpmbuild_cmd(spec, topdir, args, None)
+    query = [args.rpmspec, "-q", "--buildrequires"]
+    query += spec_macro_args(topdir, args) + [spec]
+
+    script = (
+        "set -e\n"
+        # Exit 11 is an answer, not a failure: it means the generator
+        # asked for something the buildroot does not have, which is
+        # exactly what a probe is for.  Recorded rather than swallowed --
+        # a lock run wants to know that the set it just learned was
+        # unsatisfiable in the buildroot it was learned in.
+        "rc=0\n"
+        "{build} || rc=$?\n"
+        'if [ "$rc" -ne 0 ] && [ "$rc" -ne {unmet} ]; then exit "$rc"; fi\n'
+        'echo "$rc" > {rcout}\n'
+        # Globbed rather than reconstructed from the NVR, which would mean
+        # re-deriving %dist and the epoch out here.  Exactly one of each
+        # kind is written, and the nosrc one wins when both exist: it is
+        # the one whose header the generator contributed to.
+        "set -- {srpms}/{nosrc} {srpms}/{src}\n"
+        'for f in "$@"; do\n'
+        '  if [ -e "$f" ]; then\n'
+        '    echo "$f" > {headerout}\n'
+        '    rpm -qp --requires "$f" > {allout}\n'
+        "    break\n"
+        "  fi\n"
+        "done\n"
+        "if [ ! -s {headerout} ]; then\n"
+        '  echo "rpmbuild -br wrote no source header under {srpms}" >&2\n'
+        "  exit 1\n"
+        "fi\n"
+        "{query} > {staticout}\n"
+    ).format(
+        build=_join(build),
+        query=_join(query),
+        unmet=BUILDREQUIRES_UNMET,
+        srpms=shlex.quote(os.path.join(topdir, "SRPMS")),
+        nosrc=_NOSRC_GLOB,
+        src=_SRC_GLOB,
+        rcout=shlex.quote(rc_out),
+        headerout=shlex.quote(header_out),
+        allout=shlex.quote(requires_out),
+        staticout=shlex.quote(static_out),
+    )
+    run_isolated(["/bin/sh", "-c", script], args.isolation,
+                 work=work, chdir=topdir, sysroot=sysroot, env=env)
+
+    header = open(header_out).read().strip()
+    unmet = open(rc_out).read().strip() == str(BUILDREQUIRES_UNMET)
+    all_caps = _read_capabilities(requires_out)
+    static_set = set(_read_capabilities(static_out))
+    dynamic = sorted({c for c in all_caps if c not in static_set})
+    return {
+        "package": args.package_name,
+        "spec": os.path.basename(spec),
+        # Did a generator contribute to this answer?  Read off the
+        # difference, not off which file rpm wrote: a spec whose generated
+        # dependencies are all already installed produces an ordinary
+        # .src.rpm, indistinguishable by name from a spec that has no
+        # generator at all -- and python-appdirs is exactly that case, with
+        # four capabilities in its header that its spec does not declare.
+        #
+        # The nosrc header is still conclusive on its own, since rpm only
+        # writes one after running a generator; it just is not the only
+        # way to have run one.
+        #
+        # A generator that emits nothing the spec has not already declared
+        # reads as False here.  That is unobservable from outside and
+        # harmless: it means the probe and the spec agree, which is the
+        # only thing the flag is consulted for.
+        "generated": bool(dynamic) or header.endswith(".nosrc.rpm"),
+        "unmet": unmet,
+        "buildrequires": sorted(set(all_caps)),
+        "static": sorted(static_set),
+        "dynamic": dynamic,
+    }
+
+
+def _join(argv):
+    return " ".join(shlex.quote(str(c)) for c in argv)
+
+
+def _read_capabilities(path):
+    """Capability names from one rpm query, minus rpm's own.
+
+    rpmlib(...) entries describe header features the *reader* must
+    support, not packages anything can install, so a solver handed one
+    reports an unresolvable dependency on something that does not exist.
+
+    Whitespace is collapsed because the two queries have to be compared
+    to each other and only agree up to it: both print `name op version`,
+    and a difference in spacing alone would read as a dynamic dependency
+    that the generator never emitted.
+    """
+    caps = []
+    with open(path) as fh:
+        for line in fh:
+            cap = " ".join(line.split())
+            if not cap or cap.startswith("rpmlib("):
+                continue
+            caps.append(cap)
+    return caps
 
 
 def collect_rpms(topdir, out_rpms):
@@ -211,9 +412,19 @@ def main():
                          "(default: a temporary directory)")
     ap.add_argument("--keep-work", action="store_true",
                     help="leave the scratch dir behind for debugging")
-    ap.add_argument("--out-rpms", required=True)
-    ap.add_argument("--out-installroot", required=True)
+    # rpmbuild's own stage letters.  "bb" builds binary rpms; "br" stops
+    # after %generate_buildrequires and reports the dependency set instead
+    # of producing anything.  One driver rather than two because every
+    # line above and below this one -- topdir copy, macro staging,
+    # buildroot composition, sandbox setup -- is identical for both, and
+    # a probe that set any of them up differently would be answering a
+    # question about a build that never happens.
+    ap.add_argument("--stage", default="bb", choices=["bb", "br"])
+    ap.add_argument("--out-rpms", default=None)
+    ap.add_argument("--out-installroot", default=None)
     ap.add_argument("--out-manifest", default=None, help="JSON build manifest")
+    ap.add_argument("--out-buildrequires", default=None,
+                    help="JSON dependency report (--stage br)")
 
     ap.add_argument("--buildroot-tree", default=None, help="flavor buildroot root")
     ap.add_argument("--provenance", default="host",
@@ -224,6 +435,13 @@ def main():
                     help="dependency installroot to overlay (repeatable)")
 
     ap.add_argument("--rpmbuild", default="rpmbuild")
+    ap.add_argument("--rpmspec", default="rpmspec")
+    # Recorded in the probe report so the file says which source package it
+    # describes.  The consumer collects a directory of these and has to key
+    # them somehow; deriving the name from a Buck target label would make
+    # the lockfile depend on a target naming scheme that the flavor macros
+    # own and are free to change.
+    ap.add_argument("--package-name", default=None)
     ap.add_argument("--target-cpu", default=None)
     ap.add_argument("--dist-tag", default=None)
     ap.add_argument("--fedora-release", default=None)
@@ -233,6 +451,9 @@ def main():
     ap.add_argument("--without", action="append", default=[])
     ap.add_argument("--nocheck", action="store_true",
                     help="skip %%check; on by default for bulk rebuilds")
+    ap.add_argument("--nodeps", action="store_true",
+                    help="skip rpmbuild's BuildRequires check (see "
+                         "build_rpmbuild_cmd)")
     ap.add_argument("--source-date-epoch", default="1700000000")
     ap.add_argument("--macros", default=None,
                     help="extra rpm macro file, loaded on top of the "
@@ -240,6 +461,15 @@ def main():
     ap.add_argument("--env", action="append", default=[], metavar="KEY=VALUE",
                     help="extra environment variable (repeatable)")
     args = ap.parse_args()
+
+    required = {
+        "bb": ["out_rpms", "out_installroot"],
+        "br": ["out_buildrequires"],
+    }[args.stage]
+    for name in required:
+        if not getattr(args, name):
+            ap.error("--stage {} requires --{}".format(
+                args.stage, name.replace("_", "-")))
 
     args.isolation = resolve_isolation(args.isolation)
 
@@ -249,15 +479,31 @@ def main():
     # on a machine that has no business supplying it.
     if args.isolation == "none":
         require_tool(args.rpmbuild)
+        if args.stage == "br":
+            require_tool(args.rpmspec)
     else:
         args.rpmbuild = "/usr/bin/rpmbuild"
+        args.rpmspec = "/usr/bin/rpmspec"
 
     if args.work:
         work = os.path.abspath(args.work)
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work, exist_ok=True)
     else:
-        work = scratch_dir("buckos-distro-replay-")
+        # Keyed, not random: this directory becomes %_topdir, and a
+        # %_topdir that changes between runs changes the build-id of
+        # every binary the package ships.  scratch_dir's docstring has
+        # the chain.  An output path is the key because Buck gives each
+        # target-and-configuration its own, so it is unique between
+        # concurrent actions and identical between reruns of one.
+        #
+        # Used as spelled, not abspath'd: Buck passes it project-relative,
+        # and that is the whole point -- an absolute path carries the
+        # checkout location, so two developers of the same commit would
+        # key differently and produce different build-ids for identical
+        # sources.  Which would make the shared cache a liar.
+        work = scratch_dir("buckos-distro-replay-",
+                           key=args.out_installroot or args.out_buildrequires)
 
     topdir = os.path.join(work, "topdir")
     copy_topdir(args.topdir, topdir)
@@ -301,18 +547,52 @@ def main():
         # that either do not exist there or, worse, do.
         env["PATH"] = "/usr/bin:/usr/sbin:/bin:/sbin"
         env["HOME"] = "/builddir"
+
+        # Same class of problem, and it is the one that actually bites.
+        # Buck2 points TMPDIR at a per-action directory under buck-out,
+        # which is not bound into the sandbox, so the first %install step
+        # that calls mktemp dies -- redhat-rpm-config's check-buildroot
+        # does, in every package that has an %install at all.  The failure
+        # names a buck-out path and reads as a Buck problem rather than as
+        # an environment one.
+        #
+        # Pointed at rpm's own %_tmppath, not at /tmp: /tmp inside the
+        # sandbox is a tmpfs, and a large package's %install temporaries
+        # would then be charged to memory.  This one is under the work
+        # area, on real disk, bound at the same absolute path in and out.
+        sandbox_tmp = os.path.abspath(os.path.join(topdir, "tmp"))
+        os.makedirs(sandbox_tmp, exist_ok=True)
+        for var in ("TMPDIR", "TMP", "TEMP"):
+            env[var] = sandbox_tmp
     for assignment in args.env:
         key, _, value = assignment.partition("=")
         env[key] = value
 
-    cmd = build_rpmbuild_cmd(spec, topdir, args, buildroot_dir)
-
     print(
-        "buckos-distro: replaying {} (provenance={}, isolation={})".format(
-            os.path.basename(spec), args.provenance, args.isolation
+        "buckos-distro: replaying {} -{} (provenance={}, isolation={})".format(
+            os.path.basename(spec), args.stage, args.provenance, args.isolation
         ),
         file=sys.stderr,
     )
+
+    if args.stage == "br":
+        report = probe_buildrequires(spec, topdir, work, args, sysroot, env)
+        with open(args.out_buildrequires, "w") as fh:
+            json.dump(report, fh, indent=2, sort_keys=True)
+        print(
+            "buckos-distro: {} declares {} BuildRequires, {} of them "
+            "dynamic{}".format(
+                report["spec"], len(report["buildrequires"]),
+                len(report["dynamic"]),
+                " (unmet in this buildroot)" if report["unmet"] else "",
+            ),
+            file=sys.stderr,
+        )
+        if not args.keep_work and not args.work:
+            shutil.rmtree(work, ignore_errors=True)
+        return
+
+    cmd = build_rpmbuild_cmd(spec, topdir, args, buildroot_dir)
     run_isolated(cmd, args.isolation, work, topdir, sysroot, env=env)
 
     rpms = collect_rpms(topdir, args.out_rpms)

@@ -4,6 +4,7 @@ Everything here shells out to the host/buildroot rpm toolchain.  We never
 reimplement rpm semantics -- see SPEC.md section 1.
 """
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -49,11 +50,45 @@ SCRATCH_ROOT_ENV = "BUCKOS_SCRATCH_ROOT"
 _DEFAULT_SCRATCH_ROOT = "/var/tmp"
 
 
-def scratch_dir(prefix):
-    """A private scratch directory for a tree Buck must not walk."""
+def scratch_dir(prefix, key=None):
+    """A private scratch directory for a tree Buck must not walk.
+
+    `key` makes the name a function of the action instead of random, and
+    that is a reproducibility fix, not a tidiness one.  The work area is
+    bound into the sandbox at its own absolute path (see _isolation.py),
+    so it *is* %_topdir, so it lands in every DW_AT_comp_dir the compiler
+    emits.  ld then hashes the linked output -- debug sections included --
+    into the GNU build-id.  find-debuginfo runs debugedit afterwards,
+    which rewrites those paths to /usr/src/debug and leaves the note
+    alone, so the path vanishes from the output while its fingerprint
+    stays behind in 20 bytes that differ on every build.
+
+    That is invisible in the obvious places: nothing greps out of the
+    rpm, the DWARF is byte-identical, and the diff is a build-id plus the
+    two things derived from it (.gnu_debuglink's CRC and the
+    xz-compressed .gnu_debugdata, which carries its own copy of the
+    note).  mkdtemp's suffix is even fixed-length, so the binaries do not
+    change size.
+
+    So: pass something that identifies the action and is stable across
+    runs of it -- an output path is both.  Callers that only need a
+    private directory can leave it None and keep mkdtemp semantics.
+    """
     base = os.environ.get(SCRATCH_ROOT_ENV) or _DEFAULT_SCRATCH_ROOT
     os.makedirs(base, exist_ok=True)
-    return tempfile.mkdtemp(prefix=prefix, dir=base)
+    if key is None:
+        return tempfile.mkdtemp(prefix=prefix, dir=base)
+
+    digest = hashlib.sha256(key.encode("utf-8", "surrogateescape")).hexdigest()
+    path = os.path.join(base, prefix + digest[:16])
+    # Reused across runs by construction, so a previous run's leftovers --
+    # or its debris after a kill -- would otherwise be inherited as build
+    # inputs.  mkdtemp got this for free by never repeating a name.
+    if os.path.exists(path):
+        make_dirs_writable(path)
+        shutil.rmtree(path)
+    os.makedirs(path, mode=0o700)
+    return path
 
 
 def run(cmd, **kwargs):
@@ -151,6 +186,86 @@ def _force_mode(path, bits):
         pass
 
 
+def overlay_tree(src, dest):
+    """Layer one unpacked tree over another; the later layer wins.
+
+    Not `shutil.copytree(..., dirs_exist_ok=True)`, which tolerates a
+    pre-existing *directory* and nothing else.  Overlaying a locally
+    built package onto a tree that already carries the pinned upstream
+    copy of it means every path that package owns is already there, and
+    `os.symlink` onto an existing path raises EEXIST -- so the first
+    dependency shipping a soname link (liblzma.so.5) kills the copy.
+
+    Replacement is the semantics this needs, not a merge: the reason to
+    apply a layer at all is that its version of a path supersedes the one
+    below.  Type changes are handled in both directions, because a
+    rebuild is free to turn a directory into a symlink or back
+    (/usr/lib -> usr/lib64 style moves do exactly that).
+
+    Directories are left owner-writable for the reason make_dirs_writable
+    spells out: rpm ships dr-xr-xr-x directories, and the next layer up
+    has to be able to write into them.
+    """
+    for dirpath, dirnames, filenames in os.walk(src):
+        rel = os.path.relpath(dirpath, src)
+        out_dir = dest if rel == os.curdir else os.path.join(dest, rel)
+        _overlay_dir(dirpath, out_dir)
+
+        # os.walk reports a symlink-to-directory in dirnames but does not
+        # descend into it.  Recreate it as a link and drop it from the
+        # walk, or the tree grows a real directory where rpm declared a
+        # symlink -- and on a merged-usr layout that silently forks /lib
+        # away from /usr/lib.
+        real = []
+        for name in dirnames:
+            src_entry = os.path.join(dirpath, name)
+            if os.path.islink(src_entry):
+                _overlay_entry(src_entry, os.path.join(out_dir, name))
+            else:
+                real.append(name)
+        dirnames[:] = real
+
+        for name in filenames:
+            _overlay_entry(
+                os.path.join(dirpath, name),
+                os.path.join(out_dir, name),
+            )
+    return dest
+
+
+def _overlay_dir(src, dest):
+    """Make dest a directory mirroring src, keeping anything already in it."""
+    if os.path.lexists(dest) and not _is_real_dir(dest):
+        _remove_any(dest)
+    if not os.path.lexists(dest):
+        os.makedirs(dest)
+        shutil.copystat(src, dest)
+    _force_mode(dest, 0o700)
+
+
+def _overlay_entry(src, dest):
+    """Put src at dest, replacing whatever is there."""
+    _remove_any(dest)
+    if os.path.islink(src):
+        os.symlink(os.readlink(src), dest)
+    else:
+        shutil.copy2(src, dest, follow_symlinks=False)
+
+
+def _remove_any(path):
+    if not os.path.lexists(path):
+        return
+    if _is_real_dir(path):
+        shutil.rmtree(path)
+    else:
+        os.unlink(path)
+
+
+def _is_real_dir(path):
+    """A directory and not a symlink to one -- lexists/isdir disagree there."""
+    return os.path.isdir(path) and not os.path.islink(path)
+
+
 def extract_rpm(rpm_path, dest, rpm2archive="rpm2archive", tar="tar"):
     """Unpack a binary or source rpm into dest.
 
@@ -180,6 +295,20 @@ def extract_rpm(rpm_path, dest, rpm2archive="rpm2archive", tar="tar"):
                 "--delay-directory-restore",
                 # We are not root, and rpm payloads name root:root.
                 "--no-same-owner",
+                # Reshape the backslash names *as tar writes them*, not
+                # afterwards -- see _UNREPRESENTABLE below.  A rename pass
+                # after extraction is too late: the file exists under
+                # buck-out in the window between tar creating it and the
+                # pass renaming it, buck2 notices it there, and the build
+                # that observed it succeeds while the *next* one fails on
+                # a path that is no longer on disk.  That is how this was
+                # first mistaken for stale daemon state.
+                #
+                # sed syntax, so a literal backslash is written \\, and
+                # the default scope also rewrites symlink and hard-link
+                # targets -- which is wanted, or a link to one of these
+                # files would dangle at the un-nested name.
+                "--transform", "s|\\\\|/|g",
                 "-C", dest,
             ],
             stdin=p1.stdout,
@@ -202,6 +331,167 @@ def extract_rpm(rpm_path, dest, rpm2archive="rpm2archive", tar="tar"):
                 rpm_path, rc1, rc2
             )
         )
+
+    # Belt and braces.  tar's --transform above is what actually keeps the
+    # backslash off disk; this catches anything that reached the tree by
+    # some other route, and it is the half that reports -- tar reshapes
+    # silently, and a file that has turned into a directory is exactly the
+    # kind of thing that should show up in a log when someone later
+    # wonders why an exact-name lookup missed.  In the normal case it
+    # finds nothing and prints nothing.
+    for before, after in nest_unrepresentable(dest):
+        print(
+            "buckos-distro: {}: split {} into {} -- buck2 reads a backslash "
+            "as a path separator".format(
+                os.path.basename(rpm_path), before, after
+            ),
+            file=sys.stderr,
+        )
+
+
+# Buck2 addresses every file in a directory output by a project-relative
+# path, and a backslash cannot appear in one -- materialising such a path
+# fails the whole build with "Error relativizing <path> is not relative to
+# project root", naming a file nobody asked for.  systemd escapes a dash in
+# a unit name as \x2d, so systemd's own payload carries
+# system-systemd\x2dcryptsetup.slice and system-systemd\x2dveritysetup.slice,
+# and any tree holding them is unbuildable as a directory output.
+#
+# The failure is worse than it looks: it survives deleting the file, because
+# the tree is rebuilt from the rpm on the next run, and it aborts the build
+# before any of our own targets are analysed.  It also outlives `buck2 kill`
+# -- the path is recorded in buck-out/v2/cache/materializer_state, so the
+# next invocation fails instantly on a file that is no longer on disk, and
+# clearing that state is what actually breaks the loop.  See
+# tools/scratch_contract_test.py for the same class of problem elsewhere.
+_UNREPRESENTABLE = "\\"
+
+
+def nest_unrepresentable(dest):
+    """Split payload paths buck2 cannot address at the backslash.
+
+    Buck2 reads the backslash as a path separator; this makes that true on
+    disk rather than fighting it, so
+
+        .../system/system-systemd\\x2dcryptsetup.slice     one file
+        .../system/system-systemd/x2dcryptsetup.slice      a dir and a file
+
+    Deleting the byte, or the file, also builds -- both were tried.
+    Nesting is better for one reason: it round-trips.  Joining the
+    components back with a backslash reconstructs the original name
+    exactly, so anything that later wants a faithful tree can rebuild one
+    from what is on disk.  A dropped file cannot be recovered at all, and
+    a deleted byte cannot be put back because nothing records where it was.
+
+    Safe *because of where this is called from*, which is worth stating
+    plainly.  Every extract_rpm caller unpacks into a buck2 directory
+    output that is used as a tool sysroot or a build installroot -- trees
+    that run mksquashfs or rpmbuild, and never boot.  A systemd unit file
+    in one of them is inert, and a systemd unit file that has become a
+    directory is equally inert.
+
+    A shipped image does not come through here at all: rootfs_install.py
+    runs a real rpm transaction inside the sandbox and hands back a
+    tarball, and a tar member has no such restriction.  So the image keeps
+    every file rpm puts in it, backslashes included, and this reshaping
+    can never change what a user actually boots.
+
+    Returns [(before, after)] for the caller to report.
+    """
+    moved = []
+    # topdown=False so a directory is visited after its contents, which is
+    # what keeps a move safe mid-walk: nothing still queued sits under a
+    # path this loop has already renamed.
+    for root, dirs, files in os.walk(dest, topdown=False):
+        for name in dirs + files:
+            if _UNREPRESENTABLE not in name:
+                continue
+
+            parts = name.split(_UNREPRESENTABLE)
+            if not all(parts):
+                # A leading, trailing or doubled backslash would mean an
+                # empty path component.  Nothing ships one, and inventing
+                # a name for it would be worse than saying so.
+                sys.exit(
+                    "{}: cannot split a name with an empty "
+                    "component".format(os.path.join(root, name))
+                )
+
+            src = os.path.join(root, name)
+            dst = os.path.join(root, *parts)
+            if os.path.lexists(dst):
+                # The nested path is already taken by something rpm
+                # unpacked on its own.  Merging would be a payload
+                # silently going missing.
+                sys.exit(
+                    "{}: splitting it collides with the existing {}".format(
+                        src, dst
+                    )
+                )
+
+            parent = os.path.dirname(dst)
+            os.makedirs(parent, exist_ok=True)
+            # The intermediate directory is ours, not rpm's, so it gets
+            # the owner bits make_dirs_writable would force rather than
+            # whatever umask happens to be in effect.
+            _force_mode(parent, 0o700)
+            os.rename(src, dst)
+            moved.append(
+                (os.path.relpath(src, dest), os.path.relpath(dst, dest))
+            )
+    return moved
+
+
+def stage_rpms(rpms, staging):
+    """Gather rpms into one directory the sandbox already exposes.
+
+    The alternative was bind-mounting each artifact's directory into the
+    chroot, and it does not scale: Buck gives every http_file its own
+    output directory, so even the modest seed set is 292 separate mounts
+    per build, and a real image is thousands.
+
+    Hardlinked where the filesystem allows it, which is the normal case --
+    the scratch root defaults to /var/tmp precisely so it shares a device
+    with buck-out, see scratch_dir above -- so this is a directory entry
+    per package rather than a copy of the payload.  Buck inputs are
+    read-only and rpm only reads them, so sharing the inode is safe.
+
+    Names collide in principle (a locally built package can have the same
+    filename as the pinned one it replaces), so a collision gets a numeric
+    suffix rather than silently dropping one of the two.
+
+    Every staged name is given a .rpm suffix if it lacks one.  That is not
+    cosmetic: the transaction is handed to rpm as the glob `*.rpm` rather
+    than as 292 explicit paths, because the argument list would otherwise
+    approach the kernel's 128 KB limit on a single argument string, and a
+    pinned package arrives from http_file named after its Buck target with
+    no extension.  Unsuffixed, it would simply not be in the transaction,
+    and rpm would report the resulting hole as a missing dependency
+    somewhere else entirely.
+    """
+    os.makedirs(staging, exist_ok=True)
+    staged = []
+    used = set()
+    for source in rpms:
+        name = os.path.basename(source)
+        if not name.endswith(".rpm"):
+            name += ".rpm"
+        if name in used:
+            stem, dot, ext = name.rpartition(".")
+            for n in range(1, 1000):
+                candidate = "{}-{}{}{}".format(stem or name, n, dot, ext)
+                if candidate not in used:
+                    name = candidate
+                    break
+        used.add(name)
+        dest = os.path.join(staging, name)
+        try:
+            os.link(source, dest)
+        except OSError:
+            # Cross-device, or a filesystem without hardlinks.
+            shutil.copy2(source, dest)
+        staged.append(dest)
+    return staged
 
 
 def reproducible_env(env=None, source_date_epoch="1700000000"):

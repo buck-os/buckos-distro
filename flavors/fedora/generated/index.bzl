@@ -14,6 +14,7 @@ load(
     _r43_repo_base = "REPO_BASE",
     _r43_seed = "SEED_RPMS",
     _r43_sources = "SOURCE_RPMS",
+    _r43_staged = "STAGED",
     _r43_target_cpu = "TARGET_CPU",
 )
 load(
@@ -25,6 +26,7 @@ load(
     _r44_repo_base = "REPO_BASE",
     _r44_seed = "SEED_RPMS",
     _r44_sources = "SOURCE_RPMS",
+    _r44_staged = "STAGED",
     _r44_target_cpu = "TARGET_CPU",
 )
 
@@ -38,6 +40,7 @@ DATA_BY_RELEASE = {
         IMAGE_SETS = _r43_image_sets,
         SOURCE_RPMS = _r43_sources,
         RECIPES = _r43_recipes,
+        STAGED = _r43_staged,
     ),
     "44": struct(
         RELEASE = _r44_release,
@@ -48,5 +51,6 @@ DATA_BY_RELEASE = {
         IMAGE_SETS = _r44_image_sets,
         SOURCE_RPMS = _r44_sources,
         RECIPES = _r44_recipes,
+        STAGED = _r44_staged,
     ),
 }

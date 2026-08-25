@@ -1,0 +1,74 @@
+{
+  "buildroot": "-c buckos.fedora.buildroot=binary-seed",
+  "flavor": "fedora",
+  "packages": {
+    "gzip": {
+      "buildrequires": [
+        "autoconf",
+        "automake",
+        "gcc",
+        "less",
+        "make",
+        "texinfo"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "gzip.spec",
+      "static": [
+        "autoconf",
+        "automake",
+        "gcc",
+        "less",
+        "make",
+        "texinfo"
+      ],
+      "unmet": false
+    },
+    "xz": {
+      "buildrequires": [
+        "autoconf",
+        "automake",
+        "gcc",
+        "gettext-devel",
+        "gnupg2",
+        "libtool",
+        "make",
+        "perl-interpreter"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "xz.spec",
+      "static": [
+        "autoconf",
+        "automake",
+        "gcc",
+        "gettext-devel",
+        "gnupg2",
+        "libtool",
+        "make",
+        "perl-interpreter"
+      ],
+      "unmet": false
+    },
+    "zlib-ng": {
+      "buildrequires": [
+        "cmake >= 3.1",
+        "cmake(GTest)",
+        "gcc-c++",
+        "libabigail"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "zlib-ng.spec",
+      "static": [
+        "cmake >= 3.1",
+        "cmake(GTest)",
+        "gcc-c++",
+        "libabigail"
+      ],
+      "unmet": false
+    }
+  },
+  "release": "43",
+  "schema": 1
+}

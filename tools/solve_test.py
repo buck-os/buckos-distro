@@ -9,14 +9,22 @@ tested here rather than trusted to a re-solve.
 """
 
 import argparse
+import json
+import os
+import tempfile
 import unittest
 
 from solve import (
+    BUILDSYS_BUILD,
+    PROBE_SCHEMA,
     build_universe,
     check_public_base,
     collect_repos,
     derive_repo_name,
+    load_probe,
     merge_packages,
+    probed_buildrequires,
+    solve,
     solve_image_sets,
 )
 
@@ -36,6 +44,23 @@ def binary(name, requires=(), provides=(), source="src-1.fc43.src.rpm",
         "checksum": "0" * 64,
         "checksum_type": "sha256",
         "repo": repo,
+    }
+
+
+def source(name, requires=(), version="1", release="1.fc43"):
+    return {
+        "name": name,
+        "requires": list(requires),
+        "provides": [],
+        "sourcerpm": None,
+        "version": version,
+        "release": release,
+        "epoch": "0",
+        "arch": "src",
+        "location": "{}/{}-{}-{}.src.rpm".format(name[0], name, version, release),
+        "checksum": "0" * 64,
+        "checksum_type": "sha256",
+        "repo": "source-releases",
     }
 
 
@@ -143,6 +168,110 @@ class TestScopedOverrides(unittest.TestCase):
             overrides,
             {"/usr/bin/systemd-sysusers": "systemd-standalone-sysusers"},
         )
+
+
+class TestDynamicBuildRequires(unittest.TestCase):
+    """Where a package's BuildRequires came from.
+
+    The failure mode is silence.  A spec that computes its BuildRequires in
+    %generate_buildrequires declares only the handful needed to run the
+    computation, so a solve from repodata alone produces a lockfile that is
+    complete-looking, well-formed, and missing most of the buildroot -- and
+    nothing goes wrong until %build fails somewhere unrelated.  The probe
+    results are what close that gap, so what is tested here is that they
+    reach the solve, and that a lockfile can say which of the two answers
+    it got.
+    """
+
+    def universe(self, *extra_requires):
+        # The implicit group has to resolve or every capability in the
+        # package under test is drowned in unrelated failures.
+        seed = [binary(name) for name in BUILDSYS_BUILD]
+        return build_universe(
+            seed + [binary(name) for name in extra_requires],
+            [source("widget", requires=["cargo", "rust-packaging"])],
+        )
+
+    def test_repodata_alone_records_the_heuristic_and_no_capabilities(self):
+        _, _, _, dynamic = solve(self.universe("cargo", "rust-packaging"),
+                                 {"widget"})
+        self.assertEqual(dynamic["widget"], {
+            "source": "repodata",
+            "capabilities": [],
+            "suspected": ["rust-packaging"],
+            "unmet": False,
+        })
+
+    def test_a_probe_replaces_repodatas_answer(self):
+        universe = self.universe("cargo", "rust-packaging", "openssl-devel")
+        report = {
+            "buildrequires": ["cargo", "rust-packaging", "openssl-devel"],
+            "static": ["cargo", "rust-packaging"],
+            "dynamic": ["openssl-devel"],
+            "generated": True,
+            "unmet": True,
+        }
+        deps, _, problems, dynamic = solve(
+            universe, {"widget"}, probe={"widget": report})
+
+        self.assertIn("openssl-devel", deps["widget"])
+        self.assertEqual(dynamic["widget"]["source"], "probe")
+        self.assertEqual(dynamic["widget"]["capabilities"], ["openssl-devel"])
+        # No longer a guess, so the guess is not recorded alongside it.
+        self.assertEqual(dynamic["widget"]["suspected"], [])
+        self.assertTrue(dynamic["widget"]["unmet"])
+        # An unmet probe is the expected result of a *first* probe -- the
+        # generator asked for what this solve is about to add -- so it must
+        # not be a problem, or --strict fails the run that fixes it.
+        self.assertEqual([kind for kind, _, _ in problems], [])
+
+    def test_the_implicit_group_survives_a_probe(self):
+        # A generator never mentions @buildsys-build: it runs inside it.
+        # Taking the probe's word literally would drop gcc and make from
+        # every probed package's buildroot.
+        got = probed_buildrequires({"buildrequires": ["openssl-devel"]})
+        self.assertIn("gcc", got)
+        self.assertIn("rpm-build", got)
+        self.assertEqual(got[-1], "openssl-devel")
+
+    def test_rpmlib_entries_from_the_header_are_dropped(self):
+        # `rpm -qp --requires` on a source header emits these unconditionally
+        # and nothing provides them, so a solve handed one reports an
+        # unresolvable dependency on a thing that does not exist.
+        got = probed_buildrequires(
+            {"buildrequires": ["rpmlib(FileDigests) <= 4.6.0-1", "cargo"]},
+            implicit=(),
+        )
+        self.assertEqual(got, ["cargo"])
+
+
+class TestProbeFile(unittest.TestCase):
+    def write(self, payload):
+        handle, path = tempfile.mkstemp(suffix=".probe.json")
+        with os.fdopen(handle, "w") as fh:
+            json.dump(payload, fh)
+        self.addCleanup(os.unlink, path)
+        return path
+
+    def test_a_report_for_a_package_no_longer_built_is_ignored(self):
+        # A probe file outlives the build list that produced it. Left in,
+        # a stale report goes on contributing BuildRequires for something
+        # that is not built any more.
+        path = self.write({
+            "schema": PROBE_SCHEMA,
+            "packages": {"widget": {"dynamic": []}, "dropped": {"dynamic": []}},
+        })
+        self.assertEqual(sorted(load_probe(path, {"widget"})), ["widget"])
+
+    def test_no_probe_file_is_not_an_error(self):
+        # The first solve of a release cannot have one: the probe needs a
+        # buildroot, and the buildroot comes from a solve.
+        self.assertEqual(load_probe(None, {"widget"}), {})
+
+    def test_an_unknown_schema_is_refused(self):
+        path = self.write({"schema": PROBE_SCHEMA + 1, "packages": {}})
+        with self.assertRaises(SystemExit):
+            load_probe(path, {"widget"})
 
 
 class TestMergePackages(unittest.TestCase):
