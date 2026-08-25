@@ -165,16 +165,17 @@ def is_rich_dep(capability):
     return capability.lstrip().startswith("(")
 
 
-# "(THEN if COND)" -- non-greedy THEN so the split lands on the first
-# " if ", and $-anchored so the closing paren is the expression's own.
-_RICH_IF = re.compile(r"^\((?P<then>.+?) if (?P<cond>.+?)\)$")
-
-# Any of these inside either half means the expression is compound, and
-# this parser has no business claiming to understand it.
+# Any of these inside either half means the expression is compound.
 _RICH_COMPOUND = (" or ", " and ", " with ", " without ", " unless ", " else ")
 
 # Every operator rpm's boolean grammar has, including the conditional.
 _RICH_OPS = _RICH_COMPOUND + (" if ",)
+
+# Longest first, so " without " is never mistaken for " with " followed by
+# a stray "out".  (It could not be -- " with " demands a space where
+# "without" has an "o" -- but relying on that is a trap for whoever adds
+# the next operator.)
+_BOOL_OPS = ("without", "unless", "with", "else", "and", "or", "if")
 
 
 def _is_single_group(text):
@@ -224,6 +225,208 @@ def unwrap_group(capability):
     return inner
 
 
+# ── rpm's boolean dependency grammar ─────────────────────────────────
+#
+# Three hand-written shape matchers used to live here, one per expression
+# rpm had so far turned out to emit, each refusing anything compound.  That
+# held until the build set grew past a handful of packages: solving the
+# whole live image's 126 source packages surfaced 44 expressions none of
+# them would read, and 27 of those were one shape --
+#
+#   ((rpm-build >= 4.14.90 with (rpm-build < 4.19.90 or rpm-build >= 4.19.91-8))
+#    if rpm-build)
+#
+# which is redhat-rpm-config's, and therefore attached to a large fraction
+# of Fedora.  A fourth matcher would have read that one and stopped at the
+# fifth shape.  So this parses the grammar instead.
+#
+# The grammar, from rpm's rpmdsParse:
+#
+#   expr    := '(' body ')'
+#   body    := operand (OP operand)*          -- one OP per level, chained
+#            | operand 'if' operand ['else' operand]
+#            | operand 'unless' operand ['else' operand]
+#   operand := expr | capability
+#   OP      := and | or | with | without
+#
+# rpm requires explicit parentheses to mix operators, which is what makes
+# a flat per-level split correct rather than a precedence guess.
+#
+# Splitting is depth-aware, and that is not decoration: capability names
+# contain parentheses of their own -- `crate(anyhow/default)`,
+# `pkgconfig(zlib)`, `python3.14dist(ldap3)` -- so a naive search for
+# " with " inside `(crate(a/b) >= 1 with crate(a/b) < 2)` is fine but a
+# naive search for the *closing* paren is not.
+
+
+def _top_level_ops(text):
+    """Every operator token at paren depth zero, as (index, op)."""
+    found = []
+    depth = 0
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif depth == 0 and char == " ":
+            for op in _BOOL_OPS:
+                token = " {} ".format(op)
+                if text.startswith(token, index):
+                    found.append((index, op))
+                    # Land on the token's trailing space so an operator
+                    # never swallows the separator the next one needs.
+                    index += len(token) - 1
+                    break
+        index += 1
+    return found
+
+
+def _split_top(text, op):
+    """Split on one operator at depth zero, keeping every operand."""
+    token = " {} ".format(op)
+    parts = []
+    depth = 0
+    start = 0
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif depth == 0 and text.startswith(token, index):
+            parts.append(text[start:index])
+            index += len(token)
+            start = index
+            continue
+        index += 1
+    parts.append(text[start:])
+    return [part.strip() for part in parts]
+
+
+def parse_boolean(capability):
+    """Parse an rpm boolean dependency into a tree, or None if unreadable.
+
+    Nodes are plain tuples so they compare, print and test without a class:
+
+        ("cap", "gcc >= 4.8")
+        ("and" | "or" | "with", [child, ...])
+        ("without", left, right)
+        ("if" | "unless", then, cond, else_or_None)
+
+    None means "this parser does not understand it", which the caller must
+    treat as a refusal rather than as an absence -- the whole point of the
+    shape matchers this replaces was that a partial reading of a boolean
+    expression is worse than an honest one.
+    """
+    text = capability.strip()
+    if not is_rich_dep(text) or not _is_single_group(text):
+        return None
+    return _parse_body(text[1:-1].strip())
+
+
+def _parse_body(text):
+    text = text.strip()
+    if not text:
+        return None
+
+    if _is_single_group(text):
+        inner = text[1:-1].strip()
+        # Parens with no operator inside are just parens -- the case
+        # unwrap_group() exists for, reached here structurally.
+        return _parse_body(inner) if _top_level_ops(inner) else ("cap", inner)
+
+    ops = _top_level_ops(text)
+    if not ops:
+        return ("cap", text)
+
+    names = [op for _, op in ops]
+
+    # `if` and `unless` are the only operators that take a third operand,
+    # and the only ones that may appear alongside a different keyword.
+    if names[0] in ("if", "unless"):
+        head = names[0]
+        if len(ops) == 1:
+            index, _ = ops[0]
+            then = _parse_body(text[:index])
+            cond = _parse_body(text[index + len(head) + 2:])
+            return None if then is None or cond is None else (head, then, cond, None)
+        if len(ops) == 2 and names[1] == "else":
+            first, _ = ops[0]
+            second, _ = ops[1]
+            then = _parse_body(text[:first])
+            cond = _parse_body(text[first + len(head) + 2:second])
+            other = _parse_body(text[second + len("else") + 2:])
+            if then is None or cond is None or other is None:
+                return None
+            return (head, then, cond, other)
+        return None
+
+    # Everything else chains, and rpm forbids mixing without parentheses.
+    if len(set(names)) != 1:
+        return None
+    op = names[0]
+    if op == "else":
+        return None
+
+    children = [_parse_body(part) for part in _split_top(text, op)]
+    if any(child is None for child in children):
+        return None
+
+    if op == "without":
+        # Binary by definition: "provides A but not B".  A chain would be
+        # a precedence question rpm does not let you ask.
+        return None if len(children) != 2 else ("without", children[0], children[1])
+    return (op, children)
+
+
+def unparse_boolean(node):
+    """Render a tree back to rpm's syntax, for messages and override keys.
+
+    Round-trips through parse_boolean, which is what makes it usable as an
+    override key: a human reading `--override '(a or b)=a'` off an error
+    message needs the string they type to be the string the solver looks
+    up, and the sub-expression that failed is often not the text any spec
+    literally wrote.
+    """
+    kind = node[0]
+    if kind == "cap":
+        return node[1]
+    if kind in ("and", "or", "with"):
+        return "({})".format(
+            " {} ".format(kind).join(unparse_boolean(c) for c in node[1])
+        )
+    if kind == "without":
+        return "({} without {})".format(
+            unparse_boolean(node[1]), unparse_boolean(node[2])
+        )
+    # if / unless, with the optional else tail.
+    text = "({} {} {}".format(
+        unparse_boolean(node[1]), kind, unparse_boolean(node[2])
+    )
+    if node[3] is not None:
+        text += " else {}".format(unparse_boolean(node[3]))
+    return text + ")"
+
+
+def _leaf_names(node):
+    """Every bare capability name a node mentions, or None if not all leaves."""
+    kind = node[0]
+    if kind == "cap":
+        return [strip_capability_version(node[1])]
+    if kind in ("and", "or", "with"):
+        names = []
+        for child in node[1]:
+            child_names = _leaf_names(child)
+            if child_names is None:
+                return None
+            names.extend(child_names)
+        return names
+    return None
+
+
 def parse_or_dep(capability):
     """Split "(A or B or ...)" into its alternatives, else None.
 
@@ -242,22 +445,15 @@ def parse_or_dep(capability):
     util-linux-core is a subset -- pick the smaller one and leave the
     image without `mount` at all if the branch chosen were dropped later.
     """
-    text = capability.strip()
-    if not _is_single_group(text):
+    node = parse_boolean(capability)
+    if node is None or node[0] != "or":
         return None
-    inner = text[1:-1]
-    if " or " not in inner:
+    # Only a flat choice between plain capabilities. A branch that is
+    # itself an expression is a real sub-question, and the closure's
+    # branch-presence test takes capability names.
+    if any(child[0] != "cap" for child in node[1]):
         return None
-    # A mixed expression -- "(a or b if c)" -- is a precedence question
-    # this two-way split does not answer, so it is refused rather than
-    # guessed at.
-    for op in _RICH_OPS:
-        if op != " or " and op in inner:
-            return None
-    parts = [unwrap_group(part) for part in inner.split(" or ")]
-    if any(not part or is_rich_dep(part) for part in parts):
-        return None
-    return [strip_capability_version(part) for part in parts]
+    return [strip_capability_version(child[1]) for child in node[1]]
 
 
 def parse_conditional_dep(capability):
@@ -276,23 +472,15 @@ def parse_conditional_dep(capability):
     unparsed, because a partial reading of a boolean expression is worse
     than an honest refusal to read it.
     """
-    if not is_rich_dep(capability):
+    node = parse_boolean(capability)
+    if node is None or node[0] != "if" or node[3] is not None:
         return None
-    match = _RICH_IF.match(capability.strip())
-    if not match:
+    then, cond = node[1], node[2]
+    if then[0] != "cap" or cond[0] != "cap":
         return None
-    then, cond = unwrap_group(match.group("then")), unwrap_group(match.group("cond"))
-    for op in _RICH_COMPOUND:
-        if op in then or op in cond:
-            return None
-    if is_rich_dep(then) or is_rich_dep(cond):
-        return None
-    return strip_capability_version(then), strip_capability_version(cond)
+    return strip_capability_version(then[1]), strip_capability_version(cond[1])
 
 
-# "(A op V with A op V)" -- a version *range*, not a choice between two
-# packages.  Non-greedy so the split lands on the first " with ".
-_RICH_WITH = re.compile(r"^\((?P<left>.+?) with (?P<right>.+?)\)$")
 
 
 def parse_range_dep(capability):
@@ -320,27 +508,23 @@ def parse_range_dep(capability):
     genuine conjunction -- "one package providing both of these" -- and
     picking either name would be a guess about which provider wins.
     """
-    if not is_rich_dep(capability):
+    node = parse_boolean(capability)
+    if node is None or node[0] != "with":
         return None
-    match = _RICH_WITH.match(capability.strip())
-    if not match:
+    # A chain of three or more is still a range if every term names the
+    # same capability -- python3-ldap writes four `with` clauses to carve
+    # three bad versions out of one range, and reading only the first two
+    # would be a different dependency.
+    names = _leaf_names(node)
+    if not names or len(set(names)) != 1:
         return None
-    left, right = unwrap_group(match.group("left")), unwrap_group(match.group("right"))
-    for op in _RICH_COMPOUND:
-        # " with " itself is excluded: a third half means a chain this
-        # two-way split has already mis-read.
-        if op in left or op in right:
-            return None
-    if is_rich_dep(left) or is_rich_dep(right):
-        return None
-    left, right = strip_capability_version(left), strip_capability_version(right)
-    return left if left == right else None
+    return names[0]
 
 
 # ── Transitive closure ───────────────────────────────────────────────
 
 
-def runtime_closure(roots, requires, provides, overrides=None):
+def runtime_closure(roots, requires, provides, overrides=None, extra=None):
     """Transitively close a set of binary packages over their Requires.
 
     Installing zlib-devel means installing zlib and its deps too, or the
@@ -366,7 +550,7 @@ def runtime_closure(roots, requires, provides, overrides=None):
     seen = set()
     problems = []
     frontier = list(roots)
-    # (then_capability, cond_capability, required_by) not yet fired.
+    # (node, required_by) for expressions whose condition has not settled.
     pending = []
     # (expression, [alternative, ...], required_by) with no branch present.
     choices = []
@@ -395,6 +579,165 @@ def runtime_closure(roots, requires, provides, overrides=None):
         except (AmbiguousProvider, UnresolvedCapability):
             return False
 
+    def satisfied(node, who):
+        """Is this expression already true of the closure so far?
+
+        The question asked of a *condition*, which is a different question
+        from what a requirement asks.  `(A if B)` needs to know whether B
+        holds, and B may itself be `(C or D)` -- redhat-rpm-config and
+        systemd both write conditions that way.
+        """
+        kind = node[0]
+        if kind == "cap":
+            return capability_present(strip_capability_version(node[1]), who)
+        if kind == "or":
+            return any(satisfied(child, who) for child in node[1])
+        if kind in ("and", "with"):
+            return all(satisfied(child, who) for child in node[1])
+        if kind == "without":
+            return satisfied(node[1], who) and not satisfied(node[2], who)
+        if kind == "if":
+            if satisfied(node[2], who):
+                return satisfied(node[1], who)
+            return satisfied(node[3], who) if node[3] else True
+        if kind == "unless":
+            if satisfied(node[2], who):
+                return satisfied(node[3], who) if node[3] else True
+            return satisfied(node[1], who)
+        return False
+
+    def intersect(node, who):
+        """Packages satisfying every leaf of a `with`, or a `without`.
+
+        `with` means one package providing all of it, so the answer is the
+        intersection of the providers -- not, as an `and` would be, one
+        package per term.  The common case never gets here: when every
+        term names the same capability the expression is a version range
+        and parse_range_dep collapses it.  What is left is a genuine
+        conjunction like `(foo with bar)`, where the intersection is the
+        only honest reading.
+        """
+        names = _leaf_names(node) if node[0] == "with" else None
+        if names is None and node[0] == "without":
+            left, right = _leaf_names(node[1]), _leaf_names(node[2])
+            if not left or not right:
+                return None
+            candidates = set(provides.get(left[0], ()))
+            return candidates - set(provides.get(right[0], ()))
+        if not names:
+            return None
+        candidates = None
+        for name in names:
+            group = set(provides.get(name, ()))
+            candidates = group if candidates is None else (candidates & group)
+        return candidates
+
+    def require(node, who, final=False):
+        """Packages this expression demands now, or None to try again later.
+
+        `final` is the fixed point telling `unless` that its escape hatch
+        never arrived.  Everything else is order-independent; `unless` is
+        not, because "required unless B shows up" cannot be answered while
+        B might still show up.
+        """
+        kind = node[0]
+
+        if kind == "cap":
+            provider = resolve(strip_capability_version(node[1]), who)
+            return [] if provider is None else [provider]
+
+        if kind == "and":
+            out = []
+            for child in node[1]:
+                got = require(child, who, final)
+                if got is None:
+                    pending.append((child, who))
+                else:
+                    out.extend(got)
+            return out
+
+        if kind == "or":
+            if any(satisfied(child, who) for child in node[1]):
+                return []
+            alternatives = _leaf_names(node)
+            text = unparse_boolean(node)
+            if alternatives is None:
+                # Branches that are themselves expressions cannot be named
+                # in a --override, so there is no lever to offer.
+                problems.append(("rich", text, who))
+                return []
+            choices.append((text, alternatives, who))
+            return []
+
+        if kind in ("with", "without"):
+            if kind == "with":
+                collapsed = _leaf_names(node)
+                if collapsed and len(set(collapsed)) == 1:
+                    provider = resolve(collapsed[0], who)
+                    return [] if provider is None else [provider]
+            candidates = intersect(node, who)
+            text = unparse_boolean(node)
+            if candidates is None:
+                problems.append(("rich", text, who))
+                return []
+            if len(candidates) == 1:
+                return [next(iter(candidates))]
+            if text in overrides:
+                return [overrides[text]]
+            problems.append((
+                "unresolved",
+                "{} is satisfied by {} packages: {}".format(
+                    text, len(candidates), ", ".join(sorted(candidates)) or "none"
+                ),
+                who,
+            ))
+            return []
+
+        if kind == "if":
+            if satisfied(node[2], who):
+                return require(node[1], who, final)
+            if node[3] is not None:
+                return require(node[3], who, final)
+            # Condition false so far.  Not required, and not a problem --
+            # (gpgverify if gnupg2) in a buildroot without gnupg2 is a
+            # dependency that correctly does not apply.
+            return None
+
+        if kind == "unless":
+            if satisfied(node[2], who):
+                return require(node[3], who, final) if node[3] is not None else []
+            return require(node[1], who, final) if final else None
+
+        problems.append(("rich", unparse_boolean(node), who))
+        return []
+
+    def reduce_rich(base, pkg):
+        """Turn one rich requirement into packages, deferring what must be."""
+        node = parse_boolean(base)
+        if node is None:
+            # Unreadable rather than unsatisfiable.  Recorded so it is
+            # never silently dropped, which is the whole contract here.
+            problems.append(("rich", base, pkg))
+            return []
+        got = require(node, pkg)
+        if got is None:
+            pending.append((node, pkg))
+            return []
+        return got
+
+    # Root-level expressions -- a BuildRequires that is itself boolean.
+    # `roots` cannot carry them because it holds package names, and the
+    # caller cannot evaluate them itself because the condition asks about
+    # the very closure this function is computing.
+    for cap, who in (extra or ()):
+        base = strip_capability_version(cap)
+        if is_rich_dep(base):
+            frontier.extend(reduce_rich(base, who))
+            continue
+        provider = resolve(base, who)
+        if provider is not None:
+            frontier.append(provider)
+
     while True:
         while frontier:
             pkg = frontier.pop()
@@ -404,10 +747,10 @@ def runtime_closure(roots, requires, provides, overrides=None):
             for cap in requires.get(pkg, ()):
                 base = strip_capability_version(cap)
                 if is_rich_dep(base):
-                    resolved = _reduce_rich(base, pkg, pending, choices, problems)
-                    if resolved is None:
-                        continue
-                    base = resolved
+                    for provider in reduce_rich(base, pkg):
+                        if provider not in seen:
+                            frontier.append(provider)
+                    continue
                 provider = resolve(base, pkg)
                 if provider is not None and provider not in seen:
                     frontier.append(provider)
@@ -419,13 +762,14 @@ def runtime_closure(roots, requires, provides, overrides=None):
         # in a buildroot without gnupg2 is a dependency that correctly
         # does not apply, not an unsolved one.
         still_pending = []
-        for then_cap, cond_cap, who in pending:
-            if not capability_present(cond_cap, who):
-                still_pending.append((then_cap, cond_cap, who))
+        for node, who in pending:
+            got = require(node, who)
+            if got is None:
+                still_pending.append((node, who))
                 continue
-            provider = resolve(then_cap, who)
-            if provider is not None and provider not in seen:
-                frontier.append(provider)
+            for provider in got:
+                if provider not in seen:
+                    frontier.append(provider)
         pending = still_pending
 
         # Same treatment for the choices, and the same reason -- but "is
@@ -450,6 +794,23 @@ def runtime_closure(roots, requires, provides, overrides=None):
         choices = still_choosing
 
         if not frontier:
+            # Nothing positive can fire any more, so `unless` has run out
+            # of chances to be let off.  Settled here rather than in the
+            # loop above because "required unless B appears" cannot be
+            # answered while B might still appear -- firing it early would
+            # pull in a package a later round would have excused.
+            still_pending = []
+            for node, who in pending:
+                got = require(node, who, final=True)
+                if got is None:
+                    still_pending.append((node, who))
+                    continue
+                for provider in got:
+                    if provider not in seen:
+                        frontier.append(provider)
+            pending = still_pending
+
+        if not frontier:
             break
 
     # Nothing is growing any more, so a choice still unsatisfied here will
@@ -464,41 +825,6 @@ def runtime_closure(roots, requires, provides, overrides=None):
             who,
         ))
     return seen, problems
-
-
-def _reduce_rich(base, pkg, pending, choices, problems):
-    """Reduce one rich dep to a plain capability, or defer/refuse it.
-
-    Returns the capability to resolve, or None when the expression has
-    been taken care of another way -- deferred to the fixed point, or
-    recorded as a problem.  Split out of runtime_closure because the
-    shapes now outnumber the loop that consumes them.
-    """
-    # Parentheses with no operator inside are just parentheses.  Checked
-    # first, because it is what makes "((A >= v) if B)" readable at all.
-    ungrouped = unwrap_group(base)
-    if not is_rich_dep(ungrouped):
-        return strip_capability_version(ungrouped)
-
-    conditional = parse_conditional_dep(base)
-    if conditional is not None:
-        pending.append(conditional + (pkg,))
-        return None
-
-    alternatives = parse_or_dep(base)
-    if alternatives is not None:
-        choices.append((base, alternatives, pkg))
-        return None
-
-    # A version range is unconditional: resolve it now rather than
-    # deferring it, which is only for expressions with something to test.
-    ranged = parse_range_dep(base)
-    if ranged is not None:
-        return ranged
-
-    # Left for libsolv; recorded so it is never silently dropped.
-    problems.append(("rich", base, pkg))
-    return None
 
 
 # ── Source-level graph and cycle handling ────────────────────────────

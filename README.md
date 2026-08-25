@@ -397,23 +397,32 @@ Stated plainly, because each one is load-bearing:
   one, and resolving a batch tends to expose the next layer beneath it, so
   arriving at a clean solve is iterative. The overrides are an input to the
   solve and belong in review alongside the lockfile.
-- **Rich/boolean dependencies are only partly resolved.** The solver
-  evaluates the simple `(A if B)` shape against the buildroot closure,
-  iterating to a fixed point, because that is how Fedora attaches
-  build-time macros to a buildroot — `cmake` carries
-  `Requires: (cmake-rpm-macros = … if rpm-build)`, and every other
-  `*-rpm-macros` package hangs off its tool the same way. Deferring those
-  is not a nicety: the macro file never lands, `%cmake` stays unexpanded,
-  and the spec's `%build` runs as literal shell text. Compound expressions
-  (`or`, `and`, `with`, `unless`, `else`) are still flagged `kind: rich`
-  and left alone, because a partial reading of a boolean expression is
-  worse than an honest refusal to read it — with one exception. When both
-  halves of a `with` name the *same* capability the expression is a version
-  range, not a choice, and it is collapsed to that capability; rpm's `with`
-  means "one package satisfying both", so there is nothing to guess. This
-  was written only after `rpm --install` rejected the F43 seed over
-  `(python3.14dist(gitdb) < 5~~ with python3.14dist(gitdb) >= 4.0.1)`.
-  Both the F43 and F44 solves now report zero unresolved capabilities.
+- **Rich/boolean dependencies are parsed, but `or` still needs a human.**
+  `tools/depgraph.py` implements rpm's boolean grammar — `and`, `or`,
+  `with`, `without`, `if`/`else`, `unless`/`else`, nested to any depth —
+  and evaluates it against the buildroot closure, iterating to a fixed
+  point. Splitting is paren-depth aware, which is not decoration:
+  capability names carry parentheses of their own (`crate(anyhow/default)`,
+  `python3.14dist(ldap3)`).
+
+  It used to be three hand-written shape matchers, one per expression
+  Fedora had so far been observed to emit. That held while three packages
+  were built from source and broke at 126: a full solve of the live
+  image's sources surfaced 44 expressions none of them could read, 27 of
+  them redhat-rpm-config's
+  `((rpm-build >= … with (rpm-build < … or rpm-build >= …)) if rpm-build)`,
+  which is a BuildRequires of a large fraction of the distro. A fourth
+  matcher would have stopped at the fifth shape. The full solve now reads
+  all 44.
+
+  Two things still need a person. An `or` with no branch present is
+  reported rather than chosen, because rpm picks a branch by policy and
+  inventing a policy is how a solver quietly installs a different distro
+  than the one anyone reviewed; `--override '(a or b)=a'` settles it. And
+  `unless` is order-dependent by nature — "required unless B appears"
+  cannot be answered while B might still appear — so it is settled only
+  once nothing else can grow, which is a decision the code makes
+  explicitly rather than a property of the graph.
 - **Dynamic `BuildRequires` cost a second solve.** Specs using
   `%generate_buildrequires` (most Rust, Go, and modern Python packages)
   compute dependencies that do not exist in static repodata, so solving

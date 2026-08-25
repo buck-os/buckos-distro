@@ -19,7 +19,9 @@ from depgraph import (
     is_rich_dep,
     parse_conditional_dep,
     parse_or_dep,
+    parse_boolean,
     parse_range_dep,
+    unparse_boolean,
     plan_build_order,
     project_to_source_graph,
     resolve_capability,
@@ -308,14 +310,23 @@ class TestRuntimeClosure(unittest.TestCase):
         self.assertEqual(problems, [])
 
     def test_collects_problems_instead_of_raising(self):
-        # "(x or y)" is a `choice`, not a bare `rich`: the expression was
-        # understood, and what is missing is a branch to satisfy it.
-        # "(x and y)" is the shape nothing here claims to read.
-        requires = {"a": ["missing-thing", "(x or y)", "(x and y)"]}
+        # Three different failures, each reported as what it actually is.
+        #
+        # "(x or y)" is a `choice`: the expression was understood and what
+        # is missing is a branch to satisfy it.  "(x and y)" is understood
+        # too, and reports each term it cannot resolve rather than one
+        # opaque complaint about the expression.  Only "(p or q and r)" is
+        # `rich` -- mixing operators without parentheses is something rpm's
+        # own grammar forbids, so there is no reading to guess at.
+        requires = {
+            "a": ["missing-thing", "(x or y)", "(x and y)", "(p or q and r)"],
+        }
         provides = {"a": ["a"]}
         closure, problems = runtime_closure(["a"], requires, provides)
         kinds = sorted(p[0] for p in problems)
-        self.assertEqual(kinds, ["choice", "rich", "unresolved"])
+        self.assertEqual(
+            kinds, ["choice", "rich", "unresolved", "unresolved", "unresolved"]
+        )
 
     def test_conditional_fires_when_its_condition_is_in_the_closure(self):
         # The shape that matters: cmake pulls in its rpm macros because
@@ -585,3 +596,176 @@ class TestValidateOverrides(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestBooleanGrammar(unittest.TestCase):
+    """The parser, over the shapes real Fedora repodata actually contains.
+
+    Every expression here was taken from an F43 solve of the live image's
+    126 source packages, which is what exposed that three hand-written
+    shape matchers were not a grammar.
+    """
+
+    def test_capability_names_containing_parentheses(self):
+        # The reason splitting has to be depth-aware: the *capability* has
+        # parens of its own, so a naive scan mis-locates the group.
+        node = parse_boolean(
+            "(crate(anyhow/default) >= 1.0.0 with crate(anyhow/default) < 2.0.0~)"
+        )
+        self.assertEqual(node[0], "with")
+        self.assertEqual(
+            parse_range_dep(
+                "(crate(anyhow/default) >= 1.0.0 with "
+                "crate(anyhow/default) < 2.0.0~)"
+            ),
+            "crate(anyhow/default)",
+        )
+
+    def test_nested_with_inside_a_conditional(self):
+        # redhat-rpm-config's, and so attached to a large fraction of
+        # Fedora: 27 of the 44 expressions a full solve could not read.
+        node = parse_boolean(
+            "((rpm-build >= 4.14.90 with (rpm-build < 4.19.90 or "
+            "rpm-build >= 4.19.91-8)) if rpm-build)"
+        )
+        self.assertEqual(node[0], "if")
+        self.assertEqual(node[2], ("cap", "rpm-build"))
+        self.assertEqual(node[1][0], "with")
+
+    def test_a_condition_that_is_itself_a_choice(self):
+        node = parse_boolean(
+            "(appstream-data if (PackageKit or libdnf5-plugin-appstream))"
+        )
+        self.assertEqual(node[1], ("cap", "appstream-data"))
+        self.assertEqual(node[2][0], "or")
+
+    def test_chained_with_is_still_one_version_range(self):
+        # python3-ldap carves three bad versions out of one range with four
+        # `with` clauses. Reading only the first two is a different dep.
+        expression = (
+            "(python3.14dist(ldap3) < 2.5 with python3.14dist(ldap3) > 2.4 "
+            "with python3.14dist(ldap3) >= 2.5)"
+        )
+        self.assertEqual(parse_range_dep(expression), "python3.14dist(ldap3)")
+
+    def test_else_and_the_negative_operators_parse(self):
+        self.assertEqual(
+            parse_boolean("(a if b else c)"),
+            ("if", ("cap", "a"), ("cap", "b"), ("cap", "c")),
+        )
+        self.assertEqual(
+            parse_boolean("(a unless b)"),
+            ("unless", ("cap", "a"), ("cap", "b"), None),
+        )
+        self.assertEqual(
+            parse_boolean("(a without b)"),
+            ("without", ("cap", "a"), ("cap", "b")),
+        )
+
+    def test_mixing_operators_without_parentheses_is_refused(self):
+        # rpm's grammar forbids it, so there is no precedence to apply and
+        # guessing one would silently mean a different dependency.
+        self.assertIsNone(parse_boolean("(p or q and r)"))
+
+    def test_unparse_round_trips(self):
+        for expression in (
+            "(a or b)",
+            "(a if b else c)",
+            "(a without b)",
+            "((a with b) if c)",
+        ):
+            self.assertEqual(
+                unparse_boolean(parse_boolean(expression)), expression
+            )
+
+
+class TestBooleanEvaluation(unittest.TestCase):
+    def test_nested_conditional_fires_through_a_with(self):
+        # The whole expression collapses to rpm-build: every term names
+        # it, so the `with` is a version range and the `if` is satisfied
+        # by the very thing it would pull in.
+        requires = {
+            "redhat-rpm-config": [
+                "((rpm-build >= 4.14.90 with (rpm-build < 4.19.90 or "
+                "rpm-build >= 4.19.91-8)) if rpm-build)"
+            ],
+            "rpm-build": [],
+        }
+        provides = {
+            "redhat-rpm-config": ["redhat-rpm-config"],
+            "rpm-build": ["rpm-build"],
+        }
+        closure, problems = runtime_closure(
+            ["redhat-rpm-config", "rpm-build"], requires, provides
+        )
+        self.assertEqual(problems, [])
+        self.assertIn("rpm-build", closure)
+
+    def test_condition_that_is_a_choice_is_evaluated(self):
+        requires = {
+            "gnome-software": ["(appstream-data if (PackageKit or libdnf5))"],
+            "libdnf5": [],
+            "appstream-data": [],
+        }
+        provides = {
+            "gnome-software": ["gnome-software"],
+            "libdnf5": ["libdnf5"],
+            "appstream-data": ["appstream-data"],
+        }
+        closure, problems = runtime_closure(
+            ["gnome-software", "libdnf5"], requires, provides
+        )
+        self.assertEqual(problems, [])
+        self.assertIn("appstream-data", closure)
+
+    def test_condition_absent_means_not_required(self):
+        requires = {"gnome-software": ["(appstream-data if (PackageKit or libdnf5))"]}
+        provides = {
+            "gnome-software": ["gnome-software"],
+            "appstream-data": ["appstream-data"],
+        }
+        closure, problems = runtime_closure(["gnome-software"], requires, provides)
+        self.assertEqual(problems, [])
+        self.assertNotIn("appstream-data", closure)
+
+    def test_else_branch_is_taken_when_the_condition_is_false(self):
+        requires = {"a": ["(x if cond else y)"], "y": []}
+        provides = {"a": ["a"], "x": ["x"], "y": ["y"]}
+        closure, problems = runtime_closure(["a"], requires, provides)
+        self.assertEqual(problems, [])
+        self.assertIn("y", closure)
+        self.assertNotIn("x", closure)
+
+    def test_unless_is_settled_only_at_the_fixed_point(self):
+        # "required unless B appears" cannot be answered while B might
+        # still appear, so it fires only once nothing else can grow.
+        requires = {"a": ["(fallback unless preferred)"], "fallback": []}
+        provides = {"a": ["a"], "fallback": ["fallback"], "preferred": ["preferred"]}
+        closure, problems = runtime_closure(["a"], requires, provides)
+        self.assertEqual(problems, [])
+        self.assertIn("fallback", closure)
+
+        # With the escape present from the start, it never fires.
+        closure, problems = runtime_closure(
+            ["a", "preferred"], requires, provides
+        )
+        self.assertEqual(problems, [])
+        self.assertNotIn("fallback", closure)
+
+    def test_with_over_different_capabilities_intersects_providers(self):
+        # `with` means one package providing both, so the answer is the
+        # intersection -- not one package per term, which is `and`.
+        requires = {"a": ["(featureA with featureB)"], "both": []}
+        provides = {
+            "a": ["a"],
+            "featureA": ["both", "onlyA"],
+            "featureB": ["both", "onlyB"],
+        }
+        closure, problems = runtime_closure(["a"], requires, provides)
+        self.assertEqual(problems, [])
+        self.assertIn("both", closure)
+        self.assertNotIn("onlyA", closure)
+
+
+if __name__ == "__main__":
+    unittest.main()

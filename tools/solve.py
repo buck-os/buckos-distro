@@ -714,10 +714,21 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None):
             }
 
         direct = []
+        # BuildRequires that are boolean expressions.  Deferred to the
+        # closure rather than refused here, which is what this loop used to
+        # do: `(A if B)` asks whether B is in the buildroot, and the
+        # buildroot is precisely what runtime_closure is about to compute,
+        # so there is no answer available at this point in the loop.
+        #
+        # Refusing them was invisible while three packages were built from
+        # source and loud at 126: redhat-rpm-config's conditional alone
+        # accounted for 27 of 44 unreadable expressions, and it is a
+        # BuildRequires of a large fraction of Fedora.
+        conditional = []
         for cap in requires:
             base = strip_capability_version(cap)
             if is_rich_dep(base):
-                problems.append(("rich", base, src))
+                conditional.append((base, src))
                 continue
             try:
                 provider = resolve_capability(
@@ -732,7 +743,8 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None):
         # The buildroot must contain the runtime closure of each build dep,
         # or the compiler will not actually find the libraries.
         closure, closure_problems = runtime_closure(
-            direct, universe["requires"], universe["provides"], overrides
+            direct, universe["requires"], universe["provides"], overrides,
+            extra=conditional,
         )
         problems.extend(closure_problems)
         build_deps[src] = closure
@@ -1209,8 +1221,15 @@ def main(argv=None):
         # lockfile is knowingly incomplete: these packages compute their
         # BuildRequires at build time and nothing has run the computation,
         # so their buildroots are missing whatever it would have asked for.
+        # Points at relock rather than at probe.py directly, because
+        # relock --probe *is* the loop: it probes, re-solves against the
+        # answers and regenerates, in one command.  Naming the low-level
+        # tool told the reader to do by hand what a flag already does, and
+        # to remember the re-solve afterwards or ship a lockfile with the
+        # probe results left out of it.
         print("  unprobed: {}\n"
-              "  run `buck2 run //tools:probe -- --release {}` and re-solve"
+              "  re-run with --probe to resolve these "
+              "(`buck2 run //tools:relock -- --probe --release {}`)"
               .format(
                   ", ".join(sorted(
                       src for src, d in lock["packages"].items()
