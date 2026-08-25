@@ -1,0 +1,52 @@
+load("//defs:flavor.bzl", "package")
+
+# End-to-end exercise of the replay path on a checked-in fixture srpm.
+#
+# Deliberately a real .src.rpm rather than a synthetic topdir: the point is
+# to prove that an unmodified upstream-shaped source package goes through
+# srpm_unpack -> rpmbuild -bb -> per-subpackage installroot without the
+# spec being touched (SPEC.md section 1).
+#
+#   buck2 build //tests:hello
+#   buck2 build //tests:hello-greeting   # same spec, one bcond flipped
+#
+# Regenerating the fixture: build it in a UTS namespace with the hostname
+# set, not on a bare host.  An srpm header records BUILDHOST and COOKIE,
+# both of which are the builder's fqdn, so a fixture built casually
+# publishes whatever machine happened to make it -- and `grep` over the
+# tree will not find it, because it lives in a binary header.
+#
+#   unshare -U -r --uts -- sh -c '
+#     hostname buckos-distro-fixture
+#     rpmbuild -bs --define "_topdir $PWD" --define "dist .el9" \
+#              SPECS/hello.spec'
+
+package(
+    name = "hello",
+    srpm = "fixtures/hello-1.0-1.el9.src.rpm",
+    version = "1.0",
+    release = "1",
+    subpackages = ["hello"],
+    # The fixture's Makefile ignores %optflags, so it compiles without -g
+    # and redhat-rpm-config's automatic debuginfo extraction then fails on
+    # an empty file list.  Suppressing it is the intended escape hatch:
+    # a macro-level --define, with the spec left alone.
+    defines = ["debug_package %{nil}"],
+    visibility = ["PUBLIC"],
+)
+
+# The same source package with the `greeting` USE flag on.  Nothing here
+# names rpm: `use` is buckos vocabulary, and use_bcond maps it onto the
+# spec's own %bcond_with (SPEC.md section 5).
+package(
+    name = "hello-greeting",
+    srpm = "fixtures/hello-1.0-1.el9.src.rpm",
+    source_name = "hello",
+    version = "1.0",
+    release = "1",
+    subpackages = ["hello"],
+    use = ["greeting"],
+    use_bcond = {"greeting": "greeting"},
+    defines = ["debug_package %{nil}"],
+    visibility = ["PUBLIC"],
+)

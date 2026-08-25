@@ -1,0 +1,120 @@
+# Shared modules use base_module = "" so `import _rpm` works from a
+# python_binary's main -- the same pattern as buckos-build's tools/BUCK.
+
+python_library(
+    name = "_rpm",
+    srcs = ["_rpm.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
+# Entering a buildroot as / -- shared by the spec replay and by rootfs
+# installation, which must agree about what the sandbox guarantees.
+python_library(
+    name = "_isolation",
+    srcs = ["_isolation.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+    deps = [":_rpm"],
+)
+
+python_library(
+    name = "depgraph",
+    srcs = ["depgraph.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
+# ── Replay pipeline ──────────────────────────────────────────────────
+
+python_binary(
+    name = "srpm_unpack",
+    main = "srpm_unpack.py",
+    deps = [":_rpm"],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "rpmbuild_replay",
+    main = "rpmbuild_replay.py",
+    deps = [
+        ":_isolation",
+        ":_rpm",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "rpm_extract",
+    main = "rpm_extract.py",
+    deps = [":_rpm"],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "buildroot_assemble",
+    main = "buildroot_assemble.py",
+    deps = [":_rpm"],
+    visibility = ["PUBLIC"],
+)
+
+# ── Image pipeline ───────────────────────────────────────────────────
+
+python_binary(
+    name = "rootfs_install",
+    main = "rootfs_install.py",
+    deps = [
+        ":_isolation",
+        ":_rpm",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# ── Solver (runs out-of-band, not in the build graph) ────────────────
+#
+# solve.py reads pinned repodata and writes the checked-in lockfile.  It is
+# deliberately NOT a build action: the solve is the "generate" step of the
+# solve / generate / build split in SPEC.md section 3a, run by a human and
+# reviewed as a diff, like cargo update or reindeer vendor.
+
+# A library with a thin binary over it, rather than main = "solve.py", so
+# the closure functions can be imported by a test.  The solve's correctness
+# is not observable from its output -- a wrong closure is still a valid
+# lockfile -- so the parts that decide membership need direct coverage.
+python_library(
+    name = "solve_lib",
+    srcs = ["solve.py"],
+    base_module = "",
+    deps = [":depgraph"],
+)
+
+python_binary(
+    name = "solve",
+    main_module = "solve",
+    deps = [":solve_lib"],
+    visibility = ["PUBLIC"],
+)
+
+python_test(
+    name = "depgraph_test",
+    srcs = ["depgraph_test.py"],
+    base_module = "",
+    deps = [":depgraph"],
+)
+
+python_test(
+    name = "solve_test",
+    srcs = ["solve_test.py"],
+    base_module = "",
+    deps = [":solve_lib"],
+)
+
+# A source lint, not a unit test: it reads the checked-in .bzl files and
+# fails the build if a rule's remote-execution disposition is hardcoded
+# rather than derived from the buildroot it consumes.  See the module
+# docstring for why this cannot be left to convention.
+python_test(
+    name = "re_contract_test",
+    srcs = ["re_contract_test.py"],
+    base_module = "",
+)

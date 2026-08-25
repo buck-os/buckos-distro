@@ -1,0 +1,48 @@
+# Buck2
+/buck-out/
+/.buckd/
+/buck2
+.buckconfig.local
+
+# The prelude cell is a mount point only -- its contents come from the
+# buck2 binary itself via [external_cells] prelude = bundled.
+/prelude/
+
+# Fetched source packages, binary seed rpms, and repodata.  Large, and
+# every one of them is pinned by sha256 in a lockfile, so there is nothing
+# to gain from checking them in.
+/downloads/
+/vendor/
+/distfiles/
+
+# Content-addressed caches written by whatever serves the blob endpoint.
+# Gigabytes of rpms, all reproducible from the pins in flavors/*/lock/.
+/.fedora-cache/
+/.mirror-cache/
+
+# Raw repodata that tools/solve.py consumes.  The *lockfile* it produces
+# is checked in and reviewed as a diff -- these are just its inputs.
+/flavors/*/lock/repodata/
+/flavors/*/lock/*.xml
+/flavors/*/lock/*.xml.gz
+/flavors/*/lock/*.xml.zst
+/flavors/*/lock/*.sqlite*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Editors / OS
+*~
+*.swp
+.vscode/
+.idea/
+.DS_Store
+
+# Nothing here ignores build artifacts by extension (*.so, *.rpm, *.deb).
+# This repo *produces* those into buck-out, which is already ignored, and
+# it deliberately checks a few in as test fixtures -- see
+# tests/fixtures/.  A blanket *.so would silently drop them.
+local_scripts/

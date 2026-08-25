@@ -1,0 +1,341 @@
+"""Entering a buildroot as / from an unprivileged Buck action.
+
+Extracted from rpmbuild_replay.py because two actions now need it: the
+spec replay, and rootfs installation (tools/rootfs_install.py).  A second
+hand-rolled copy of a chroot incantation is how the two quietly stop
+agreeing about what the sandbox guarantees.
+
+Genuine hermeticity needs the buildroot mounted as /.  Without that, the
+compiler, linker and rpm macros come from the machine rather than from the
+distro being built -- a Fedora 43 spec compiled by CentOS 9's gcc against
+CentOS 9's glibc is not a Fedora 43 package, even though it will be
+labelled .fc43 and will usually succeed.
+
+Modes:
+
+    none     run against the ambient filesystem.  Non-hermetic.  Used with
+             buildroot provenance "host".
+    bwrap    bubblewrap with the buildroot bind-mounted at /, the work
+             area bound read-write, and no network.  Unprivileged.
+    unshare  util-linux `unshare`: an unprivileged user namespace, then
+             chroot into the buildroot.  Equivalent hermeticity to bwrap,
+             using tools present on any modern kernel.
+    auto     bwrap if installed, else unshare.  Never falls back to
+             "none": silently degrading to the host toolchain is exactly
+             the failure this layer exists to prevent, and it would be
+             invisible in the output.
+
+Why this module runs the command rather than returning one
+----------------------------------------------------------
+Mapping more than a single uid into the namespace -- see
+_map_subordinate_ids() -- is a handshake with the child process, not a
+command-line flag.  A caller that received a command list would have to
+perform that handshake itself, which is precisely the duplication this
+module exists to prevent.  So the entry point is run_isolated().
+"""
+
+import os
+import pwd
+import shlex
+import shutil
+import subprocess
+import sys
+
+from _rpm import require_tool, run
+
+ISOLATION_MODES = ("auto", "bwrap", "unshare", "none")
+
+# Where the kernel records a namespace's id translations.
+_UID_MAP = "/etc/subuid"
+_GID_MAP = "/etc/subgid"
+
+
+def resolve_isolation(mode):
+    """Turn "auto" into a concrete mechanism.
+
+    Deliberately never resolves to "none".  A missing sandbox must be a
+    hard error: falling back to the host would produce a build that looks
+    identical, is labelled identically, and is quietly made of the wrong
+    distro's toolchain.
+    """
+    if mode != "auto":
+        return mode
+    if shutil.which("bwrap"):
+        return "bwrap"
+    if shutil.which("unshare"):
+        return "unshare"
+    sys.exit(
+        "isolation=auto found neither bwrap nor unshare. A hermetic "
+        "buildroot cannot be entered without one of them; install "
+        "bubblewrap or util-linux, or select the host buildroot "
+        "explicitly with `-c buckos.fedora.buildroot=host` and accept "
+        "that the result is not built with the target distro's toolchain."
+    )
+
+
+# ── Subordinate id ranges ────────────────────────────────────────────
+
+
+def _subid_range(path):
+    """This user's subordinate id range from /etc/sub[ug]id, or None.
+
+    The file is keyed by either login name or numeric id, and both forms
+    appear in the wild, so both are accepted.
+    """
+    try:
+        user = pwd.getpwuid(os.getuid()).pw_name
+    except KeyError:
+        user = None
+    keys = {str(os.getuid())}
+    if user:
+        keys.add(user)
+
+    try:
+        with open(path) as fh:
+            for line in fh:
+                fields = line.strip().split(":")
+                if len(fields) != 3 or fields[0] not in keys:
+                    continue
+                try:
+                    return int(fields[1]), int(fields[2])
+                except ValueError:
+                    continue
+    except OSError:
+        return None
+    return None
+
+
+def subid_mapping_available():
+    """Can we map a whole range of ids, rather than just our own?
+
+    This is the difference between a namespace that can install an rpm and
+    one that cannot.  With only `unshare --map-root-user` exactly one id is
+    mapped, so a payload owned by anyone but root fails to unpack:
+    Fedora's `filesystem` package ships /var/spool/mail as root:mail, and
+    chown to the unmapped gid 12 returns EINVAL a few files into the very
+    first package.
+
+    Needs both a configured range and the setuid helpers that install it --
+    writing /proc/<pid>/gid_map directly is refused for any map wider than
+    one entry.
+    """
+    return (
+        _subid_range(_UID_MAP) is not None
+        and _subid_range(_GID_MAP) is not None
+        and shutil.which("newuidmap") is not None
+        and shutil.which("newgidmap") is not None
+    )
+
+
+def _map_subordinate_ids(pid):
+    """Give a namespaced process the full range of ids rpm needs.
+
+    Two entries each way:
+
+        0 <our id> 1        the namespace's root is us, so files we already
+                            own stay ours and the chroot is enterable
+        1 <base> <count>    everything else lands in the subordinate range,
+                            so uid 8 (mail) inside is a real, distinct,
+                            unprivileged id outside
+
+    Installed with newuidmap/newgidmap rather than by writing the proc
+    files: the kernel only lets an unprivileged process write a
+    single-entry map, and the setuid helpers exist precisely to validate a
+    wider one against /etc/sub[ug]id.
+    """
+    for helper, path, own in (
+        ("newuidmap", _UID_MAP, os.getuid()),
+        ("newgidmap", _GID_MAP, os.getgid()),
+    ):
+        base, count = _subid_range(path)
+        run([
+            require_tool(helper), str(pid),
+            "0", str(own), "1",
+            "1", str(base), str(count),
+        ])
+
+
+# ── The sandbox ──────────────────────────────────────────────────────
+
+
+def _chroot_script(work, chdir, sysroot, sync_fds=None):
+    """The shell that turns a fresh namespace into the buildroot as /.
+
+    The work area is bound at its own absolute path inside the chroot so
+    every path the caller already computed -- _topdir, _tmppath, and the
+    --buildroot installroot, which are siblings under it -- resolves to
+    the same string in as out.
+
+    It is also the *only* writable path exposed, and deliberately so: a
+    caller with inputs elsewhere in buck-out stages them under the work
+    area (tools/rootfs_install.py hardlinks them) rather than growing this
+    function a list of extra mounts.  Buck gives every artifact its own
+    output directory, so "just bind the inputs" means hundreds of mount
+    calls per action, and two sandboxes that disagree about which of them
+    are writable.
+    """
+    root = os.path.abspath(sysroot)
+    work = os.path.abspath(work)
+    chdir = os.path.abspath(chdir)
+
+    # Interpolated as shell assignments rather than passed through the
+    # environment: `run()` replaces the child's env wholesale, so anything
+    # this script needs has to travel inside the script itself.
+    lines = ["set -e"]
+
+    if sync_fds:
+        ready, go = sync_fds
+        # Nothing above this point may need privilege: until the parent has
+        # written our id maps we are the overflow uid, owning nothing.
+        lines += [
+            "echo r >&{}".format(ready),
+            "read _ <&{}".format(go),
+        ]
+
+    lines += [
+        "ROOT={}".format(shlex.quote(root)),
+        "WORK={}".format(shlex.quote(work)),
+        "CHDIR={}".format(shlex.quote(chdir)),
+        # Make the sysroot a mount point in its own right so chroot has a
+        # real root to pivot onto.
+        'mount --bind "$ROOT" "$ROOT"',
+        'mkdir -p "$ROOT/proc" "$ROOT/dev" "$ROOT/sys" "$ROOT/tmp"',
+        'mount -t proc proc "$ROOT/proc"',
+        # rbind rather than a fresh devtmpfs: an unprivileged user
+        # namespace cannot create device nodes, but it can carry the
+        # host's existing ones across.
+        'mount --rbind /dev "$ROOT/dev"',
+        'mount --rbind /sys "$ROOT/sys"',
+        'mount -t tmpfs tmpfs "$ROOT/tmp"',
+        # After the tmpfs, not before: with no --work the work area is
+        # itself under /tmp, and a mount point created first would be
+        # hidden by the tmpfs that lands on top of it.
+        'mkdir -p "$ROOT$WORK"',
+        'mount --bind "$WORK" "$ROOT$WORK"',
+        'cd "$ROOT$CHDIR"',
+        'exec chroot "$ROOT" sh -c \'cd "$1"; shift; exec "$@"\' sh "$CHDIR" "$@"',
+    ]
+    return "\n".join(lines)
+
+
+# The namespaces, minus --user, which is handled separately because how it
+# is mapped is the whole question.
+#
+#   --mount       so the mounts are private and vanish with the build
+#   --pid --fork  required before /proc can be mounted, and reaps stray
+#                 build daemons on exit
+#   --net         no network, so a spec that downloads mid-build fails here
+#                 instead of producing an unreproducible artifact
+_NAMESPACES = ("--mount", "--pid", "--fork", "--net", "--ipc")
+
+
+def _run_unshare(cmd, work, chdir, sysroot, env):
+    """Enter the buildroot as / using an unprivileged user namespace."""
+    unshare = require_tool("unshare")
+
+    if not subid_mapping_available():
+        # Degraded, and said out loud.  Payloads owned by root still unpack,
+        # so a buildroot assembles fine and a small rootfs may too -- but
+        # anything shipping a non-root file dies partway through a
+        # transaction, which reads as a corrupt package rather than as a
+        # missing host configuration.
+        print(
+            "buckos-distro: WARNING: no subordinate id range for this user "
+            "(see {} and {}) or no newuidmap/newgidmap. Falling back to a "
+            "single mapped id; rpm cannot chown files to uids other than "
+            "root, so any package shipping one will fail to unpack.".format(
+                _UID_MAP, _GID_MAP
+            ),
+            file=sys.stderr,
+        )
+        script = _chroot_script(work, chdir, sysroot)
+        return run(
+            [unshare, "--user", "--map-root-user"] + list(_NAMESPACES) +
+            ["--", "/bin/sh", "-c", script, "sh"] + list(cmd),
+            env=env,
+        )
+
+    # The handshake.  `unshare` creates the user namespace and execs the
+    # shell, which announces itself and blocks; we install the id maps from
+    # out here, where we still have our own identity; then it proceeds.
+    # The order is forced: a namespace's maps can only be written before it
+    # has done anything requiring them, and only from outside.
+    ready_r, ready_w = os.pipe()
+    go_r, go_w = os.pipe()
+    script = _chroot_script(work, chdir, sysroot, sync_fds=(ready_w, go_r))
+
+    # No --map-root-user: it would write a single-entry map immediately, and
+    # a namespace's uid_map can only be written once.
+    argv = [unshare, "--user"] + list(_NAMESPACES) + [
+        "--", "/bin/sh", "-c", script, "sh",
+    ] + [str(c) for c in cmd]
+
+    print("+ {}".format(" ".join(argv)), file=sys.stderr, flush=True)
+    child = subprocess.Popen(argv, env=env, pass_fds=(ready_w, go_r))
+    try:
+        os.close(ready_w)
+        os.close(go_r)
+        # Blocks until the shell is running, which is after unshare(2) has
+        # returned -- so the namespace we are about to map really exists.
+        # An empty read means the child died first; let waiting report why
+        # rather than failing here on a confusing newuidmap error.
+        if os.read(ready_r, 2):
+            _map_subordinate_ids(child.pid)
+        os.write(go_w, b"go\n")
+    finally:
+        os.close(ready_r)
+        os.close(go_w)
+
+    status = child.wait()
+    if status != 0:
+        raise subprocess.CalledProcessError(status, argv)
+    return status
+
+
+def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
+    """Run a command inside the sandbox the resolved mode implies.
+
+    `sysroot` is the tree to become /, already composed if the caller
+    layers anything onto the seed -- never the shared seed input itself,
+    which is a Buck artifact other actions are reading concurrently.
+    `work` is the scratch area to make visible inside; `chdir` is where to
+    start.
+    """
+    if isolation == "none":
+        # `chdir` is the sandbox's starting directory in the other modes,
+        # where the chroot script cds to it.  With no sandbox it is just
+        # the cwd, and it still has to be honoured: rpmbuild resolves
+        # relative paths in a spec against wherever it was started.
+        return run(cmd, env=env, cwd=chdir)
+
+    if not sysroot:
+        sys.exit(
+            "isolation={} requires --buildroot-tree: there is no root to "
+            "enter".format(isolation)
+        )
+
+    if isolation == "bwrap":
+        bwrap = require_tool("bwrap")
+        wrapper = [
+            bwrap,
+            "--unshare-net",
+            "--unshare-pid",
+            "--unshare-ipc",
+            "--die-with-parent",
+            # The flavor buildroot becomes /.
+            "--bind", os.path.abspath(sysroot), "/",
+            # The work area stays writable at its real path so paths the
+            # caller computed outside resolve identically inside.
+            "--bind", os.path.abspath(work), os.path.abspath(work),
+            "--proc", "/proc",
+            "--dev", "/dev",
+            "--tmpfs", "/tmp",
+            "--setenv", "HOME", "/builddir",
+            "--chdir", os.path.abspath(chdir),
+        ]
+        return run(wrapper + list(cmd), env=env)
+
+    if isolation == "unshare":
+        return _run_unshare(cmd, work, chdir, sysroot, env)
+
+    sys.exit("unknown isolation mode: {}".format(isolation))

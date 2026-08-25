@@ -1,0 +1,35 @@
+# Extra rpm macros loaded on top of the normal macro path by the replay
+# driver (rpmbuild --load).  Loaded, not substituted for %_macrofiles, so
+# redhat-rpm-config's own macros still apply.
+#
+# Keep this file small.  Every macro here is a divergence from what Koji
+# would do, and divergences are what make a rebuild hard to compare
+# against upstream.
+
+# Identify the builder in the rpm header instead of leaking the hostname,
+# which would make otherwise-identical rebuilds differ.
+#
+# %_buildhost only.  %_host is NOT the build machine's name -- it is the
+# autoconf target triplet, and %configure passes it straight through as
+# --host=/--build=.  Setting it here produced `./configure
+# --build=buckos-distro` and a "C compiler cannot create executables"
+# failure several layers away from the cause.
+%_buildhost             buckos-distro
+%packager               buckos-distro
+%vendor                 buckos-distro
+
+# Do not compress payloads with a level that depends on the available
+# thread count -- xz's default varies with nproc and changes the payload
+# bytes for the same input.
+%_source_payload        w7.gzdio
+%_binary_payload        w7.gzdio
+
+# Clamp file mtimes to SOURCE_DATE_EPOCH, which the driver exports.
+%clamp_mtime_to_source_date_epoch  1
+%use_source_date_epoch_as_buildtime 1
+
+# Keep %clean from deleting the buildroot before we can read it.  The
+# driver derives the installroot from the produced rpms rather than from
+# BUILDROOT/ precisely because upstream specs cannot be relied on here,
+# but leaving the tree behind makes build failures far easier to debug.
+%__spec_clean_body      %{nil}

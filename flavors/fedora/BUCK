@@ -1,0 +1,53 @@
+load("//defs:releases.bzl", "default_release", "flavor_releases")
+load("//flavors/fedora/generated:index.bzl", "DATA_BY_RELEASE")
+load(
+    ":defs.bzl",
+    "fedora_buildroots_for",
+    "fedora_downloads_for",
+    "fedora_packages_for",
+    "fedora_rootfs_for",
+)
+
+# ── The fedora build environment ─────────────────────────────────────
+#
+# Two provenances per release, selected by .buckconfig:
+#
+#   [buckos.fedora] buildroot = host          -> :buildroot-host
+#   [buckos.fedora] buildroot = binary-seed   -> :buildroot-binary-seed
+#
+# toolchains//:buildroot aliases to whichever one is configured, so
+# nothing downstream names either target directly.
+#
+# Releases are a list, not a single value (defs/releases.bzl).  Every
+# release gets its own buildroot targets, suffixed with the release, so
+# several Fedoras coexist in one build graph:
+#
+#   buck2 build //flavors/fedora:buildroot-binary-seed-43 \
+#               //flavors/fedora:buildroot-binary-seed-44
+#
+# The unsuffixed names alias the default release, so callers that do not
+# care which Fedora they get keep working.
+#
+# Only non-EOL releases can be listed: once a release goes EOL Fedora moves
+# it to archives.fedoraproject.org and every repodata path 404s, so 41 and
+# 42 have already aged out.  There is no autodetection here on purpose --
+# which releases exist is a fact about the world on a given day, and
+# baking it into the graph would make the target list change under you.
+
+RELEASES = flavor_releases("fedora", default = "43,44")
+
+DEFAULT_RELEASE = default_release("fedora", RELEASES)
+
+# The pinned rpms: one http_file per blob, sha256-verified by buck2 itself.
+# These must exist before the buildroots that reference them.
+fedora_downloads_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+
+fedora_buildroots_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+
+# The source packages this release actually replays.
+fedora_packages_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+
+# Rootfs assembly: rpm running a real transaction over the pinned set,
+# with a database and scriptlets.  See fedora_rootfs() for why the seed
+# closure is the honest first subject.
+fedora_rootfs_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)

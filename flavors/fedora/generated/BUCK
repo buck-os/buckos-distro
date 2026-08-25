@@ -1,0 +1,2 @@
+# Package marker so the generated .bzl files here are loadable.
+# The data itself defines no targets; flavors/fedora/BUCK does that.

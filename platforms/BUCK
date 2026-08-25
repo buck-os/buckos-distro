@@ -1,0 +1,158 @@
+load("//defs:exec.bzl", "distro_execution_platforms")
+load("//defs:releases.bzl", "flavor_releases")
+
+# ── Target platforms ─────────────────────────────────────────────────
+
+platform(
+    name = "linux-x86_64",
+    constraint_values = [
+        "prelude//cpu/constraints:x86_64",
+        "prelude//os/constraints:linux",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+platform(
+    name = "linux-aarch64",
+    constraint_values = [
+        "prelude//cpu/constraints:arm64",
+        "prelude//os/constraints:linux",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+config_setting(
+    name = "is_x86_64",
+    constraint_values = ["prelude//cpu/constraints:x86_64"],
+    visibility = ["PUBLIC"],
+)
+
+config_setting(
+    name = "is_aarch64",
+    constraint_values = ["prelude//cpu/constraints:arm64"],
+    visibility = ["PUBLIC"],
+)
+
+# ── Distro flavor ────────────────────────────────────────────────────
+#
+# Which upstream distro's packaging a target was built from.  Carried as a
+# real constraint, not just a string in a provider, so a rootfs can refuse
+# to mix flavors by construction.
+
+constraint_setting(
+    name = "flavor",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "fedora",
+    constraint_setting = ":flavor",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "ubuntu",
+    constraint_setting = ":flavor",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "buckos",
+    constraint_setting = ":flavor",
+    visibility = ["PUBLIC"],
+)
+
+# ── Distro release ───────────────────────────────────────────────────
+#
+# Which release of a flavor a target was built against.  Fedora 43 and
+# Fedora 44 are different build universes -- different compiler, different
+# macros, different pinned dependency set -- so "which release" is carried
+# as a constraint rather than a global mode the repo is switched into.
+# That is what lets both exist in one build graph, and what lets a target
+# declare itself incompatible with a release instead of silently building
+# against the wrong one.
+#
+# Values are generated from the same config the flavors read, so adding a
+# release is one edit in .buckconfig and not a list maintained twice.
+
+constraint_setting(
+    name = "release",
+    visibility = ["PUBLIC"],
+)
+
+[
+    constraint_value(
+        name = "fedora-{}".format(_release),
+        constraint_setting = ":release",
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("fedora", default = "43,44")
+]
+
+[
+    platform(
+        name = "fedora-{}-x86_64".format(_release),
+        constraint_values = [
+            "prelude//cpu/constraints:x86_64",
+            "prelude//os/constraints:linux",
+            ":fedora",
+            ":fedora-{}".format(_release),
+        ],
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("fedora", default = "43,44")
+]
+
+# ── Buildroot provenance ─────────────────────────────────────────────
+#
+# SPEC.md section 3.  Exposed as constraints so a target can be declared
+# incompatible with a non-hermetic buildroot rather than silently
+# producing an unreproducible artifact.
+
+constraint_setting(
+    name = "provenance",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "binary-seed",
+    constraint_setting = ":provenance",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "bootstrapped",
+    constraint_setting = ":provenance",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "host",
+    constraint_setting = ":provenance",
+    visibility = ["PUBLIC"],
+)
+
+config_setting(
+    name = "is-host-provenance",
+    constraint_values = [":host"],
+    visibility = ["PUBLIC"],
+)
+
+# ── Execution platform registry ──────────────────────────────────────
+#
+# Registered in .buckconfig as:
+#   [build]
+#   execution_platforms = //platforms:platforms
+#
+# Both flags default off so a fresh clone builds locally with no
+# infrastructure.  Turn them on in .buckconfig.local:
+#   [buckos]
+#     remote_execution = true
+#     remote_cache = true
+
+distro_execution_platforms(
+    name = "platforms",
+    remote_cache_enabled = read_config("buckos", "remote_cache", "") == "true",
+    remote_execution_enabled = read_config("buckos", "remote_execution", "") == "true",
+    visibility = ["PUBLIC"],
+)

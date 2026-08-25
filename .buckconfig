@@ -1,0 +1,99 @@
+[cells]
+  buckos = .
+  prelude = prelude
+  toolchains = toolchains
+
+# `config` and `ovr_config` are the platform/constraint namespaces the
+# prelude's own select()s read.  `buck`, `fbcode` and `fbsource` look like
+# leftovers from somewhere else and are not: the prelude bundled inside the
+# buck2 binary names them itself (its android rules reference
+# `fbsource//tools/build_defs/android/config:build_mode_opt`), so removing
+# them fails the build with "unknown cell alias" before any target of ours
+# is even analysed.  They are load-bearing prelude vocabulary, pointed at
+# this repo's own root cell so the patterns resolve.
+[cell_aliases]
+  buck = prelude
+  config = prelude
+  fbcode = buckos
+  fbsource = buckos
+  ovr_config = prelude
+
+# Use the prelude bundled inside the open-source buck2 binary rather than
+# vendoring facebook/buck2-prelude as a submodule.  The prelude/ directory
+# must exist as a mount point but its contents come from buck2 itself.
+[external_cells]
+  prelude = bundled
+
+[build]
+  default_target_platform = //platforms:linux-x86_64
+  execution_platforms = //platforms:platforms
+
+# ── Remote execution ─────────────────────────────────────────────────
+# Deliberately absent rather than disabled: a `[buck2_re_client]` with no
+# reachable engine fails differently and less clearly than no section at
+# all.  Filling this in is the *second* step -- the first is
+#   [buckos]
+#     remote_execution = true
+#     remote_cache = true
+# in .buckconfig.local, which is what //platforms:platforms reads.
+#
+# [buck2_re_client]
+#   engine_address       = <host:port>
+#   action_cache_address = <host:port>
+#   cas_address          = <host:port>
+#   instance_name        = <pool>
+#   tls                  = true
+#
+# See README.md "Remote execution" for what is known to block a green
+# remote build; the short version is that //defs/rules:rootfs needs
+# unprivileged user namespaces and /etc/subuid on the worker.
+
+[parser]
+  target_platform_detector_spec = target:buckos//...->buckos//platforms:linux-x86_64 target:toolchains//...->buckos//platforms:linux-x86_64
+
+[project]
+  # **/lock/repodata holds the raw primary.xml a solve consumes -- tens of
+  # megabytes that buck2 would otherwise rescan on every build.  The
+  # *lockfile* it produces is checked in and is not ignored.
+  #
+  # .fedora-cache and .mirror-cache are the blob endpoint's content-addressed
+  # store.  .gitignore does not help here -- buck2 keeps its own watch list --
+  # and without these entries every build reports a thousand-odd file change
+  # events for rpms it fetched itself, which is both slow and misleading when
+  # reading a log for what actually changed.
+  ignore = .git, buck-out, **/__pycache__, .claude, .buckos, downloads, **/lock/repodata, local_scripts, .fedora-cache, .mirror-cache
+
+# ── Distro flavor selection ──────────────────────────────────────────
+# Which flavor `//:default` resolves to.  Override per-invocation with
+#   buck2 build //... -c buckos.flavor=ubuntu
+[buckos]
+  flavor = fedora
+
+# ── Fedora flavor configuration ──────────────────────────────────────
+# releases     Every release to define targets for, oldest first.  Each one
+#              gets its own :buildroot-*-<release> targets, and they coexist
+#              in a single build graph -- building two Fedoras at once is a
+#              supported operation, not a mode switch.  Only non-EOL
+#              releases work: EOL ones move to archives.fedoraproject.org
+#              and their repodata paths 404.
+# release      Which release the unsuffixed targets alias.  Defaults to the
+#              newest entry in `releases`, so adding a release moves the
+#              default forward on its own.  Set it only to pin an older one.
+# buildroot    Buildroot provenance, see SPEC.md section 3:
+#                binary-seed  fetch @buildsys-build RPMs by hash (production)
+#                host         use the host's installed rpm toolchain
+#                             (non-hermetic, local_only, development only)
+[buckos.fedora]
+  releases = 43,44
+  buildroot = host
+
+[buckos.ubuntu]
+  releases = jammy,noble
+  buildroot = host
+
+# ── Source mirror ────────────────────────────────────────────────────
+# upstream  fetch source packages from the distro's own mirrors
+# vendor    read pre-downloaded source packages from vendor_dir
+[mirror]
+  mode = upstream
+  vendor_dir = vendor
