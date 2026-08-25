@@ -767,5 +767,83 @@ class TestBooleanEvaluation(unittest.TestCase):
         self.assertNotIn("onlyA", closure)
 
 
+class TestAmbiguityDeferral(unittest.TestCase):
+    """Several providers is a question; several providers one of which is
+    already installed is not.
+
+    Solving 126 source packages produced 500 ambiguities, 395 of which were
+    this: a capability with two providers, in a buildroot that had one of
+    them all along.
+    """
+
+    # capability -> providers, the direction resolve_capability reads.
+    COREUTILS = {
+        "pkg": ["pkg"],
+        "coreutils": ["coreutils"],
+        "coreutils-single": ["coreutils-single"],
+        "/usr/bin/basename": ["coreutils", "coreutils-single"],
+    }
+    BROWSERS = {
+        "docbook-utils": ["docbook-utils"],
+        "elinks": ["elinks"],
+        "lynx": ["lynx"],
+        "text-www-browser": ["elinks", "lynx"],
+    }
+
+    def test_ambiguity_is_satisfied_by_a_provider_already_present(self):
+        requires = {"pkg": ["/usr/bin/basename"], "coreutils": []}
+        closure, problems = runtime_closure(
+            ["pkg", "coreutils"], requires, self.COREUTILS
+        )
+        self.assertEqual(problems, [])
+        self.assertIn("coreutils", closure)
+        self.assertNotIn("coreutils-single", closure)
+
+    def test_a_provider_arriving_later_still_settles_it(self):
+        # Order-dependence handled the same way the conditionals are: by
+        # re-asking at the fixed point rather than once.
+        requires = {
+            "pkg": ["/usr/bin/basename", "something-else"],
+            "something-else": ["coreutils"],
+            "coreutils": [],
+        }
+        provides = dict(self.COREUTILS, **{"something-else": ["something-else"]})
+        closure, problems = runtime_closure(["pkg"], requires, provides)
+        self.assertEqual(problems, [])
+        self.assertIn("coreutils", closure)
+
+    def test_ambiguity_with_no_candidate_present_is_still_reported(self):
+        # The solver has not started guessing: with nothing to go on it
+        # still refuses, and now says what the candidates are.
+        requires = {"docbook-utils": ["text-www-browser"]}
+        closure, problems = runtime_closure(
+            ["docbook-utils"], requires, self.BROWSERS
+        )
+        self.assertEqual([p[0] for p in problems], ["choice"])
+        detail = problems[0][1]
+        self.assertIn("elinks", detail)
+        self.assertIn("lynx", detail)
+        self.assertIn("--override", detail)
+
+    def test_one_decision_is_reported_once(self):
+        # 38 packages hitting the same fork is one question, not 38.
+        requires = {name: ["text-www-browser"] for name in ("a", "b", "c")}
+        provides = dict(
+            self.BROWSERS, a=["a"], b=["b"], c=["c"]
+        )
+        closure, problems = runtime_closure(["a", "b", "c"], requires, provides)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("a, b, c", problems[0][1])
+
+    def test_an_override_still_wins_outright(self):
+        requires = {"docbook-utils": ["text-www-browser"]}
+        closure, problems = runtime_closure(
+            ["docbook-utils"], requires, self.BROWSERS,
+            overrides={"text-www-browser": "lynx"},
+        )
+        self.assertEqual(problems, [])
+        self.assertIn("lynx", closure)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -558,7 +558,27 @@ def runtime_closure(roots, requires, provides, overrides=None, extra=None):
     def resolve(cap, who):
         try:
             return resolve_capability(cap, provides, who, overrides)
-        except (AmbiguousProvider, UnresolvedCapability) as exc:
+        except AmbiguousProvider as exc:
+            # Deferred rather than reported, on the same argument that
+            # defers "(A or B)": several packages provide this, so the
+            # honest question is whether the closure already contains one,
+            # and that cannot be answered until the closure stops growing.
+            #
+            # This is not the solver starting to guess.  A capability whose
+            # provider is already in the buildroot is *satisfied* -- that
+            # is a fact about the set, not a policy about which package is
+            # nicer -- and picking it changes nothing that a reviewer would
+            # have decided differently.  An ambiguity with no candidate
+            # present at the fixed point is still reported, and still needs
+            # a human.
+            #
+            # It matters at scale.  Solving 126 source packages leaves 500
+            # ambiguities, and /usr/bin/basename between coreutils and
+            # coreutils-single accounts for 38 of them -- in a buildroot
+            # that has had coreutils in it since @buildsys-build.
+            choices.append((cap, sorted(exc.candidates), who))
+            return None
+        except UnresolvedCapability as exc:
             problems.append(("unresolved", str(exc), who))
             return None
 
@@ -817,12 +837,29 @@ def runtime_closure(roots, requires, provides, overrides=None, extra=None):
     # never be.  Reported rather than resolved: rpm picks a branch by
     # policy, and inventing a policy is how a solver quietly installs a
     # different distro than the one anyone reviewed.
+    # Deduplicated, because one decision is one decision however many
+    # packages ran into it.  /usr/bin/basename between coreutils and
+    # coreutils-single is a single question asked 38 times, and a reviewer
+    # working a list wants 38 lines collapsed to one with the askers named.
+    grouped = {}
     for expression, alternatives, who in choices:
+        entry = grouped.setdefault(expression, (tuple(alternatives), set()))
+        entry[1].add(who)
+    for expression in sorted(grouped):
+        alternatives, askers = grouped[expression]
+        wanted = sorted(askers)
         problems.append((
             "choice",
-            "{} -- no branch present; settle it with "
-            "--override '{}=<package>'".format(expression, expression),
-            who,
+            "{} -- none of its candidates is in the buildroot; candidates "
+            "are {}. Required by {}{}. Settle it with "
+            "--override '{}=<package>'".format(
+                expression,
+                ", ".join(alternatives) or "none",
+                ", ".join(wanted[:3]),
+                " and {} more".format(len(wanted) - 3) if len(wanted) > 3 else "",
+                expression,
+            ),
+            wanted[0],
         ))
     return seen, problems
 

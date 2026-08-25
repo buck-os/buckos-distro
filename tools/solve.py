@@ -734,7 +734,14 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None):
                 provider = resolve_capability(
                     base, universe["provides"], src, overrides
                 )
-            except (AmbiguousProvider, UnresolvedCapability) as exc:
+            except AmbiguousProvider:
+                # Handed to the closure for the same reason the boolean
+                # expressions are: "which of these provides it" is often
+                # answered by the buildroot already containing one, and
+                # that is not known until the closure settles.
+                conditional.append((base, src))
+                continue
+            except UnresolvedCapability as exc:
                 problems.append(("unresolved", str(exc), src))
                 continue
             direct.append(provider)

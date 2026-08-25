@@ -391,12 +391,30 @@ Stated plainly, because each one is load-bearing:
   rather than inferred. The `/usr/sbin -> bin` compat link used to be on
   this list and no longer is — `filesystem`'s `%pretrans` now makes it for
   real, see below.
-- **Ambiguous capabilities need a human.** Real repodata has capabilities
-  with many providers — `glibc-langpack` has 211, `system-release` 34 —
-  and the solver refuses to guess. `--override cap=package` settles each
-  one, and resolving a batch tends to expose the next layer beneath it, so
-  arriving at a clean solve is iterative. The overrides are an input to the
-  solve and belong in review alongside the lockfile.
+- **Genuinely ambiguous capabilities need a human.** Real repodata has
+  capabilities with many providers — `glibc-langpack` has 211,
+  `system-release` 34 — and the solver refuses to guess. `--override
+  cap=package` settles each one, and resolving a batch tends to expose the
+  next layer beneath it, so arriving at a clean solve is iterative. The
+  overrides are an input to the solve and belong in review alongside the
+  lockfile.
+
+  Most ambiguity is not genuine, though, and is no longer reported as
+  such. An ambiguous capability is deferred to the fixed point exactly as
+  `(A or B)` is, and if the closure already contains one of its providers
+  the requirement is simply satisfied. That is a fact about the set rather
+  than a policy about which package is nicer — nothing a reviewer would
+  have decided differently. It is most of them: solving the live image's
+  126 source packages reports 500 ambiguities resolved eagerly and **69**
+  deferred, because `/usr/bin/basename` between `coreutils` and
+  `coreutils-single` is not a real question in a buildroot that has had
+  `coreutils` in it since `@buildsys-build`.
+
+  What survives is 51 distinct decisions, and they are real ones —
+  `text-www-browser` between elinks, lynx and w3m; `crate(regex-syntax)`
+  between the current and the 0.6 compat package; `libfofi.so.4()(64bit)`
+  between `xpdf` and `xpdf-libs`. Each is reported once with its
+  candidates and the packages that asked, rather than once per asker.
 - **Rich/boolean dependencies are parsed, but `or` still needs a human.**
   `tools/depgraph.py` implements rpm's boolean grammar — `and`, `or`,
   `with`, `without`, `if`/`else`, `unless`/`else`, nested to any depth —
