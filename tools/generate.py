@@ -95,6 +95,7 @@ def collect(lock):
             "evr": source["evr"],
             "location": source["location"],
             "sha256": source["sha256"],
+            "repo": source.get("repo"),
         })
         recipes.append({
             "name": name,
@@ -118,6 +119,26 @@ def render(lock, lockfile, seed, image_sets, sources, recipes):
     out.append("DIST_TAG = {}\n".format(json.dumps(lock["dist_tag"])))
     out.append("TARGET_CPU = {}\n".format(json.dumps(lock["target_cpu"])))
     out.append("\n")
+
+    # The upstream URL each repo's `location` paths are relative to.  Carried
+    # from the lockfile rather than reconstructed here, because a repo-relative
+    # location does not say which repo it came from and the repodata that
+    # would answer that is not checked in.
+    #
+    # A map rather than one binary and one source base: once updates/ is
+    # layered over releases/, a single closure legitimately spans both, so
+    # the base has to be looked up per entry.  Every entry below carries the
+    # repo name that indexes this.
+    #
+    # Canonical upstream, not whatever mirror served the solve: a mirror is
+    # substitutable at build time precisely because the sha256 is pinned, so
+    # baking one in would trade a fact for a local accident.
+    out.append("REPO_BASE = {\n")
+    for repo in sorted(lock.get("repos", []), key=lambda r: r["name"]):
+        out.append("    {}: {},\n".format(
+            json.dumps(repo["name"]), json.dumps(repo.get("base", ""))
+        ))
+    out.append("}\n\n")
 
     out.append("# The binary-seed closure: prebuilt Fedora rpms that cut the\n")
     out.append("# dependency graph.  This *is* the Fedora toolchain -- gcc,\n")
@@ -162,6 +183,11 @@ def _entry_literal(entry):
         "arch": entry["arch"],
         "location": entry["location"],
         "sha256": entry["sha256"],
+        # Indexes REPO_BASE.  `location` alone is ambiguous: the same
+        # package updated post-GA has the same repo-relative path under a
+        # different tree, so without this an updated rpm would be fetched
+        # from the GA base and 404.
+        "repo": entry.get("repo") or "",
         "target": _target_name(entry),
     }, sort_keys=True)
 
@@ -172,6 +198,7 @@ def _source_literal(entry):
         "evr": entry["evr"],
         "location": entry["location"],
         "sha256": entry["sha256"],
+        "repo": entry.get("repo") or "",
         "target": "srpm-{}".format(entry["name"]),
     }, sort_keys=True)
 
@@ -259,6 +286,7 @@ def write_index(out_dir):
             '    {a}_image_sets = "IMAGE_SETS",\n'
             '    {a}_recipes = "RECIPES",\n'
             '    {a}_release = "RELEASE",\n'
+            '    {a}_repo_base = "REPO_BASE",\n'
             '    {a}_seed = "SEED_RPMS",\n'
             '    {a}_sources = "SOURCE_RPMS",\n'
             '    {a}_target_cpu = "TARGET_CPU",\n'
@@ -273,6 +301,7 @@ def write_index(out_dir):
             '        RELEASE = {a}_release,\n'
             '        DIST_TAG = {a}_dist_tag,\n'
             '        TARGET_CPU = {a}_target_cpu,\n'
+            '        REPO_BASE = {a}_repo_base,\n'
             '        SEED_RPMS = {a}_seed,\n'
             '        IMAGE_SETS = {a}_image_sets,\n'
             '        SOURCE_RPMS = {a}_sources,\n'

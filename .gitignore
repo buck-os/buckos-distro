@@ -45,4 +45,9 @@ __pycache__/
 # This repo *produces* those into buck-out, which is already ignored, and
 # it deliberately checks a few in as test fixtures -- see
 # tests/fixtures/.  A blanket *.so would silently drop them.
+
+# Site-local helpers -- proxies, mirrors, whatever a particular network
+# needs to reach upstream.  Nothing in the build may depend on these: a
+# clone with no local_scripts/ is the supported configuration, and an
+# environment that needs them needs them *around* the build, not inside it.
 local_scripts/

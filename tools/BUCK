@@ -113,6 +113,15 @@ python_test(
 # solve / generate / build split in SPEC.md section 3a, run by a human and
 # reviewed as a diff, like cargo update or reindeer vendor.
 
+# rpm's version comparison, kept apart from the solver because it is
+# transcribed from lib/rpmvercmp.c and is tested against rpm's own corpus
+# rather than against anything this repo believes.
+python_library(
+    name = "rpmvercmp",
+    srcs = ["rpmvercmp.py"],
+    base_module = "",
+)
+
 # A library with a thin binary over it, rather than main = "solve.py", so
 # the closure functions can be imported by a test.  The solve's correctness
 # is not observable from its output -- a wrong closure is still a valid
@@ -121,13 +130,42 @@ python_library(
     name = "solve_lib",
     srcs = ["solve.py"],
     base_module = "",
-    deps = [":depgraph"],
+    deps = [
+        ":depgraph",
+        ":rpmvercmp",
+    ],
 )
 
 python_binary(
     name = "solve",
     main_module = "solve",
     deps = [":solve_lib"],
+    visibility = ["PUBLIC"],
+)
+
+# The update loop: fetch upstream repodata, re-solve, regenerate.
+#
+#     buck2 run //tools:relock -- --release 43
+#
+# Runnable but not buildable-into-anything, for the same reason solve is:
+# it reaches the network and writes checked-in files, so it is a human's
+# generate step whose output is reviewed as a diff.  Making it an action
+# would put upstream's publishing schedule inside the build graph and cost
+# the property that a given commit builds the same distro tomorrow.
+python_library(
+    name = "relock_lib",
+    srcs = [
+        "generate.py",
+        "relock.py",
+    ],
+    base_module = "",
+    deps = [":solve_lib"],
+)
+
+python_binary(
+    name = "relock",
+    main_module = "relock",
+    deps = [":relock_lib"],
     visibility = ["PUBLIC"],
 )
 
@@ -143,6 +181,16 @@ python_test(
     srcs = ["solve_test.py"],
     base_module = "",
     deps = [":solve_lib"],
+)
+
+# Run against rpm's own tests/rpmvercmp.at corpus rather than cases
+# invented here: the rules are odd enough that cases written from the
+# documentation would agree with the documentation instead of with rpm.
+python_test(
+    name = "rpmvercmp_test",
+    srcs = ["rpmvercmp_test.py"],
+    base_module = "",
+    deps = [":rpmvercmp"],
 )
 
 # A source lint, not a unit test: it reads the checked-in .bzl files and

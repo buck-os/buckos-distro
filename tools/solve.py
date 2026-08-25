@@ -29,7 +29,10 @@ import lzma
 import os
 import subprocess
 import sys
+import urllib.parse
 import xml.etree.ElementTree as ET
+
+from rpmvercmp import package_is_newer
 
 from depgraph import (
     AmbiguousProvider,
@@ -51,6 +54,134 @@ COMMON_NS = "http://linux.duke.edu/metadata/common"
 # Verified against a real SRPM header: `rpm -qp --requires` emits
 # rpmlib(CompressedFileNames) and rpmlib(FileDigests) unconditionally.
 PSEUDO_CAPABILITY_PREFIXES = ("rpmlib(", "config(", "rpmlib")
+
+# Hosts a lockfile may name.  The lockfile is committed and published, so
+# the base URL it records has to be one anybody can reach.
+#
+# Solving against an internal mirror is entirely reasonable -- it is faster
+# and it is often the only route with egress -- so the mistake this catches
+# is not "used a mirror", it is "wrote the mirror's address down". The two
+# are easy to conflate because passing the mirror URL is exactly what makes
+# the solve work, and the resulting lockfile looks correct: it is only wrong
+# in a way that shows up as a leaked hostname in a public repo, and as a
+# clone that tries to fetch from a host that does not exist for it.
+#
+# An allowlist rather than a denylist of internal patterns, because the set
+# of public Fedora mirrors is short and knowable while the set of things
+# that are not is neither.
+PUBLIC_BASE_HOSTS = (
+    "dl.fedoraproject.org",
+    "download.fedoraproject.org",
+    "archives.fedoraproject.org",
+    "kojipkgs.fedoraproject.org",
+)
+
+
+def check_public_base(flag, url):
+    """Refuse to record a base URL a fresh clone could not fetch from."""
+    if not url:
+        return url
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        sys.exit(
+            "{} must be an absolute http(s) URL, got {!r}".format(flag, url)
+        )
+    # hostname rather than netloc, so `dl.fedoraproject.org@internal.host`
+    # is read as the internal host it actually resolves to rather than as
+    # the public name sitting in front of the `@`.
+    #
+    # An explicit port is refused even on a public name: real mirrors serve
+    # on 80 and 443, so `dl.fedoraproject.org:8080` is a port-forward
+    # wearing the right hostname -- the one shape that passes a
+    # host-only check while still being local.
+    port_is_default = parts.port is None or parts.port in (80, 443)
+    if parts.hostname not in PUBLIC_BASE_HOSTS or not port_is_default:
+        sys.exit(
+            "{}={} names {!r}, which is not a public Fedora mirror.\n"
+            "The lockfile is committed, so this URL gets published and has "
+            "to be one any clone can reach.\n"
+            "Solve against whatever mirror you like, but pass the canonical "
+            "upstream URL here -- the sha256 pins make the two "
+            "interchangeable. Point the *build* at a mirror instead, with "
+            "[buckos.fedora] mirror_base or blob_base in .buckconfig.local.\n"
+            "Public hosts: {}".format(
+                flag, url, parts.hostname, ", ".join(PUBLIC_BASE_HOSTS)
+            )
+        )
+    return url.rstrip("/")
+
+
+# Layout words Fedora's paths use to distinguish one repo from another.
+# Only for naming: a repo's name is a review convenience, and getting it
+# wrong costs a confusing lockfile rather than a wrong download.
+_LAYOUT_WORDS = ("releases", "updates", "development", "rawhide", "archive")
+
+
+def derive_repo_name(kind, base, taken):
+    """A short, stable name for a repo, from its URL.
+
+    Names exist so the lockfile can say `"repo": "updates"` on each of
+    several hundred entries instead of repeating a 90-character URL. They
+    are derived rather than required because the obvious name is already in
+    the URL, and a flag nobody remembers to pass is a flag that ends up
+    holding a default that means nothing.
+    """
+    words = [w for w in urllib.parse.urlsplit(base).path.split("/") if w]
+    layout = next((w for w in words if w in _LAYOUT_WORDS), None)
+    stem = "{}-{}".format(kind, layout) if layout else kind
+
+    if stem not in taken:
+        return stem
+    # Two repos of the same kind under the same layout is unusual but not
+    # invalid; suffix rather than collide, since the name is a key.
+    for suffix in range(2, 100):
+        candidate = "{}{}".format(stem, suffix)
+        if candidate not in taken:
+            return candidate
+    raise AssertionError("cannot name repo for " + base)
+
+
+def collect_repos(args):
+    """Pair up the repeatable repo flags into one ordered table.
+
+    Positional pairing -- the Nth base and name go with the Nth primary --
+    so the lengths have to agree. Checked rather than zipped, because
+    zip() would silently drop a base URL if one were missed and the failure
+    would surface much later as a package with no download URL.
+    """
+    repos = []
+    for kind, primaries, bases, names in (
+        ("binary", args.binary_primary, args.binary_base, args.binary_repo),
+        ("source", args.source_primary, args.source_base, args.source_repo),
+    ):
+        if bases and len(bases) != len(primaries):
+            sys.exit(
+                "--{k}-base given {b} time(s) but --{k}-primary given {p}; "
+                "the Nth base pairs with the Nth primary, so pass one each "
+                "or none at all".format(k=kind, b=len(bases), p=len(primaries))
+            )
+        if names and len(names) != len(primaries):
+            sys.exit(
+                "--{k}-repo given {n} time(s) but --{k}-primary given {p}; "
+                "the Nth name pairs with the Nth primary".format(
+                    k=kind, n=len(names), p=len(primaries)
+                )
+            )
+        taken = {r["name"] for r in repos}
+        for i, primary in enumerate(primaries):
+            base = check_public_base(
+                "--{}-base".format(kind), bases[i] if bases else ""
+            )
+            name = names[i] if names else derive_repo_name(kind, base, taken)
+            taken.add(name)
+            repos.append({
+                "name": name,
+                "kind": kind,
+                "base": base,
+                "primary": os.path.basename(primary),
+                "path": primary,
+            })
+    return repos
 
 
 class _ZstdStream:
@@ -103,12 +234,17 @@ def is_pseudo_capability(cap):
     return cap.startswith(PSEUDO_CAPABILITY_PREFIXES)
 
 
-def parse_primary(path):
+def parse_primary(path, repo=None):
     """Stream a primary.xml into package records.
 
     Uses iterparse and clears elements as it goes: Fedora's binary
     primary.xml is ~1 GB uncompressed and will not fit comfortably in
     memory as a tree.
+
+    Each record is tagged with the repo it came from, because `location` is
+    relative to its repo and nothing else in the record says which one that
+    was. Once several repos are merged, that tag is the only way back to a
+    URL -- see merge_packages.
     """
     packages = []
     with _open_maybe_gz(path) as fh:
@@ -117,9 +253,84 @@ def parse_primary(path):
                 continue
             rec = _parse_package_elem(elem)
             if rec:
+                rec["repo"] = repo
                 packages.append(rec)
             elem.clear()
     return packages
+
+
+def merge_packages(groups):
+    """Collapse per-repo package lists into one newest-wins package list.
+
+    `groups` is an ordered list of (repo_name, packages). Later repos are
+    the ones layered on top -- `updates` over `releases` -- but order only
+    settles exact ties: the winner is whichever build has the higher EVR,
+    so passing the repos in the wrong order cannot silently downgrade a
+    package.
+
+    Returns (packages, replacements). `packages` is sorted by (name, arch)
+    and `replacements` by the same key, because both are consumed into a
+    committed lockfile and a dict preserves *insertion* order, not sorted
+    order -- leaving them in the order they were built would make the file
+    depend on the order packages happen to appear in primary.xml, which is
+    Fedora's to change every time it regenerates repodata.
+
+    `replacements` records what won over what, so the solve can report the
+    update count rather than leaving the reader to diff two lockfiles to
+    find out whether anything moved.
+    """
+    index = {}
+    # What the earliest repo carrying each key had, so a replacement is
+    # reported against the base rather than against whatever intermediate
+    # build happened to be seen most recently.
+    origin = {}
+
+    for _repo, packages in groups:
+        # Resolve within the repo first. A repo carrying two builds of one
+        # package is unusual but legal, and folding them straight into the
+        # global index would make even the *number* of replacements depend
+        # on document order: builds seen as 1.0, 1.1, 1.2 report two
+        # replacements, the same three seen as 1.2, 1.0, 1.1 report none.
+        group_best = {}
+        for pkg in packages:
+            # Keyed by (name, arch), not name: i686 and x86_64 builds of the
+            # same package coexist in one repo and are not candidates to
+            # replace each other. Collapsing them by name would make the
+            # winner depend on document order and could pin a 32-bit rpm
+            # into an x86_64 closure.
+            key = (pkg["name"], pkg["arch"])
+            incumbent = group_best.get(key)
+            if incumbent is None or package_is_newer(pkg, incumbent):
+                group_best[key] = pkg
+
+        for key, pkg in group_best.items():
+            incumbent = index.get(key)
+            if incumbent is None:
+                index[key] = pkg
+                origin[key] = pkg
+            elif package_is_newer(pkg, incumbent):
+                index[key] = pkg
+
+    replacements = [
+        {
+            "name": key[0],
+            "arch": key[1],
+            "from": _evr_string(origin[key]),
+            "from_repo": origin[key].get("repo"),
+            "to": _evr_string(pkg),
+            "to_repo": pkg.get("repo"),
+        }
+        for key, pkg in sorted(index.items())
+        if pkg is not origin[key]
+    ]
+    return [index[key] for key in sorted(index)], replacements
+
+
+def _evr_string(pkg):
+    """The epoch:version-release form used in the lockfile and in reports."""
+    epoch = pkg.get("epoch")
+    prefix = "{}:".format(epoch) if epoch and epoch != "0" else ""
+    return "{}{}-{}".format(prefix, pkg.get("version"), pkg.get("release"))
 
 
 def _text(elem, tag, ns=COMMON_NS):
@@ -204,17 +415,61 @@ def source_name_from_sourcerpm(sourcerpm):
     return parts[0] if len(parts) == 3 else base
 
 
-def build_universe(binary_pkgs, source_pkgs):
-    """Index the repodata into the maps depgraph needs."""
+def _arch_rank(arch, target_cpu):
+    """How much this arch is wanted, lower being better.
+
+    An x86_64 repo also carries the i686 multilib builds -- 9,078 of them
+    in Fedora 43 -- and an i686 rpm is named exactly what its 64-bit
+    counterpart is. So `index[name] = pkg` over the raw package list picks
+    whichever arch the document happened to mention last, which is a
+    coin toss that lands on i686 for any package whose entries are ordered
+    the other way. Ranking makes the choice explicit instead.
+
+    Foreign arches are ranked last rather than dropped: a package that
+    exists *only* as i686 is still the sole answer to a Requires on it, and
+    dropping it would turn a resolvable capability into a solve failure.
+    """
+    if arch == target_cpu:
+        return 0
+    if arch in ("noarch", "src"):
+        return 1
+    return 2
+
+
+def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64"):
+    """Index the repodata into the maps depgraph needs.
+
+    Collapses the arch dimension: callers work in package names, so of the
+    several builds that can share one name exactly one has to win. Arch
+    preference decides first and version only breaks ties within an arch,
+    because a newer i686 build is still the wrong answer for an x86_64
+    closure.
+    """
     provides = {}
     requires = {}
     source_of = {}
     subpackages = {}
-    binary_index = {}
 
+    def better(candidate, incumbent):
+        rank_new = _arch_rank(candidate["arch"], target_cpu)
+        rank_old = _arch_rank(incumbent["arch"], target_cpu)
+        if rank_new != rank_old:
+            return rank_new < rank_old
+        return package_is_newer(candidate, incumbent)
+
+    # Pick the winners before reading anything off them. Building the
+    # capability maps in the same pass would mean a package that loses later
+    # has already contributed its Provides, and for a losing i686 build
+    # those are the 32-bit capabilities: `libc.so.6` without the `(64bit)`
+    # marker would end up mapped to the name of the 64-bit package, which
+    # does not provide it. The capability resolves, the buildroot is wrong.
+    binary_index = {}
     for pkg in binary_pkgs:
-        name = pkg["name"]
-        binary_index[name] = pkg
+        incumbent = binary_index.get(pkg["name"])
+        if incumbent is None or better(pkg, incumbent):
+            binary_index[pkg["name"]] = pkg
+
+    for name, pkg in binary_index.items():
         requires[name] = [
             c for c in pkg["requires"] if not is_pseudo_capability(c)
         ]
@@ -230,7 +485,11 @@ def build_universe(binary_pkgs, source_pkgs):
             source_of[name] = src
             subpackages.setdefault(src, []).append(name)
 
-    source_index = {p["name"]: p for p in source_pkgs}
+    source_index = {}
+    for pkg in source_pkgs:
+        incumbent = source_index.get(pkg["name"])
+        if incumbent is None or better(pkg, incumbent):
+            source_index[pkg["name"]] = pkg
 
     # Deduplicate and sort for deterministic output.
     provides = {k: sorted(set(v)) for k, v in provides.items()}
@@ -454,8 +713,38 @@ def solve_image_sets(universe, image_roots, overrides=None,
     return sets, problems
 
 
+def _count_pins_by_repo(lock):
+    """How many pinned entries each repo accounts for.
+
+    The question after layering updates/ over releases/ is not how many
+    packages the merge moved -- most of the universe is never pinned -- but
+    how many of the packages this lockfile actually installs came from the
+    updates repo. Zero there means the repo was fetched, merged, and
+    reached nothing, which is what a mispointed URL looks like from the
+    outside: a solve that succeeds and changes nothing.
+    """
+    counts = {}
+
+    def bump(entry):
+        if entry:
+            key = entry.get("repo") or "unattributed"
+            counts[key] = counts.get(key, 0) + 1
+
+    for entry in lock["buildroot_seed"]:
+        bump(entry)
+    for members in lock["image_sets"].values():
+        for entry in members:
+            bump(entry)
+    for pkg in lock["packages"].values():
+        bump(pkg["source"])
+        for field in ("deps_built", "deps_seed"):
+            for entry in pkg[field]:
+                bump(entry)
+    return dict(sorted(counts.items()))
+
+
 def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
-                  dynamic, plan, depth, image_sets, args):
+                  dynamic, plan, depth, image_sets, replacements, args):
     """Produce the lockfile. Every entry is pinned by checksum."""
 
     def pin_binary(name):
@@ -473,6 +762,12 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             "location": pkg["location"],
             "sha256": pkg["checksum"] if pkg["checksum_type"] == "sha256" else None,
             "source": universe["source_of"].get(name),
+            # Which repo's base URL `location` hangs off. Per package, not
+            # per release: once updates/ is layered over releases/ a closure
+            # legitimately spans both, and a single base would be wrong for
+            # whichever half it does not describe -- silently, as a 404 on
+            # exactly the packages that received a fix.
+            "repo": pkg.get("repo"),
         }
 
     packages = {}
@@ -492,6 +787,7 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
                 "sha256": record.get("checksum")
                 if record.get("checksum_type") == "sha256"
                 else None,
+                "repo": record.get("repo"),
             },
             "subpackages": universe["subpackages"].get(src, []),
             "build_requires_resolved": resolutions.get(src, {}),
@@ -515,17 +811,26 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
     # compiles against the previous release's binaries.
     seed_closure = sorted({d for deps in build_deps.values() for d in deps})
 
-    return {
+    lock = {
         "schema": 1,
         "flavor": "fedora",
         "release": args.release,
         "dist_tag": args.dist_tag,
         "target_cpu": args.target_cpu,
         # Everything needed to reproduce this solve.
-        "repodata": {
-            "binary_primary": os.path.basename(args.binary_primary),
-            "source_primary": os.path.basename(args.source_primary),
-        },
+        # One entry per repo the solve read, in the order they were layered.
+        # `base` is the URL that repo's `location` paths hang off, so an
+        # entry's "repo" is what turns its pin into a download.  Public by
+        # construction -- see check_public_base.
+        #
+        # `path` is dropped rather than carried: it is wherever the repodata
+        # happened to sit on the machine that ran the solve, which is a
+        # local accident and, in a committed file, a disclosed home
+        # directory. The basename is the reproducibility-relevant part.
+        "repos": [
+            {k: v for k, v in repo.items() if k != "path"}
+            for repo in args.repos
+        ],
         # The solve's own inputs, recorded because they are not derivable
         # from the output.  Arriving at a clean solve is iterative -- each
         # batch of --override exposes the next layer of ambiguity beneath
@@ -548,6 +853,10 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             problems=len(problems),
             dynamic_buildrequires=len(dynamic),
             image_sets={k: len(v) for k, v in sorted(image_sets.items())},
+            # Universe-wide, so much larger than anything pinned here: it
+            # measures the input repos, and is the number that goes to zero
+            # if an updates repo is mispointed or was never passed.
+            superseded=len(replacements),
         ),
         "buildroot_seed": [pin_binary(d) for d in seed_closure],
         # Runtime closures, one per --image.  Kept apart from
@@ -566,12 +875,49 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             {"kind": k, "detail": d, "package": p} for k, d, p in problems
         ],
     }
+    lock["summary"]["pins_by_repo"] = _count_pins_by_repo(lock)
+    return lock
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--binary-primary", required=True)
-    ap.add_argument("--source-primary", required=True)
+    # Repos are repeatable and layered in the order given, so a release can
+    # be solved as releases/ plus updates/ rather than as a frozen GA
+    # snapshot.  Order settles exact ties only: the winner is whichever
+    # build has the higher EVR, so listing them the wrong way round cannot
+    # silently downgrade a package.
+    #
+    # Each repo carries its own base URL because that is what turns a pin
+    # into a download, and `location` in repodata is relative to its repo
+    # while saying nothing about which repo that was.  The repodata itself
+    # is gitignored, so the solve is the last point that knows.
+    #
+    # Always the canonical upstream URL, even when a mirror or a
+    # content-addressed cache is what actually serves the bytes: resolution
+    # is the build's concern and configurable there, identity belongs in the
+    # lockfile, and the sha256 is what makes any mirror interchangeable.
+    ap.add_argument("--binary-primary", action="append", default=[],
+                    required=True, metavar="PATH",
+                    help="binary primary.xml (repeatable, layered in order)")
+    ap.add_argument("--source-primary", action="append", default=[],
+                    required=True, metavar="PATH",
+                    help="source primary.xml (repeatable, layered in order)")
+    ap.add_argument("--binary-base", action="append", default=[],
+                    metavar="URL",
+                    help="upstream URL the Nth --binary-primary's `location` "
+                         "paths are relative to")
+    ap.add_argument("--source-base", action="append", default=[],
+                    metavar="URL",
+                    help="upstream URL the Nth --source-primary's `location` "
+                         "paths are relative to")
+    ap.add_argument("--binary-repo", action="append", default=[],
+                    metavar="NAME",
+                    help="name for the Nth binary repo, used to attribute "
+                         "each pinned package (default: derived from its URL)")
+    ap.add_argument("--source-repo", action="append", default=[],
+                    metavar="NAME",
+                    help="name for the Nth source repo "
+                         "(default: derived from its URL)")
     ap.add_argument("--build", action="append", default=[],
                     help="source package to build from source (repeatable)")
     ap.add_argument("--build-list", default=None,
@@ -593,7 +939,11 @@ def main():
     ap.add_argument("--strict", action="store_true",
                     help="fail on any unresolved capability")
     ap.add_argument("--out", required=True)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+
+    # Before the solve, not after: a solve is minutes of work and a
+    # mispaired repo list is worth reporting before spending them.
+    args.repos = collect_repos(args)
 
     build_set = set(args.build)
     if args.build_list:
@@ -642,18 +992,28 @@ def main():
                          name, ", ".join(sorted(image_roots)) or "none"))
         image_overrides.setdefault(name, {})[cap.strip()] = pkg.strip()
 
-    print("parsing binary repodata...", file=sys.stderr)
-    binary_pkgs = parse_primary(args.binary_primary)
-    print("parsing source repodata...", file=sys.stderr)
-    source_pkgs = parse_primary(args.source_primary)
+    groups = {"binary": [], "source": []}
+    for repo in args.repos:
+        print("parsing {} repodata ({})...".format(repo["name"], repo["primary"]),
+              file=sys.stderr)
+        packages = parse_primary(repo["path"], repo=repo["name"])
+        print("  {} packages".format(len(packages)), file=sys.stderr)
+        groups[repo["kind"]].append((repo["name"], packages))
+
+    binary_pkgs, binary_updates = merge_packages(groups["binary"])
+    source_pkgs, source_updates = merge_packages(groups["source"])
+    replacements = binary_updates + source_updates
     print(
-        "universe: {} binary, {} source packages".format(
-            len(binary_pkgs), len(source_pkgs)
+        "universe: {} binary, {} source packages "
+        "({} binary / {} source superseded by a later repo)".format(
+            len(binary_pkgs), len(source_pkgs),
+            len(binary_updates), len(source_updates),
         ),
         file=sys.stderr,
     )
 
-    universe = build_universe(binary_pkgs, source_pkgs)
+    universe = build_universe(binary_pkgs, source_pkgs,
+                              target_cpu=args.target_cpu)
     build_deps, resolutions, problems, dynamic = solve(
         universe, build_set, overrides, strict=args.strict
     )
@@ -674,7 +1034,7 @@ def main():
 
     lock = emit_lockfile(
         universe, build_set, build_deps, resolutions, problems,
-        dynamic, plan, depth, image_sets, args,
+        dynamic, plan, depth, image_sets, replacements, args,
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -706,6 +1066,10 @@ def main():
     for name, count in sorted(s["image_sets"].items()):
         print("  image {:<15}: {} packages".format(name, count),
               file=sys.stderr)
+    # Per repo rather than in total, because the total is already known --
+    # what is worth seeing is whether the updates repo reached anything.
+    for name, count in sorted(s["pins_by_repo"].items()):
+        print("  from {:<16}: {} pins".format(name, count), file=sys.stderr)
 
 
 if __name__ == "__main__":

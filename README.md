@@ -175,9 +175,127 @@ is a Buck problem:
   buildroot = host           # or binary-seed
 ```
 
-Only non-EOL releases work: once a release goes EOL Fedora moves it to
-`archives.fedoraproject.org` and every repodata path 404s, so `releases` is
-a list that needs revisiting once a year rather than a permanent setting.
+Pinned rpms are fetched straight from Fedora's own mirrors, so a fresh
+clone builds with nothing else running. Each `http_file` gets exactly one
+URL — this prelude's `http_file` asserts `len(urls) == 1`, so a fallback
+chain is not on offer — which means the URL has to be right rather than
+merely likely. It is built from a table of repos recorded in the lockfile
+at solve time, plus a `repo` key on every pin:
+
+```
+"repos": [
+  {"name": "binary-releases", "kind": "binary",
+   "base": "https://dl.fedoraproject.org/.../releases/43/Everything/x86_64/os"},
+  {"name": "binary-updates",  "kind": "binary",
+   "base": "https://dl.fedoraproject.org/.../updates/43/Everything/x86_64"}
+]
+```
+
+A table rather than one binary and one source base, because a closure
+legitimately spans both trees once updates are layered in — see [Package
+updates](#package-updates).
+
+The bases are recorded rather than reconstructed because a package's
+`location` in repodata is relative to its repo and says nothing about which
+repo that was, and the repodata is gitignored — the solve is the last point
+that knows. They are always canonical upstream URLs, even when a mirror
+served the solve: the sha256 is the package's identity and buck2 enforces
+it, so any mirror of the same digest is interchangeable and none can
+corrupt a build. `tools/solve.py` refuses to write a base that is not a
+public Fedora host, since the lockfile is committed and that URL gets
+published with it.
+
+Fetches can be redirected without touching the pins:
+
+```ini
+[buckos.fedora]
+  # A plain mirror of upstream's layout: rewrites the recorded base's prefix.
+  mirror_base = https://archives.fedoraproject.org/pub/archive/fedora/linux
+```
+
+That knob is what a URL pin needs, because a pin rots on upstream's
+schedule rather than this repo's: at EOL a release moves to
+`archives.fedoraproject.org` and the recorded base stops resolving even
+though every pin in the lockfile is still perfectly good. Repointing the
+prefix fixes that without a re-solve.
+
+Re-solving is the part that genuinely needs a non-EOL release, because the
+repodata the solver reads is only published for current ones — so
+`releases` is a list to revisit once a year rather than a permanent
+setting.
+
+### Package updates
+
+Fedora publishes a release twice. `releases/43/` is the frozen GA compose
+and never changes; every rebuild after it — errata, CVE fixes, plain bug
+fixes — lands under `updates/43/`. Solving against `releases/` alone gives
+a lockfile that is perfectly reproducible and permanently unpatched, so
+both trees are layered, newest build wins:
+
+```console
+$ buck2 run //tools:relock -- --release 43
+fedora 43:
+  binary-releases: unchanged
+  binary-updates: fetching 4a1f…-primary.xml.zst
+  source-releases: unchanged
+  source-updates: fetching c7b2…-primary.xml.zst
+universe: 81817 binary, 24858 source packages (23730 binary / 5341 source superseded by a later repo)
+  unresolved            : 0
+  image live           : 187 packages
+  from binary-releases : 591 pins
+  from binary-updates  : 618 pins
+```
+
+One command fetches each repo's `primary.xml`, re-solves, and regenerates
+the `.bzl` data. Run it on whatever cadence you want fixes at and review
+the lockfile diff — that diff *is* the update, and it is the artifact worth
+reading. The last two lines are the ones to check: they say how much of
+what actually gets installed came from the updates tree, and a zero there
+is what a mispointed repo looks like from the outside — a solve that
+succeeds and changes nothing.
+
+The refresh reuses the build list, overrides and image sets recorded in the
+existing lockfile, so it changes package versions and nothing else. It
+cannot bootstrap a release that has no lockfile yet: arriving at that first
+set of overrides is iterative human work.
+
+Useful flags: `--offline` re-solves from repodata already on disk, and
+`--dry-run` prints the URLs it would sync without touching anything.
+
+Three details are load-bearing:
+
+- **Version comparison is rpm's, not string comparison.** Lexicographically
+  `1.10` < `1.9` and `1.0` < `1.0~rc1`, and both are backwards. Getting this
+  wrong does not fail loudly — it pins an older build, which looks like a
+  perfectly normal lockfile and quietly means the security update everyone
+  believes is applied is not. `tools/rpmvercmp.py` is a transcription of
+  rpm's `lib/rpmvercmp.c`, tested against rpm's own `tests/rpmvercmp.at`
+  corpus rather than against cases invented here.
+- **Repo order settles ties only.** The winner is whichever build has the
+  higher EVR, so passing the repos the wrong way round cannot silently
+  downgrade a package.
+- **The base URL is per package, not per release.** An updated rpm has the
+  same repo-relative `location` under `updates/` that its original has
+  under `releases/`, so a single base would be wrong for whichever half it
+  does not describe — quietly, as a 404 on exactly the packages that
+  received a fix. Hence the `repos` table and the `repo` key on every pin.
+
+`updates/` also has a genuinely different path shape from `releases/`:
+`updates/43/Everything/x86_64` with no `os` component, and
+`updates/43/Everything/source/tree` rather than `SRPMS`. Both are upstream
+inconsistencies rather than typos; they are transcribed in
+`FEDORA_REPOS` in `tools/relock.py`.
+
+Expect new ambiguities over time. An override settles a capability that
+several packages provide, and `updates/` can introduce a new provider of
+one that previously had exactly one — Fedora 43's `python3.9` compat
+interpreter started providing `python(abi)`, which is why that override is
+in the 43 lockfile. It surfaces as an unresolved-capability report naming
+both candidates, and is fixed by adding an `--override` to the lockfile's
+`solve` block and re-running.
+
+A release with no `updates/` tree yet — a just-branched one — is not an
+error; the repo is reported absent and skipped.
 
 `buildroot = host` uses the host's rpm installation. It is the development
 escape hatch: not hermetic, local-only, no cache upload.

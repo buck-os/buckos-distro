@@ -8,24 +8,34 @@ mistake only surfaces much later as rpm refusing a transaction.  So it gets
 tested here rather than trusted to a re-solve.
 """
 
+import argparse
 import unittest
 
-from solve import build_universe, solve_image_sets
+from solve import (
+    build_universe,
+    check_public_base,
+    collect_repos,
+    derive_repo_name,
+    merge_packages,
+    solve_image_sets,
+)
 
 
-def binary(name, requires=(), provides=(), source="src-1.fc43.src.rpm"):
+def binary(name, requires=(), provides=(), source="src-1.fc43.src.rpm",
+           version="1", release="1.fc43", arch="x86_64", repo=None):
     return {
         "name": name,
         "requires": list(requires),
         "provides": list(provides),
         "sourcerpm": source,
-        "version": "1",
-        "release": "1.fc43",
+        "version": version,
+        "release": release,
         "epoch": "0",
-        "arch": "x86_64",
-        "location": name + ".rpm",
+        "arch": arch,
+        "location": "{}/{}-{}.{}.rpm".format(name[0], name, release, arch),
         "checksum": "0" * 64,
         "checksum_type": "sha256",
+        "repo": repo,
     }
 
 
@@ -133,6 +143,327 @@ class TestScopedOverrides(unittest.TestCase):
             overrides,
             {"/usr/bin/systemd-sysusers": "systemd-standalone-sysusers"},
         )
+
+
+class TestMergePackages(unittest.TestCase):
+    """Layering updates/ over releases/.
+
+    The failure this guards against is not a crash: picking the wrong build
+    produces a perfectly well-formed lockfile that pins the unfixed rpm, and
+    the only symptom is that a security update everyone believes is applied
+    is not.
+    """
+
+    def merge(self, *groups):
+        return merge_packages(list(groups))
+
+    def test_a_newer_build_in_a_later_repo_wins(self):
+        packages, replaced = self.merge(
+            ("releases", [binary("glibc", release="1.fc43", repo="releases")]),
+            ("updates", [binary("glibc", release="5.fc43", repo="updates")]),
+        )
+        self.assertEqual([p["release"] for p in packages], ["5.fc43"])
+        self.assertEqual(packages[0]["repo"], "updates")
+        self.assertEqual(
+            replaced,
+            [{"name": "glibc", "arch": "x86_64",
+              "from": "1-1.fc43", "from_repo": "releases",
+              "to": "1-5.fc43", "to_repo": "updates"}],
+        )
+
+    def test_repo_order_cannot_downgrade(self):
+        """Version decides; order only settles exact ties.
+
+        Passing the repos the wrong way round is a plausible mistake and
+        would otherwise be an invisible one.
+        """
+        packages, replaced = self.merge(
+            ("updates", [binary("glibc", release="5.fc43", repo="updates")]),
+            ("releases", [binary("glibc", release="1.fc43", repo="releases")]),
+        )
+        self.assertEqual([p["release"] for p in packages], ["5.fc43"])
+        self.assertEqual(replaced, [])
+
+    def test_the_same_build_in_both_repos_is_not_a_replacement(self):
+        packages, replaced = self.merge(
+            ("releases", [binary("bash", repo="releases")]),
+            ("updates", [binary("bash", repo="updates")]),
+        )
+        self.assertEqual(len(packages), 1)
+        self.assertEqual(packages[0]["repo"], "releases")
+        self.assertEqual(replaced, [])
+
+    def test_versions_compare_by_rpm_rules_not_as_strings(self):
+        # Lexicographically "1.9" > "1.10", which is the whole reason
+        # rpmvercmp exists.
+        packages, _ = self.merge(
+            ("releases", [binary("tzdata", version="1.9", repo="releases")]),
+            ("updates", [binary("tzdata", version="1.10", repo="updates")]),
+        )
+        self.assertEqual(packages[0]["version"], "1.10")
+
+    def test_arches_are_separate_slots(self):
+        """i686 and x86_64 builds coexist and do not replace each other.
+
+        Fedora's x86_64 repo carries thousands of i686 multilib rpms under
+        identical package names; keying the merge on name alone would make
+        the winner a matter of document order.
+        """
+        packages, replaced = self.merge(
+            ("releases", [
+                binary("glibc", arch="x86_64", repo="releases"),
+                binary("glibc", arch="i686", release="9.fc43",
+                       repo="releases"),
+            ]),
+        )
+        self.assertEqual(
+            sorted((p["arch"], p["release"]) for p in packages),
+            [("i686", "9.fc43"), ("x86_64", "1.fc43")],
+        )
+        self.assertEqual(replaced, [])
+
+    def test_output_is_sorted_not_merely_deterministic(self):
+        """A dict preserves insertion order, which is not the same thing.
+
+        Insertion order here is the order packages appear in primary.xml,
+        which is Fedora's to change whenever it regenerates repodata.  The
+        result is committed, so it has to be sorted rather than reproducible
+        only against one particular copy of the input.
+        """
+        packages, _ = self.merge(
+            ("releases", [binary(n) for n in ("zlib", "attr", "make")]),
+        )
+        self.assertEqual([p["name"] for p in packages],
+                         ["attr", "make", "zlib"])
+
+    def test_the_replacement_count_does_not_depend_on_document_order(self):
+        """Three builds of one package in one repo is one answer, not two.
+
+        Folding each straight into the global index would count a
+        replacement per step, so 1.0, 1.1, 1.2 would report two and the same
+        three in the order 1.2, 1.0, 1.1 would report none -- a lockfile
+        whose summary changes when upstream reshuffles its xml.
+        """
+        builds = [binary("kernel", version=v, repo="releases")
+                  for v in ("1.0", "1.1", "1.2")]
+        for order in ([0, 1, 2], [2, 0, 1], [1, 2, 0]):
+            with self.subTest(order=order):
+                packages, replaced = self.merge(
+                    ("releases", [builds[i] for i in order]),
+                )
+                self.assertEqual([p["version"] for p in packages], ["1.2"])
+                self.assertEqual(replaced, [])
+
+    def test_a_replacement_is_reported_against_the_base_not_the_last_seen(self):
+        packages, replaced = self.merge(
+            ("releases", [binary("curl", release="1.fc43", repo="releases")]),
+            ("updates", [binary("curl", release="2.fc43", repo="updates")]),
+            ("testing", [binary("curl", release="3.fc43", repo="testing")]),
+        )
+        self.assertEqual(packages[0]["release"], "3.fc43")
+        self.assertEqual(
+            (replaced[0]["from"], replaced[0]["from_repo"]),
+            ("1-1.fc43", "releases"),
+        )
+
+
+class TestArchSelection(unittest.TestCase):
+    """Collapsing several arches of one name down to the one that is wanted."""
+
+    def test_the_target_arch_wins_over_a_newer_foreign_build(self):
+        for order in (False, True):
+            pkgs = [
+                binary("glibc", arch="x86_64", release="1.fc43",
+                       provides=["libc.so.6()(64bit)"]),
+                binary("glibc", arch="i686", release="9.fc43",
+                       provides=["libc.so.6"]),
+            ]
+            with self.subTest(reversed=order):
+                universe = build_universe(
+                    list(reversed(pkgs)) if order else pkgs, [],
+                    target_cpu="x86_64",
+                )
+                self.assertEqual(
+                    universe["binary_index"]["glibc"]["arch"], "x86_64"
+                )
+
+    def test_a_losing_builds_capabilities_do_not_leak(self):
+        """The reason winners are picked before any Provides are read.
+
+        The 32-bit build provides `libc.so.6` with no (64bit) marker.  If it
+        contributed to the capability map on its way to losing, that
+        capability would resolve to the name of the 64-bit package, which
+        does not provide it -- and the buildroot would be quietly missing a
+        library that the solve says is present.
+        """
+        universe = build_universe([
+            binary("glibc", arch="i686", release="9.fc43",
+                   provides=["libc.so.6"]),
+            binary("glibc", arch="x86_64", release="1.fc43",
+                   provides=["libc.so.6()(64bit)"]),
+        ], [], target_cpu="x86_64")
+        self.assertNotIn("libc.so.6", universe["provides"])
+        self.assertIn("libc.so.6()(64bit)", universe["provides"])
+
+    def test_a_package_that_exists_only_as_a_foreign_arch_is_kept(self):
+        # Ranked last, not dropped: it is still the only answer to a
+        # Requires on it, and dropping it turns a resolvable capability
+        # into a solve failure.
+        universe = build_universe(
+            [binary("wine-core", arch="i686")], [], target_cpu="x86_64"
+        )
+        self.assertIn("wine-core", universe["binary_index"])
+
+    def test_noarch_is_preferred_over_a_foreign_arch(self):
+        universe = build_universe([
+            binary("fonts", arch="i686", release="9.fc43"),
+            binary("fonts", arch="noarch", release="1.fc43"),
+        ], [], target_cpu="x86_64")
+        self.assertEqual(universe["binary_index"]["fonts"]["arch"], "noarch")
+
+
+class TestRepoTable(unittest.TestCase):
+    RELEASES = ("https://dl.fedoraproject.org/pub/fedora/linux/releases/43"
+                "/Everything/x86_64/os")
+    UPDATES = ("https://dl.fedoraproject.org/pub/fedora/linux/updates/43"
+               "/Everything/x86_64")
+
+    def test_names_come_from_the_layout_word_in_the_url(self):
+        self.assertEqual(
+            derive_repo_name("binary", self.RELEASES, set()), "binary-releases"
+        )
+        self.assertEqual(
+            derive_repo_name("binary", self.UPDATES, set()), "binary-updates"
+        )
+
+    def test_a_url_with_no_layout_word_falls_back_to_the_kind(self):
+        self.assertEqual(
+            derive_repo_name("source", "https://dl.fedoraproject.org/pub",
+                             set()),
+            "source",
+        )
+
+    def test_a_collision_is_suffixed_rather_than_overwriting(self):
+        # The name is a key -- two repos sharing one would make half the
+        # pins resolve against the wrong base.
+        self.assertEqual(
+            derive_repo_name("binary", self.UPDATES, {"binary-updates"}),
+            "binary-updates2",
+        )
+
+    def args(self, **kw):
+        base = dict(binary_primary=[], binary_base=[], binary_repo=[],
+                    source_primary=[], source_base=[], source_repo=[])
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def test_the_nth_base_pairs_with_the_nth_primary(self):
+        repos = collect_repos(self.args(
+            binary_primary=["/tmp/a/primary.xml", "/tmp/b/primary.xml"],
+            binary_base=[self.RELEASES, self.UPDATES],
+        ))
+        self.assertEqual(
+            [(r["name"], r["base"]) for r in repos],
+            [("binary-releases", self.RELEASES),
+             ("binary-updates", self.UPDATES)],
+        )
+
+    def test_the_repodata_path_is_kept_for_the_solve_but_named_by_basename(self):
+        repos = collect_repos(self.args(
+            binary_primary=["/home/someone/scratch/primary.xml"],
+            binary_base=[self.RELEASES],
+        ))
+        self.assertEqual(repos[0]["path"], "/home/someone/scratch/primary.xml")
+        self.assertEqual(repos[0]["primary"], "primary.xml")
+
+    def test_a_missed_base_is_refused_rather_than_zipped_away(self):
+        """zip() would drop the unpaired primary and fail hours later.
+
+        The symptom would be a package with no download URL, at build time,
+        with nothing pointing back at the command line that caused it.
+        """
+        with self.assertRaises(SystemExit):
+            collect_repos(self.args(
+                binary_primary=["/tmp/a/primary.xml", "/tmp/b/primary.xml"],
+                binary_base=[self.RELEASES],
+            ))
+
+    def test_a_mispaired_name_is_refused(self):
+        with self.assertRaises(SystemExit):
+            collect_repos(self.args(
+                binary_primary=["/tmp/a/primary.xml", "/tmp/b/primary.xml"],
+                binary_base=[self.RELEASES, self.UPDATES],
+                binary_repo=["only-one"],
+            ))
+
+    def test_binary_and_source_repos_share_one_namespace(self):
+        repos = collect_repos(self.args(
+            binary_primary=["/tmp/a/primary.xml"],
+            binary_base=[self.RELEASES],
+            source_primary=["/tmp/c/primary.xml"],
+            source_base=[self.RELEASES.replace("x86_64/os", "source/tree")],
+        ))
+        self.assertEqual([r["name"] for r in repos],
+                         ["binary-releases", "source-releases"])
+        self.assertEqual([r["kind"] for r in repos], ["binary", "source"])
+
+
+class TestPublicBaseURLs(unittest.TestCase):
+    """The base URL recorded in a lockfile is published with it.
+
+    A lockfile is committed and pushed, so a mirror address that reaches
+    this field is a hostname disclosed in a public repo.  The reason it
+    needs a test rather than care is that passing the mirror is exactly
+    what makes the solve succeed on a host without egress -- the wrong
+    value is the one that works, and the resulting lockfile is correct in
+    every respect a reviewer would think to check.
+    """
+
+    def test_public_mirrors_are_accepted(self):
+        for url in (
+            "https://dl.fedoraproject.org/pub/fedora/linux/releases/43"
+            "/Everything/x86_64/os",
+            "https://archives.fedoraproject.org/pub/archive/fedora/linux"
+            "/releases/41/Everything/source/tree",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(check_public_base("--binary-base", url), url)
+
+    def test_a_trailing_slash_is_normalised(self):
+        # Otherwise the join downstream produces a doubled slash, which
+        # most servers tolerate and some proxies do not.
+        self.assertEqual(
+            check_public_base(
+                "--binary-base",
+                "https://dl.fedoraproject.org/pub/fedora/linux/",
+            ),
+            "https://dl.fedoraproject.org/pub/fedora/linux",
+        )
+
+    def test_empty_is_allowed(self):
+        """Not every caller records a base; only a wrong one is a problem."""
+        self.assertEqual(check_public_base("--binary-base", ""), "")
+
+    def test_a_private_host_is_refused(self):
+        for url in (
+            "http://localhost:8080/fedora",
+            "http://127.0.0.1/fedora",
+            "https://mirror.internal.example/fedora/linux",
+            # A public hostname on a private port is still a redirection,
+            # and comparing the netloc rather than the host would let it by.
+            "https://dl.fedoraproject.org:8080/pub/fedora/linux",
+            # As would embedding the real host as userinfo.
+            "https://dl.fedoraproject.org@internal.example/pub",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(SystemExit):
+                    check_public_base("--binary-base", url)
+
+    def test_a_non_url_is_refused(self):
+        for url in ("/mnt/fedora", "dl.fedoraproject.org/pub", "file:///srv"):
+            with self.subTest(url=url):
+                with self.assertRaises(SystemExit):
+                    check_public_base("--source-base", url)
 
 
 if __name__ == "__main__":

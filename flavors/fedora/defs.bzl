@@ -32,32 +32,101 @@ _INITRAMFS_MODULES = {
     "live": ["dmsquash-live"],
 }
 
-# Where an rpm is fetched from, by digest.  Content-addressed: the sha256
-# leads, so re-pinning a package changes the URL and buck2 cannot serve
-# stale bytes from its download cache.
+# ── Where an rpm is fetched from ─────────────────────────────────────
 #
-# The default points at a blob server on localhost -- a read-through cache
-# that resolves a digest to bytes, trying whatever mirrors it is configured
-# with and falling back to Fedora proper.  Any endpoint answering the same
-# `/<sha256>/<filename>?release=&location=` shape works; point
-# `[buckos.fedora] blob_base` at one.
+# Exactly one URL per rpm.  Not a preference list: this prelude's
+# http_file asserts `len(urls) == 1` (prelude/http_file.bzl), so a
+# fallback chain is not available to fall back on.
 #
-# A fresh clone therefore needs something listening there before it can
-# fetch.  That is deliberate rather than finished: the query-string shape
-# exists so a cache can be keyed by digest and consulted before any mirror,
-# which is what makes a rebuild offline and a re-pin unambiguous.  Pointing
-# it straight at dl.fedoraproject.org would mean giving up both, so the
-# path shape has to change first.
-_DEFAULT_BLOB_BASE = "http://localhost:8765/fedora-blob"
+# That makes the single URL have to be right rather than merely likely,
+# which is why the base comes from the lockfile instead of from a table of
+# upstream's layout here.  A repo-relative `location` does not record which
+# repo produced it, and the repodata that would is gitignored, so the solve
+# is the last point that knows -- see --binary-base in tools/solve.py.
+#
+# Which URL is used is a separate question from which bytes are correct.
+# The sha256 is the identity and buck2 enforces it, so any mirror serving
+# the same digest is interchangeable and none of them can corrupt a build.
+# Redirection therefore belongs in configuration, and the two knobs below
+# are the whole of it.
 
-def _blob_url(release, entry):
-    return "{}/{}/{}?release={}&location={}".format(
-        read_config("buckos.fedora", "blob_base", _DEFAULT_BLOB_BASE),
-        entry["sha256"],
-        entry["location"].split("/")[-1],
-        release,
-        entry["location"],
-    )
+# A read-through, content-addressed cache, tried instead of upstream when
+# set.  The sha256 leads, so re-pinning a package changes the URL and buck2
+# cannot serve stale bytes from its download cache; the
+# `?release=&location=` tail tells the cache where to look on a miss.
+#
+# No default, and that is the fix rather than an omission.  A default
+# pointing at a localhost port meant a clone could not fetch anything until
+# something was listening there, which made an unshipped local helper a
+# silent build dependency -- the build did not fail saying so, it just
+# could not download.  Set it in .buckconfig.local, which is gitignored.
+_BLOB_BASE = read_config("buckos.fedora", "blob_base", "")
+
+# Rewrites the prefix of the lockfile's recorded base, for a plain mirror
+# of upstream's directory layout rather than a digest endpoint.  Lets a
+# clone point at a nearer or an archived copy without regenerating -- which
+# matters because a URL pin rots on upstream's schedule, not on this repo's:
+# a release moves to archives.fedoraproject.org at EOL and the recorded
+# base stops resolving even though the pins are still perfectly good.
+_MIRROR_FROM = "https://dl.fedoraproject.org/pub/fedora/linux"
+_MIRROR_BASE = read_config("buckos.fedora", "mirror_base", "")
+
+# Percent-encodings for the characters an rpm filename can carry that a URL
+# cannot take literally.  Two tables because the rules differ by position,
+# and the difference is exactly where this went wrong:
+#
+#   `+` is a legal, literal character in a URL *path*, so Fedora serves
+#   gcc-c++-15.3.1-1.fc43.x86_64.rpm at that name and escaping it there
+#   would be noise.  In a *query string* it decodes to a space, so the same
+#   filename passed as a parameter arrives as `gcc-c  -15.3.1...` -- a
+#   request for a file that does not exist, from a name that looks right in
+#   every log it appears in.  Fedora has a handful of these: gcc-c++,
+#   libstdc++, libstdc++-devel, perl-Text-Tabs+Wrap.
+#
+#   `^` is not valid anywhere in a URL and has to be escaped in both.  rpm
+#   uses it for post-release snapshots (1.0^git1), so it shows up in
+#   versions rather than names and no pin carries one today -- but a
+#   package picking up a snapshot build is an ordinary update, not an
+#   exotic event, so it is handled rather than waited for.
+_PATH_ESCAPES = {"^": "%5E", " ": "%20", "%": "%25", "#": "%23", "?": "%3F"}
+
+_QUERY_ESCAPES = dict(_PATH_ESCAPES, **{"+": "%2B", "&": "%26", "=": "%3D"})
+
+def _escape(text, table):
+    out = ""
+    for char in text.elems():
+        out += table.get(char, char)
+    return out
+
+def _download_url(data, entry):
+    """The one URL this pinned rpm is fetched from."""
+    if _BLOB_BASE:
+        return "{}/{}/{}?release={}&location={}".format(
+            _BLOB_BASE,
+            entry["sha256"],
+            _escape(entry["location"].split("/")[-1], _PATH_ESCAPES),
+            data.RELEASE,
+            _escape(entry["location"], _QUERY_ESCAPES),
+        )
+
+    # `location` is relative to the repo the entry came from and says
+    # nothing about which one that was, so the pin carries the repo name
+    # and the lockfile carries that repo's base.  Not derivable from the
+    # entry: an rpm fixed after GA has the same repo-relative path under
+    # updates/ that its original has under releases/, so guessing from the
+    # filename would fetch the GA tree and 404 on exactly the packages
+    # that received a fix.
+    repo = entry["repo"]
+    base = data.REPO_BASE.get(repo, "")
+    if not base:
+        fail("fedora {}: lockfile records no base URL for repo {}, so there is nowhere to fetch {} from. Re-solve with --binary-base/--source-base, or set [buckos.fedora] blob_base.".format(
+            data.RELEASE,
+            repo if repo else "(unattributed)",
+            entry["location"],
+        ))
+    if _MIRROR_BASE and base.startswith(_MIRROR_FROM):
+        base = _MIRROR_BASE + base[len(_MIRROR_FROM):]
+    return "{}/{}".format(base, _escape(entry["location"], _PATH_ESCAPES))
 
 def fedora_rpm_downloads(data, suffix):
     """One http_file per pinned rpm: seed closure, image sets, source rpms.
@@ -99,7 +168,7 @@ def _rpm_download(data, entry, suffix, defined):
     defined[name] = entry["sha256"]
     native.http_file(
         name = name,
-        urls = [_blob_url(data.RELEASE, entry)],
+        urls = [_download_url(data, entry)],
         sha256 = entry["sha256"],
         visibility = ["PUBLIC"],
     )

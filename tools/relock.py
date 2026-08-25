@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""Refresh a release's lockfile against upstream's current repodata.
+
+This is the update loop: fetch each repo's primary.xml, re-solve, and
+regenerate the .bzl data. Run it on whatever cadence you want fixes at --
+daily, weekly, on a security advisory -- and review the resulting lockfile
+diff, which is the whole point of the exercise. Nothing here runs inside
+the build graph; see the comment in tools/BUCK on why the solve is a
+human-run generate step rather than a build action.
+
+    buck2 run //tools:relock -- --release 43
+
+What makes the refresh meaningful is `updates`. Fedora publishes a release
+twice: the frozen GA compose under releases/, which never changes, and
+every post-GA rebuild under updates/. Solving against releases/ alone
+produces a lockfile that is perfectly reproducible and permanently
+unpatched. Both are layered here, newest build wins, and each pinned
+package records which tree it came from -- because an updated rpm has the
+same repo-relative path under updates/ that its original has under
+releases/, so the base URL cannot be recovered later.
+
+The solve's own inputs -- the build list, the overrides, the image sets --
+are read back out of the existing lockfile rather than passed again, so a
+refresh changes package versions and nothing else. A release with no
+lockfile yet is not something this can bootstrap: choosing that first set
+of overrides is iterative human work.
+
+Expect new ambiguities over time. An override settles a capability that
+several packages provide, and updates/ can introduce a new provider of a
+capability that had exactly one -- Fedora 43's python3.9 compat
+interpreter started providing python(abi), for instance. That surfaces
+here as an unresolved-capability report naming both candidates, and is
+fixed by adding an --override to the lockfile's solve block and re-running.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+import urllib.request
+import xml.etree.ElementTree as ET
+
+import generate
+import solve
+
+UPSTREAM = "https://dl.fedoraproject.org/pub/fedora/linux"
+REPOMD_NS = "http://linux.duke.edu/metadata/repo"
+
+# Where each repo lives under the upstream root, and what kind of packages
+# it holds. Order matters: later repos are layered over earlier ones.
+#
+# The paths are upstream's and are not as regular as they look. updates/
+# has no `os` component where releases/ does, and the source tree is
+# `source/tree` in both -- not `SRPMS`, which 404s. These are transcribed
+# from what the server actually serves, so resist tidying them.
+FEDORA_REPOS = [
+    ("binary-releases", "binary", "releases/{release}/Everything/{arch}/os"),
+    ("binary-updates", "binary", "updates/{release}/Everything/{arch}"),
+    ("source-releases", "source", "releases/{release}/Everything/source/tree"),
+    ("source-updates", "source", "updates/{release}/Everything/source/tree"),
+]
+
+# Repos that legitimately do not exist yet. A release has no updates/ tree
+# until its first post-GA push, so a 404 there is news, not an error.
+OPTIONAL = {"binary-updates", "source-updates"}
+
+
+def repo_root():
+    """Where the checked-in lockfiles live.
+
+    Neither the working directory nor __file__ is reliable on its own:
+    `buck2 run` leaves the cwd wherever it was invoked and hands the script
+    a path inside a packaged binary, while running the file directly leaves
+    the cwd anywhere at all. Walking up for the marker that defines the
+    repo works for both.
+    """
+    seen = []
+    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
+        directory = start
+        while True:
+            if os.path.exists(os.path.join(directory, ".buckroot")):
+                return directory
+            parent = os.path.dirname(directory)
+            if parent == directory:
+                seen.append(start)
+                break
+            directory = parent
+    sys.exit("cannot find the repo root (no .buckroot above {}); pass "
+             "--lock-dir".format(" or ".join(seen)))
+
+
+def fetch(url):
+    with urllib.request.urlopen(url, timeout=120) as resp:
+        return resp.read()
+
+
+def primary_from_repomd(xml_bytes):
+    """The primary.xml's href and sha256, as repomd.xml states them."""
+    root = ET.fromstring(xml_bytes)
+    for data in root.findall("{{{}}}data".format(REPOMD_NS)):
+        if data.get("type") != "primary":
+            continue
+        location = data.find("{{{}}}location".format(REPOMD_NS))
+        checksum = data.find("{{{}}}checksum".format(REPOMD_NS))
+        if location is None or checksum is None:
+            break
+        if checksum.get("type") != "sha256":
+            sys.exit("repomd.xml gives primary.xml a {} checksum, expected "
+                     "sha256".format(checksum.get("type")))
+        return location.get("href"), checksum.text
+    sys.exit("repomd.xml declares no primary.xml")
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def local_primary(dest_dir):
+    """Whatever primary.xml a previous sync left in this repo's directory."""
+    if not os.path.isdir(dest_dir):
+        return None
+    found = sorted(n for n in os.listdir(dest_dir)
+                   if n.endswith("-primary.xml.zst"))
+    return os.path.join(dest_dir, found[0]) if found else None
+
+
+def sync_repo(fetch_base, dest_dir, name):
+    """Bring one repo's primary.xml local. Returns its path, or None.
+
+    Verified against the sha256 repomd.xml declares, not merely downloaded:
+    a truncated read produces a short package list, and a short package list
+    solves cleanly to a smaller closure rather than failing.
+    """
+    try:
+        repomd = fetch(fetch_base + "/repodata/repomd.xml")
+    except Exception as exc:  # noqa: BLE001 -- urllib raises several kinds
+        if name in OPTIONAL:
+            print("  {}: not published ({}), skipping".format(name, exc),
+                  file=sys.stderr)
+            return None
+        sys.exit("{}: cannot read repomd.xml from {}: {}".format(
+            name, fetch_base, exc))
+
+    href, want = primary_from_repomd(repomd)
+    os.makedirs(dest_dir, exist_ok=True)
+    path = os.path.join(dest_dir, os.path.basename(href))
+
+    if os.path.exists(path) and sha256_file(path) == want:
+        print("  {}: unchanged".format(name), file=sys.stderr)
+        return path
+
+    print("  {}: fetching {}".format(name, os.path.basename(href)),
+          file=sys.stderr)
+    blob = fetch("{}/{}".format(fetch_base, href))
+    got = hashlib.sha256(blob).hexdigest()
+    if got != want:
+        sys.exit("{}: primary.xml sha256 mismatch (repomd says {}, got {})"
+                 .format(name, want, got))
+    with open(path, "wb") as fh:
+        fh.write(blob)
+
+    # Upstream names these by digest, so a refresh leaves the previous one
+    # behind. Harmless but confusing: two primary.xml files in a directory
+    # and nothing saying which the lockfile was solved from.
+    for stale in os.listdir(dest_dir):
+        if stale.endswith("-primary.xml.zst") and stale != os.path.basename(path):
+            os.remove(os.path.join(dest_dir, stale))
+    return path
+
+
+def solve_argv(lock, repos, out):
+    """Rebuild solve's argv from the lockfile's own recorded inputs.
+
+    As a list, never through a shell: the overrides contain `(`, `)` and `=`
+    and passing them back through command substitution mangles them into
+    package names that do not exist.
+    """
+    recorded = lock["solve"]
+    argv = [
+        "--release", str(lock["release"]),
+        "--dist-tag", lock["dist_tag"],
+        "--target-cpu", lock["target_cpu"],
+        "--stages", str(recorded["stages"]),
+        "--out", out,
+    ]
+    for repo in repos:
+        argv += ["--{}-repo".format(repo["kind"]), repo["name"],
+                 "--{}-base".format(repo["kind"]), repo["base"],
+                 "--{}-primary".format(repo["kind"]), repo["path"]]
+    for flag, key in (("--build", "build"), ("--override", "overrides"),
+                      ("--image", "images"),
+                      ("--image-override", "image_overrides")):
+        for item in recorded[key]:
+            argv += [flag, item]
+    return argv
+
+
+def relock(release, args):
+    lock_path = os.path.join(args.lock_dir,
+                             "fedora-{}.lock.json".format(release))
+    if not os.path.exists(lock_path):
+        sys.exit("no lockfile at {}: a release has to be solved by hand once "
+                 "before it can be refreshed, because its overrides and image "
+                 "sets are not derivable from repodata".format(lock_path))
+    with open(lock_path) as fh:
+        lock = json.load(fh)
+
+    print("fedora {}:".format(release), file=sys.stderr)
+    repos = []
+    for name, kind, template in FEDORA_REPOS:
+        tail = template.format(release=release, arch=args.arch)
+        # The canonical URL is what gets recorded; the mirror, if any, is
+        # only where the bytes come from now. Identity is the sha256, so a
+        # mirror is substitutable and does not belong in a committed file.
+        base = "{}/{}".format(UPSTREAM, tail)
+        fetch_base = ("{}/{}".format(args.mirror.rstrip("/"), tail)
+                      if args.mirror else base)
+        # Named for the repo, so the directory a primary.xml sits in matches
+        # the `repo` field every pin that came from it carries.
+        dest = os.path.join(args.lock_dir, "repodata", str(release), name)
+
+        if args.dry_run:
+            print("  {}: would sync {}".format(name, fetch_base),
+                  file=sys.stderr)
+            continue
+        if args.offline:
+            path = local_primary(dest)
+            if path is None:
+                if name not in OPTIONAL:
+                    sys.exit("{}: --offline but no primary.xml under {}"
+                             .format(name, dest))
+                print("  {}: absent, skipping".format(name), file=sys.stderr)
+            else:
+                print("  {}: {}".format(name, os.path.basename(path)),
+                      file=sys.stderr)
+        else:
+            path = sync_repo(fetch_base, dest, name)
+        if path:
+            repos.append({"name": name, "kind": kind, "base": base,
+                          "path": path})
+
+    if args.dry_run or args.fetch_only:
+        return
+
+    solve.main(solve_argv(lock, repos, lock_path))
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        description=__doc__.split("\n")[0],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ap.add_argument("--release", action="append", default=[], metavar="N",
+                    help="release to refresh (repeatable; default: every "
+                         "release with a lockfile)")
+    ap.add_argument("--arch", default="x86_64")
+    ap.add_argument("--lock-dir", default=None)
+    ap.add_argument("--mirror", default=os.environ.get("BUCKOS_FEDORA_MIRROR"),
+                    metavar="URL",
+                    help="fetch repodata from this mirror of upstream's "
+                         "layout instead of dl.fedoraproject.org; the "
+                         "canonical URL is still what gets recorded")
+    ap.add_argument("--offline", action="store_true",
+                    help="re-solve from the repodata already on disk instead "
+                         "of fetching; for reproducing a solve, or on a host "
+                         "with no route to upstream")
+    ap.add_argument("--fetch-only", action="store_true",
+                    help="sync repodata but do not re-solve")
+    ap.add_argument("--no-generate", action="store_true",
+                    help="re-solve but do not regenerate the .bzl data")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args(argv)
+
+    root = repo_root()
+    if args.lock_dir is None:
+        args.lock_dir = os.path.join(root, "flavors", "fedora", "lock")
+
+    releases = args.release or sorted(
+        name[len("fedora-"):-len(".lock.json")]
+        for name in os.listdir(args.lock_dir)
+        if name.startswith("fedora-") and name.endswith(".lock.json")
+    )
+    if not releases:
+        sys.exit("no lockfiles in {}".format(args.lock_dir))
+
+    for release in releases:
+        relock(release, args)
+
+    if args.dry_run or args.fetch_only or args.no_generate:
+        return
+
+    generate.main(
+        [os.path.join(args.lock_dir, "fedora-{}.lock.json".format(r))
+         for r in releases]
+        + ["--out-dir", os.path.join(root, "flavors", "fedora", "generated")]
+    )
+
+
+if __name__ == "__main__":
+    main()
