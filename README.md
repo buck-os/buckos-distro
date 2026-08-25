@@ -28,7 +28,7 @@ alternative and what replay costs.
 
 | flavor | source format | driver | state |
 |--------|---------------|--------|-------|
-| fedora | `.src.rpm` | `rpmbuild -bb` | **working end to end** on a fixture; solves against real F43 and F44 repodata |
+| fedora | `.src.rpm` | `rpmbuild -bb` | **boots**: F43 and F44 live ISOs reach a login prompt in qemu, from solves against real repodata |
 | ubuntu | `.dsc` | `dpkg-buildpackage -b` | designed, not implemented — [flavors/ubuntu/README.md](flavors/ubuntu/README.md) |
 | buckos | tarball | configure/make | designed, not implemented — [flavors/buckos/README.md](flavors/buckos/README.md) |
 
@@ -48,6 +48,14 @@ bootstrap-cycle staging, determinism.
 24,019 source packages for F43 — and writes a lockfile pinning every
 dependency by sha256. The only unresolved capabilities left are rich
 boolean deps, which are flagged rather than guessed at.
+
+`buck2 build //flavors/fedora:iso-live-43` produces a hybrid live ISO that
+boots. Verified by booting it, not by inspecting it: Fedora 43 reaches a
+login prompt under both BIOS (isolinux) and UEFI (OVMF), and Fedora 44
+under UEFI, on kernels `7.1.10-100.fc43` and `6.19.10-300.fc44` — two
+distros out of one build graph. Everything in the image is an upstream
+binary rpm pinned by the lockfile; the source-replay path is a separate,
+much smaller pipeline that the images do not consume yet.
 
 ## Multiple releases at once
 
@@ -92,11 +100,66 @@ quietly demoting a package to the prebuilt seed. The size of the seed set
 is the repo's honest bootstrap debt, and `tools/depgraph.py` reports it as
 `bootstrap_depth`.
 
+## From packages to a bootable image
+
+Five rules stand between a solved package set and an ISO, and they are
+separate rules because of what each one costs:
+
+| rule | does | cost |
+|------|------|------|
+| `rootfs` | real `rpm --install`, with a database and scriptlets | minutes |
+| `kernel_image` | reads the rootfs tar index, copies `vmlinuz` out | instant |
+| `initramfs` | runs the *image's own* dracut inside the image | minutes |
+| `squashfs` | compresses the rootfs | minutes, the expensive half |
+| `iso_image` | arranges the result, stamps a bootloader on it | seconds |
+
+Fusing any adjacent pair would be less code and worse. `kernel_image` is
+split from `initramfs` because everything downstream needs the kernel
+version, and asking for it should not re-run dracut. `squashfs` is split
+from `iso_image` because a change to the kernel command line or the volume
+label should not recompress a root filesystem.
+
+`squashfs` and `iso_image` run inside an **`image-tools` buildroot** — a
+`seeded_buildroot` solved from its own package list, exactly like the one
+packages are compiled in. `mksquashfs`, `xorriso`, `grub2-mkimage` and
+`mtools` are build inputs like any rpm. An ISO built by whatever `xorriso`
+the build machine happened to have is not reproducible, and on a machine
+with none it is not buildable at all. It also makes both rules hermetic,
+which is what makes them RE-eligible and cacheable.
+
+Two layout decisions are worth stating, because the obvious alternative is
+what most people write first:
+
+- **The squashfs has no top-level `LiveOS/`, so it *is* the root
+  filesystem.** Fedora's own images nest an ext4 `rootfs.img` inside the
+  squashfs; dracut's `dmsquash-live` supports both and falls back to using
+  the squashfs directly when that directory is absent. The ext4 variant
+  needs a filesystem image sized in advance and a loop mount, and the only
+  unprivileged way to build one is `mkfs.ext4 -d`, which silently truncates
+  when the size guess is low. Using the squashfs directly has no size to
+  guess.
+- **`EFI/BOOT` is written twice**, into the ISO9660 tree and again inside
+  `images/efiboot.img`. Firmware booting optical media reads the FAT image
+  named by the El Torito alternate entry, so `BOOTX64.EFI` and `grub.cfg`
+  have to be in there; firmware booting the same file written raw to a USB
+  stick reads the ISO9660 tree instead. Ship one and not the other and the
+  image boots in exactly one of the two ways someone will try.
+
+The grub binary is assembled by the *target's* `grub2-mkimage` from the
+target's modules, with the module list filtered against what that release
+actually ships — a module named and absent is a hard error, and which
+modules exist moves between releases. It is unsigned, so Secure Boot is
+not supported.
+
+`root=live:CDLABEL=` is derived from the volume label by the rule rather
+than taken as a second attribute. When those two disagree the initramfs
+waits for a device that never appears and says nothing about why.
+
 ## Layout
 
 ```
 defs/
-  providers.bzl          PackageInfo, BuildrootInfo, FlavorInfo — the abstraction
+  providers.bzl          PackageInfo, BuildrootInfo, FlavorInfo, BootInfo
   flavor.bzl             package(), the one macro every recipe calls
   releases.bzl           release as a config-driven axis, not a mode
   buildroot_helpers.bzl  the remote-execution contract
@@ -104,8 +167,11 @@ defs/
   rules/
     srpm.bzl             srpm_unpack, srpm_build, rpm_subpackage, prebuilt_rpm
     buildroot.bzl        host_buildroot, seeded_buildroot
+    rootfs.bzl           rootfs — a real rpm transaction, output as a tarball
+    boot.bzl             kernel_image, initramfs
+    image.bzl            squashfs, iso_image
 flavors/<name>/          per-flavor buildroots, seed sets, lockfiles, recipes
-tools/                   the drivers, and the solver
+tools/                   the drivers, the solver, and the probe
 platforms/               target platforms, flavor and provenance constraints
 toolchains/              prelude toolchains, and toolchains//:buildroot
 ```
@@ -172,7 +238,7 @@ is a Buck problem:
   releases = 43,44           # every release to define targets for
   # release = 43             # which one the unsuffixed targets alias;
                              # defaults to the newest in `releases`
-  buildroot = host           # or binary-seed
+  buildroot = binary-seed    # or host, for local development
 ```
 
 Pinned rpms are fetched straight from Fedora's own mirrors, so a fresh
@@ -297,10 +363,19 @@ both candidates, and is fixed by adding an `--override` to the lockfile's
 A release with no `updates/` tree yet — a just-branched one — is not an
 error; the repo is reported absent and skipped.
 
+`buildroot = binary-seed` is the default. It unpacks pinned rpms into a
+self-contained tree that becomes `/` inside the isolation namespace, so the
+toolchain is the one that release shipped rather than the one the build
+machine happens to have. That is a compatibility argument before it is a
+purity one: a package compiled against the host's glibc can reference a
+symbol version the target's glibc lacks, and a host rpm of another vintage
+writes an rpmdb the image cannot read — both of which fail at *runtime*, in
+the image, long after a green build. It is also what makes the graph
+remote-executable, since a seeded buildroot is hermetic.
+
 `buildroot = host` uses the host's rpm installation. It is the development
 escape hatch: not hermetic, local-only, no cache upload.
-`buildroot = binary-seed` unpacks pinned rpms into a self-contained tree
-that becomes `/` inside the isolation namespace, and is the production path.
+
 `tools/_isolation.py` uses bubblewrap where it is installed and an
 unprivileged user namespace via util-linux `unshare` otherwise; the two are
 equivalent in hermeticity, so neither is a prerequisite.
@@ -309,16 +384,6 @@ equivalent in hermeticity, so neither is a prerequisite.
 
 Stated plainly, because each one is load-bearing:
 
-- **The buildroot has no rpmdb, so `rpmbuild` runs with `--nodeps`.**
-  Payloads are unpacked with `rpm2archive | tar`, and rpm's
-  `BuildRequires` check queries the database rather than the filesystem —
-  without `--nodeps` every declared dependency fails with the tool sitting
-  right there in the tree. Dropping the check does not drop the
-  dependencies: buildroot membership is decided by `tools/solve.py`, pinned
-  by sha256, and reviewed as a diff. It costs one thing worth naming — rpm
-  no longer catches a buildroot the solver got wrong, so a missing
-  `BuildRequires` surfaces as a compile error rather than a clear
-  dependency error.
 - **Scriptlets do not run, so a few tree invariants are fabricated.**
   `tools/buildroot_assemble.py` creates the FHS skeleton and the
   `/usr/sbin -> bin` compat link, which on a real system is made by
@@ -349,11 +414,25 @@ Stated plainly, because each one is load-bearing:
   was written only after `rpm --install` rejected the F43 seed over
   `(python3.14dist(gitdb) < 5~~ with python3.14dist(gitdb) >= 4.0.1)`.
   Both the F43 and F44 solves now report zero unresolved capabilities.
-- **Dynamic `BuildRequires` are not handled.** Specs using
+- **Dynamic `BuildRequires` cost a second solve.** Specs using
   `%generate_buildrequires` (most Rust, Go, and modern Python packages)
-  declare dependencies that do not exist in static repodata. `solve.py`
-  detects and flags them; resolving them needs an `rpmbuild -br` probe
-  pass, which is not written. This is a real gap, not an edge case.
+  compute dependencies that do not exist in static repodata, so solving
+  from repodata alone produces a buildroot missing most of what the
+  package needs — and the gap does not surface until `%build` fails
+  somewhere unrecognisable. `tools/probe.py` resolves them the only way
+  they can be resolved, by running the block: `rpmbuild -br` per source
+  package, merged into a checked-in `<release>.probe.json` that `solve.py`
+  reads back.
+
+  This cannot be a build rule, and the reason is structural. Buck resolves
+  dependencies during analysis; an edge discovered by *running* an action
+  exists only after analysis is over. A rule that tried would also be one
+  that could never be scheduled remotely, since the worker has to be told
+  its inputs before they are known. So it happens at lock time and lands
+  in the lockfile as an ordinary declared dependency. What remains is the
+  cost: the update loop is two solves deep — solve, probe, solve again —
+  and the probe needs a working buildroot for the very package whose
+  buildroot it is computing.
 - **Actions are coarse.** One `srpm_package` action is the whole
   `%build`, so a one-line change recompiles the package. Buck's caching
   works between packages, not within one. See SPEC.md §1.
@@ -415,6 +494,33 @@ Stated plainly, because each one is load-bearing:
   package whose install-time scriptlet matters cannot be satisfied this
   way. This is deliberate and does not extend to images: `rootfs` runs
   them, because that is where they matter.
+- **Backslashes in payload paths become directories, in buildroots only.**
+  buck2 reserves the backslash as a path separator and cannot address a
+  file whose name contains one. systemd escapes a dash in a unit name as
+  `\x2d`, so `systemd-udev` ships
+  `usr/lib/systemd/system/system-systemd\x2dcryptsetup.slice`, and F44 adds
+  a two-backslash one. Any tree holding them is unbuildable as a directory
+  output. `tools/_rpm.py` therefore splits such names at the backslash as
+  `tar` writes them, giving buck2 the tree it already believes it is
+  looking at — one file becomes a directory and a file. It round-trips:
+  joining the components back with a backslash reconstructs the original,
+  which dropping the file or deleting the byte would not.
+
+  Safe only because of where it applies. Every caller unpacks into a tree
+  that runs `mksquashfs` or `rpmbuild` and never boots, where a systemd
+  unit is inert either way. A shipped image does not come through that
+  path at all — `rootfs` runs a real transaction and hands back a tarball,
+  and a tar member has no such restriction — so the image keeps every file
+  rpm puts in it, backslashes included.
+
+  Worth knowing if you ever hit it directly: doing this *after* extraction
+  instead of during it appears to work and is wrong. The file exists under
+  `buck-out` between `tar` creating it and the rename, buck2 notices it
+  there, and the build that observed it **succeeds** while the next one
+  fails on a path no longer on disk. That reads exactly like stale daemon
+  state, and clearing `buck-out/v2/cache/{materializer_state,incremental_state}`
+  after a `buck2 kill` does make it go away — until the next build
+  re-poisons it.
 - **`--isolation none` is best-effort.** Under host provenance the
   dependency sysroot is exported via `PATH`, `PKG_CONFIG_PATH`, and
   friends; a spec that hardcodes `/usr/lib64` still reads the host's copy.
