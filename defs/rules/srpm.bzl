@@ -344,6 +344,55 @@ rpm_subpackage = rule(
     },
 )
 
+def _built_rpm_impl(ctx: AnalysisContext) -> list[Provider]:
+    """The .rpm file for one binary package out of an srpm_build.
+
+    rpm_subpackage's sibling, and the difference is what the consumer
+    needs.  A *build* dependency wants the unpacked tree, to be overlaid
+    into a buildroot; a *rootfs* wants the rpm file, because it runs a
+    real rpm transaction and an unpacked tree cannot be installed, only
+    copied over.
+
+    This is what lets an image contain a package this repo compiled rather
+    than one it downloaded.  Without it a source-built package could be
+    depended on by another build and by nothing else -- which is why the
+    replay pipeline and the image pipeline were, until this rule, two
+    halves that never met.
+    """
+    out = ctx.actions.declare_output(ctx.attrs.rpm + ".rpm")
+    rpms_dir = ctx.attrs.srpm[RpmArtifactInfo].rpms[0]
+
+    cmd = cmd_args(ctx.attrs._extract[RunInfo])
+    # Whole directory as a hidden input so every rpm materializes on RE,
+    # then select by name inside the action.
+    cmd.add(cmd_args("--rpm-dir", rpms_dir, hidden = rpms_dir))
+    cmd.add("--select", ctx.attrs.rpm)
+    cmd.add("--out-rpm", out.as_output())
+
+    ctx.actions.run(
+        cmd,
+        category = "built_rpm",
+        identifier = ctx.attrs.name,
+        # re-contract: buildroot-independent -- picking one file out of a
+        # directory by name reads no host state, so it is cacheable even
+        # when the build that produced the directory was local-only.
+        allow_cache_upload = True,
+    )
+
+    return [DefaultInfo(default_output = out)]
+
+built_rpm = rule(
+    impl = _built_rpm_impl,
+    attrs = {
+        # Binary package name to select, e.g. "zlib-ng-compat".
+        "rpm": attrs.string(),
+        "srpm": attrs.dep(providers = [PackageInfo, RpmArtifactInfo]),
+        "_extract": attrs.default_only(
+            attrs.exec_dep(default = "//tools:rpm_extract"),
+        ),
+    },
+)
+
 # ── Seed packages ────────────────────────────────────────────────────
 
 def _prebuilt_rpm_impl(ctx: AnalysisContext) -> list[Provider]:

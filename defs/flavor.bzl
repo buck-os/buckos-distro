@@ -20,6 +20,7 @@ restructuring anything.
 
 load(
     "//defs/rules/srpm.bzl",
+    "built_rpm",
     "prebuilt_rpm",
     "rpm_subpackage",
     "srpm_build",
@@ -136,6 +137,17 @@ def _fedora_package(
             rpm = _subpackage_rpm_name(source_name, sub),
             visibility = visibility,
         )
+        # And the rpm file itself, for a rootfs rather than a buildroot.
+        # Defined alongside unconditionally: which binary packages an
+        # image happens to want is not knowable here, both projections
+        # are one file operation over an already-built directory, and a
+        # target nothing references costs nothing.
+        built_rpm(
+            name = subpackage_rpm_target(name, source_name, sub),
+            srpm = ":" + name + "-build",
+            rpm = _subpackage_rpm_name(source_name, sub),
+            visibility = visibility,
+        )
 
     # `:name` is the binary package sharing the source package's name --
     # what a BuildRequires on it means.  A source package that publishes no
@@ -164,6 +176,15 @@ def subpackage_target(name, source_name, sub):
     fails as "no such target" rather than as a naming bug.
     """
     return _subpackage_target(name, source_name, sub)
+
+def subpackage_rpm_target(name, source_name, sub):
+    """The target name for a subpackage's .rpm file.
+
+    Public for the same reason subpackage_target is: an image set names a
+    *binary* package, and turning that into the label of the rpm this repo
+    built for it means knowing what package() called the rule.
+    """
+    return _subpackage_target(name, source_name, sub) + "-rpm"
 
 def _subpackage_target(name, source_name, sub):
     """Target name for a subpackage projection.

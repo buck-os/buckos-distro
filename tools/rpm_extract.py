@@ -1,19 +1,34 @@
 #!/usr/bin/env python3
-"""Unpack a binary rpm into an installroot.
+"""Pick one binary rpm out of a build, and either unpack it or hand it over.
 
-Two modes:
+Selecting:
 
-    --rpm PATH              unpack exactly this rpm (prebuilt_rpm)
-    --rpm-dir DIR --select N  pick the rpm for binary package N out of a
-                            directory of rpms and unpack it (rpm_subpackage)
+    --rpm PATH                this exact rpm (prebuilt_rpm)
+    --rpm-dir DIR --select N  the rpm for binary package N, out of a
+                              directory of them (rpm_subpackage, built_rpm)
 
 The --rpm-dir form exists because an srpm_build produces every subpackage
 in one action.  The whole directory is a Buck input (RE materializes only
 declared inputs), and the selection happens here.
 
-No rpmdb, no scriptlets: rpm2archive | tar, so this needs no root and no
-database state.  A package whose %post matters cannot be satisfied this
-way -- see SPEC.md section 7.
+Delivering:
+
+    --out DIR                 unpack it into an installroot
+    --out-rpm PATH            copy the .rpm itself
+
+Two outputs because the two consumers want different things from the same
+selection.  A *build* dependency wants the unpacked tree, to be overlaid
+into a buildroot.  A *rootfs* wants the rpm file, because it runs a real
+rpm transaction -- database, scriptlets, triggers -- and an unpacked tree
+cannot be installed, only copied over.  Keeping both behind one selection
+is the point: `select_rpm` is the rule that says a package named "zlib"
+is not the file "zlib-devel-...rpm", and two copies of that rule would
+disagree eventually.
+
+No rpmdb, no scriptlets *here*: rpm2archive | tar, so unpacking needs no
+root and no database state.  A package whose %post matters cannot be
+satisfied that way -- but it can be satisfied by --out-rpm, because what
+consumes that does run the transaction.  See SPEC.md section 7.
 """
 
 import argparse
@@ -69,15 +84,32 @@ def main():
                     help="directory of rpms to select from")
     ap.add_argument("--select", default=None,
                     help="binary package name to pick out of --rpm-dir")
-    ap.add_argument("--out", required=True, help="installroot to create")
+    ap.add_argument("--out", default=None, help="installroot to create")
+    ap.add_argument("--out-rpm", default=None,
+                    help="copy the selected .rpm here instead of unpacking")
     args = ap.parse_args()
 
     if bool(args.rpm) == bool(args.rpm_dir):
         sys.exit("pass exactly one of --rpm or --rpm-dir")
     if args.rpm_dir and not args.select:
         sys.exit("--rpm-dir requires --select")
+    if bool(args.out) == bool(args.out_rpm):
+        sys.exit("pass exactly one of --out or --out-rpm")
 
     rpm_path = args.rpm or select_rpm(args.rpm_dir, args.select)
+
+    if args.out_rpm:
+        out = os.path.abspath(args.out_rpm)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        # copyfile, not copy2: the mtime of an rpm inside a Buck output is
+        # whatever the build wrote, and carrying it forward would make this
+        # output depend on something the content hash already covers.
+        shutil.copyfile(rpm_path, out)
+        print(
+            "buckos-distro: selected {}".format(os.path.basename(rpm_path)),
+            file=sys.stderr,
+        )
+        return
 
     out = os.path.abspath(args.out)
     shutil.rmtree(out, ignore_errors=True)

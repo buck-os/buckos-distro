@@ -10,7 +10,7 @@ into targets.  Keeping the logic out of the generated file is what makes
 the generated diff reviewable.
 """
 
-load("//defs:flavor.bzl", "package", "subpackage_target")
+load("//defs:flavor.bzl", "package", "subpackage_rpm_target", "subpackage_target")
 load("//defs:releases.bzl", "release_suffix")
 load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_buildroot")
@@ -396,6 +396,18 @@ def fedora_packages(data, suffix):
                 ),
                 visibility = ["PUBLIC"],
             )
+            # The rpm file gets the same treatment, so an image set asking
+            # for a built package by name reaches the stage that ships
+            # rather than whichever one happens to be named first.
+            native.alias(
+                name = subpackage_rpm_target(
+                    recipe["name"] + suffix, recipe["source_name"], sub,
+                ),
+                actual = ":" + subpackage_rpm_target(
+                    shipping + suffix, recipe["source_name"], sub,
+                ),
+                visibility = ["PUBLIC"],
+            )
 
     # One probe per source package, whatever staging did to it.  What a
     # spec BuildRequires is a property of the spec, so probing every stage
@@ -524,16 +536,41 @@ def fedora_image_rootfs(data, suffix):
     """
     buildroot = fedora_buildroot_target(suffix)
 
+    # Which recipe, if any, produces each binary package.  This is what
+    # decides whether a package in an image comes out of this repo's
+    # compiler or off Fedora's mirror, and it is the join the two halves
+    # of the build were missing: the replay pipeline produced rpms nothing
+    # could install, and the image pipeline installed rpms nothing here
+    # had built.
+    #
+    # Keyed on the *binary* name because that is what an image set names.
+    # A source package contributes every subpackage it emits, so building
+    # zlib-ng means the image gets this repo's zlib-ng-compat too, not a
+    # locally built zlib-ng beside a downloaded compat library from a
+    # different compile.
+    built = {}
+    for recipe in data.RECIPES:
+        for sub in recipe["subpackages"]:
+            built[sub] = subpackage_rpm_target(
+                recipe["name"] + suffix, recipe["source_name"], sub,
+            )
+
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
             continue
+        rpms = []
+        from_source = 0
+        for entry in data.IMAGE_SETS[name]:
+            local = built.get(entry["name"])
+            if local:
+                rpms.append(":" + local)
+                from_source += 1
+            else:
+                rpms.append(":" + entry["target"] + suffix)
         rootfs(
             name = "rootfs-" + name + suffix,
             buildroot = buildroot,
-            rpms = [
-                ":" + entry["target"] + suffix
-                for entry in data.IMAGE_SETS[name]
-            ],
+            rpms = rpms,
             visibility = ["PUBLIC"],
         )
 
