@@ -9,19 +9,22 @@ nowhere, and an image built on one machine and one built on another are
 not the same bytes.  So mksquashfs comes out of the image-tools buildroot,
 which is pinned by the lockfile like everything else.
 
-Two trips into the sandbox rather than one, plus a third to clean up:
+Trips into the sandbox:
 
   1. in the buildroot, untar the rootfs into the work area
-  2. still in the buildroot, run mksquashfs over that tree
-  3. back in the buildroot, delete the tree
+  2. with --selinux-relabel, in the *image*, ask its own matchpathcon what
+     each of its paths should be labelled
+  3. back in the buildroot, run mksquashfs over that tree
+  4. back in the buildroot, delete the tree
 
-Step 2 does not enter the unpacked tree the way the initramfs build enters
-it.  It does not need to: mksquashfs only ever *reads* the rootfs, so the
-tool comes from the buildroot and the tree is just an argument.  dracut is
-the opposite -- it runs the image's own binaries against the image's own
-modules -- which is why that build chroots one level deeper.
+Steps 1, 3 and 4 do not enter the unpacked tree the way the initramfs
+build enters it.  They do not need to: mksquashfs only ever *reads* the
+rootfs, so the tool comes from the buildroot and the tree is just an
+argument.  Step 2 is the exception and chroots one level deeper for the
+same reason dracut does -- the policy that decides a label belongs to the
+distro being built, not to the machine building it.
 
-Step 3 is not tidiness.  The unpacked tree is full of files owned by ids
+Step 4 is not tidiness.  The unpacked tree is full of files owned by ids
 from this user's subordinate range -- ids that exist only inside the
 namespace -- so it can only be deleted from in there.  The same reasoning,
 and the same failure if skipped, as initramfs_build.py's cleanup.
@@ -118,7 +121,113 @@ def _resolve(var, candidates):
     ])
 
 
-def _mksquashfs_script(args, root, image):
+# ── SELinux labelling ────────────────────────────────────────────────
+#
+# An image built here has no security.selinux on anything, because
+# setxattr("security.selinux") is EPERM inside a nested user namespace and
+# every stage of this build runs in one.  The kernel makes an exception for
+# security.capability -- its v3 format records a rootid, so a namespace can
+# set one -- and no such exception for labels.  So rpm-plugin-selinux sets
+# nothing during the rootfs transaction and mksquashfs has nothing to copy.
+#
+# The consequence is not a degraded boot but no boot: with a policy shipped
+# and nothing labelled, systemd cannot label /run/systemd/units, fails to
+# allocate its manager object, and freezes as PID 1.  The image therefore
+# used to boot with selinux=0.
+#
+# The way out is to stop asking the kernel.  Two facts, each checked rather
+# than assumed:
+#
+#   * mksquashfs 4.6.1 takes per-file xattrs in a pseudo-file --
+#     `path x name=value` -- and writes them straight into the image's
+#     xattr table.  No setxattr(2) is involved, so the namespace never
+#     comes into it.  (-xattrs-add is the one that applies a single value
+#     to every file; this is the other one.)
+#   * Computing what each label should be is a pure lookup against the
+#     policy, which needs no privilege at all -- and the image ships its
+#     own policy and its own matchpathcon, so the answer comes from the
+#     distro being built rather than from the build host.  Same argument
+#     initramfs_build.py makes for using the image's own dracut.
+#
+# 22912 paths take about a second.
+_MATCHPATHCON_CANDIDATES = ("/usr/sbin/matchpathcon", "/usr/bin/matchpathcon")
+
+# Where the path list and the answers live inside the work area.
+_PATHS = "selinux-paths.txt"
+_CONTEXTS = "selinux-contexts.txt"
+_PSEUDO = "selinux-pseudo.txt"
+
+
+def image_paths(rootfs):
+    """Every path in the image, from the tarball rather than the tree.
+
+    The tar is the authoritative manifest and reading it costs nothing, so
+    the list comes from there rather than from walking the unpacked tree.
+
+    That is not just convenience.  Walking the tree has to happen inside
+    the sandbox, where /proc, /sys and /dev are bind-mounted into the
+    chroot -- a plain `find /` there picks up the *host's* procfs and
+    returns 298000 paths for a 22912-file image.  Pruning them is possible
+    and fragile; not generating them is neither.
+    """
+    import tarfile
+
+    paths = []
+    with tarfile.open(rootfs) as tar:
+        for member in tar:
+            name = member.name
+            if name.startswith("./"):
+                name = name[1:]
+            elif not name.startswith("/"):
+                name = "/" + name
+            if name != "/":
+                paths.append(name)
+    return paths
+
+
+def _matchpathcon_script(work):
+    """Ask the image what each of its own paths should be labelled."""
+    paths = os.path.join(work, _PATHS)
+    out = os.path.join(work, _CONTEXTS)
+    return "\n".join([
+        "set -e",
+        _resolve("MATCHPATHCON", _MATCHPATHCON_CANDIDATES),
+        # -d '\n' so a filename containing a space is one argument.  The
+        # image has none today, but a path list is exactly the place where
+        # assuming that quietly mislabels a file instead of failing.
+        "xargs -a {} -d '\\n' -n 2000 \"$MATCHPATHCON\" > {}".format(
+            shlex.quote(paths), shlex.quote(out)
+        ),
+        "test -s {}".format(shlex.quote(out)),
+    ])
+
+
+def write_pseudo(contexts, pseudo):
+    """Turn matchpathcon's answers into mksquashfs pseudo-file lines.
+
+    Returns (written, skipped).  A path containing whitespace or a
+    backslash is skipped rather than guessed at: the pseudo grammar splits
+    on spaces and gives the backslash meaning of its own, so emitting one
+    would label some other path, and mislabelling is worse than leaving a
+    file unlabelled.  Two of Fedora 43's 22912 land here -- systemd's
+    `system-systemd\\x2dcryptsetup.slice` and its veritysetup sibling --
+    and both are unit files that never execute.
+    """
+    written = skipped = 0
+    with open(contexts) as src, open(pseudo, "w") as dst:
+        for line in src:
+            path, _, context = line.rstrip("\n").partition("\t")
+            if not path or not context:
+                continue
+            if any(char in path for char in " \t\\"):
+                skipped += 1
+                continue
+            dst.write("{} x security.selinux={}\n".format(path, context))
+            written += 1
+    return written, skipped
+
+
+def _mksquashfs_script(args, root, image, pseudo=None):
     cmd = [
         "$MKSQUASHFS",
         root,
@@ -155,6 +264,8 @@ def _mksquashfs_script(args, root, image):
         cmd += ["-b", args.block_size]
     if args.processors:
         cmd += ["-processors", args.processors]
+    if pseudo:
+        cmd += ["-pf", pseudo]
     # -e consumes everything after it, so it goes last.
     if args.exclude:
         cmd.append("-e")
@@ -194,6 +305,9 @@ def main():
                     help="mksquashfs -processors; its default if empty")
     ap.add_argument("--exclude", action="append", default=[], metavar="PATH",
                     help="path to omit, relative to the rootfs (repeatable)")
+    ap.add_argument("--selinux-relabel", action="store_true",
+                    help="write security.selinux into the image, computed "
+                         "from the image's own policy")
     ap.add_argument("--work", default=None,
                     help="scratch directory; a temp dir is used if omitted")
     ap.add_argument("--keep-work", action="store_true",
@@ -238,6 +352,48 @@ def main():
             shutil.rmtree(work, ignore_errors=True)
 
 
+def _relabel(args, isolation, rootfs, root, work, env):
+    """Compute the image's SELinux labels and return a pseudo-file for them.
+
+    The lookup runs with the *unpacked image* as /, not the buildroot: the
+    policy that decides these labels is the image's own, and so is the
+    matchpathcon that reads it.  Building an image with the build host's
+    policy would be the same mistake as building it with the host's dracut.
+    """
+    paths = image_paths(rootfs)
+    listing = os.path.join(work, _PATHS)
+    with open(listing, "w") as handle:
+        handle.write("\n".join(paths) + "\n")
+
+    print(
+        "buckos-distro: labelling {} paths with the image's own "
+        "policy".format(len(paths)),
+        file=sys.stderr,
+        flush=True,
+    )
+    run_isolated(
+        ["/bin/sh", "-c", _matchpathcon_script(work)],
+        isolation, work, work, root, env=env,
+    )
+
+    pseudo = os.path.join(work, _PSEUDO)
+    written, skipped = write_pseudo(os.path.join(work, _CONTEXTS), pseudo)
+    print(
+        "buckos-distro: {} labels, {} paths skipped as unquotable".format(
+            written, skipped
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+    if not written:
+        sys.exit(
+            "--selinux-relabel produced no labels. The image has to ship a "
+            "policy (selinux-policy-targeted) and matchpathcon "
+            "(libselinux-utils) for its own contexts to be readable."
+        )
+    return pseudo
+
+
 def _build(args, isolation, rootfs, work, out):
     root = os.path.join(work, _ROOT)
     image = os.path.join(work, _IMAGE)
@@ -262,6 +418,10 @@ def _build(args, isolation, rootfs, work, out):
         isolation, work, work, sysroot, env=env,
     )
 
+    pseudo = None
+    if args.selinux_relabel:
+        pseudo = _relabel(args, isolation, rootfs, root, work, env)
+
     print(
         "buckos-distro: mksquashfs (comp={}, exclude={})".format(
             args.compressor, ",".join(args.exclude) or "-"
@@ -271,7 +431,7 @@ def _build(args, isolation, rootfs, work, out):
     )
     try:
         run_isolated(
-            ["/bin/sh", "-c", _mksquashfs_script(args, root, image)],
+            ["/bin/sh", "-c", _mksquashfs_script(args, root, image, pseudo)],
             isolation, work, work, sysroot, env=env,
         )
     finally:

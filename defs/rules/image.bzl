@@ -71,6 +71,8 @@ def _squashfs_impl(ctx: AnalysisContext) -> list[Provider]:
     cmd.add(buildroot_sysroot_args(ctx))
     for path in ctx.attrs.exclude:
         cmd.add("--exclude", path)
+    if ctx.attrs.selinux_relabel:
+        cmd.add("--selinux-relabel")
 
     ctx.actions.run(
         cmd,
@@ -101,6 +103,16 @@ squashfs = rule(
         # reviewed.  A caller that wants /var/cache gone can say so.
         "exclude": attrs.list(attrs.string(), default = []),
         "rootfs": attrs.dep(),
+        # Write security.selinux into the image, computed from the image's
+        # own policy.  Off by default because it is only meaningful for an
+        # image that ships one: a tools tree or a minimal rootfs has no
+        # policy to consult, and the driver hard-fails rather than
+        # producing an unlabelled image that claims to be labelled.
+        #
+        # For anything that boots, this is the difference between an image
+        # that runs SELinux and one that needs selinux=0 on the kernel
+        # command line -- see the block comment in tools/squashfs_build.py.
+        "selinux_relabel": attrs.bool(default = False),
         "_build": attrs.default_only(
             attrs.exec_dep(default = "//tools:squashfs_build"),
         ),

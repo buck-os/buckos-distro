@@ -521,7 +521,36 @@ Stated plainly, because each one is load-bearing:
   output is a tar archive, created inside the namespace, carrying ownership
   and xattrs (file capabilities) as metadata. Downstream
   image rules must unpack it inside their own namespace.
-- **Images are unlabeled, so a live ISO boots with `selinux=0`.**
+- **~~Images are unlabeled~~ — SELinux is enforcing.**
+  `setxattr("security.selinux")` returns `EPERM` inside a nested user
+  namespace, which is where every stage here runs, so nothing in the build
+  can label a file by asking the kernel. That much is unchanged. What
+  changed is that it no longer has to ask: `mksquashfs` takes per-file
+  xattrs in a pseudo-file (`path x name=value`) and writes them straight
+  into the image's xattr table, and working out *what* each label should
+  be is a pure policy lookup needing no privilege at all. The image ships
+  its own `selinux-policy-targeted` and its own `matchpathcon`, so the
+  contexts come from the distro being built rather than the build host —
+  the same argument `initramfs_build.py` makes for using the image's own
+  dracut. 22,912 paths resolve in about a second and dedup to 187 distinct
+  contexts in the image.
+
+  Measured on the built ISO, not assumed: `enforcing=1`, policy loaded in
+  78 ms, PID 1 running as `system_u:system_r:init_t`, **zero AVC denials**,
+  login prompt reached. `tools/squashfs_build.py` has the mechanism;
+  `squashfs(selinux_relabel = True)` turns it on, and it is off by default
+  because an image with no policy has no contexts to look up.
+
+  Two paths out of 22,912 are skipped rather than labelled — systemd's
+  `system-systemd\x2dcryptsetup.slice` and its veritysetup sibling. The
+  pseudo-file grammar splits on spaces and gives the backslash meaning of
+  its own, so emitting them would label some *other* path, and
+  mislabelling is worse than leaving a unit file unlabelled.
+
+  What follows is the reasoning as it stood before, kept because the
+  constraint it describes is real and still shapes the design:
+
+- **Why the kernel will not do it for you.**
   `setxattr("security.selinux")` returns `EPERM` inside a nested user
   namespace, which is where every stage here runs — even under
   `unshare -Ur`, on a file where setting a `user.*` xattr succeeds. This is
@@ -531,28 +560,19 @@ Stated plainly, because each one is load-bearing:
   here do carry working file capabilities on `arping`, `clockdiff`,
   `newuidmap` and `newgidmap`. The kernel extends that courtesy to
   capabilities and withholds it from labels. So `rpm-plugin-selinux` sets
-  no context and `mksquashfs` has none to carry — measured on a live
-  rootfs, zero labels across the whole tree. The image still ships `selinux-policy-targeted`, so a kernel
-  with SELinux enabled loads that policy and enforces it against a
-  filesystem where nothing has a label. The result is not a degraded boot
-  but no boot at all: systemd cannot label `/run/systemd/units`, fails to
-  allocate its manager object, and freezes as PID 1 before starting a
-  single unit. `enforcing=0` would get past that, but it leaves the policy
-  loaded with every file `unlabeled_t` — a system that reports itself
-  confined and is not. `selinux=0` states the truth instead.
+  no context during the rootfs transaction, and there is nothing on disk
+  for `mksquashfs` to copy — measured on a live rootfs, zero labels across
+  the whole tree. That is why the labels have to be *written into the
+  image* rather than set on files: the fix above is offline image editing,
+  not privilege.
 
-  The way out is not privilege but *offline image editing*: write the xattr
-  into the filesystem's bytes rather than asking the kernel to set it.
-  buckos-build does exactly this for IMA, using `debugfs`'s `ea_set` to
-  inject `security.ima` from `.sig` sidecars — and its own docstring records
-  the limit, that this works for ext4 and has "no unprivileged equivalent to
-  `debugfs` for those filesystems" otherwise. squashfs is one of those
-  otherwises: `mksquashfs` 4.6.1 can only read xattrs from the source tree,
-  and its `-xattrs-add` applies a single value to every file, which is not
-  what a per-file context table is. buckos-build's own squashfs path reaches
-  for `evmctl ima_setxattr`, which goes through the kernel and therefore
-  silently no-ops unprivileged. So this is a genuine gap in both repos, not a
-  shortcut taken in this one.
+  buckos-build reaches the same conclusion from the other side, using
+  `debugfs`'s `ea_set` to inject `security.ima` into ext4 from `.sig`
+  sidecars, and records that it has "no unprivileged equivalent to
+  `debugfs` for those filesystems" otherwise — its squashfs path falls
+  back to `evmctl ima_setxattr`, which goes through the kernel and so
+  silently no-ops unprivileged. `mksquashfs -pf` looks like the missing
+  equivalent for that case too.
 - **Scriptlets run in a buildroot, but after the payloads rather than with
   them.** Trees are unpacked with `rpm2archive | tar` — GNU tar's
   `--delay-directory-restore`, not `cpio`, because rpm payloads ship

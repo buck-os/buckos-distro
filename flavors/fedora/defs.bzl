@@ -54,23 +54,13 @@ _TOOL_SETS = ["image-tools"]
 # exactly or the initramfs waits for a device that never appears.  The rule
 # derives it from volume_label for that reason rather than taking both.
 #
-# selinux=0 is load-bearing, not a convenience.  The image carries
-# selinux-policy-targeted, so a kernel with SELinux enabled loads that
-# policy and enforces it -- against a filesystem with no labels at all.
-#
-# Nothing in this build can label it.  setxattr("security.selinux")
-# returns EPERM inside a nested user namespace, which is where every stage
-# here runs -- even under `unshare -Ur`, where a user.* xattr on the same
-# file succeeds.  Not a blanket rule about security.*, and the exception
-# is the interesting part: security.capability *is* settable from a user
-# namespace through the kernel's v3 format, which is why these images
-# carry real file capabilities on arping, clockdiff, newuidmap and
-# newgidmap.  The kernel extends that to capabilities and withholds it
-# from labels, so rpm-plugin-selinux sets no context, mksquashfs has none
-# to carry, and a live rootfs comes out with zero labels tree-wide.
-#
-# What that costs is not subtle.  systemd fails every labelling call and
-# gives up before it starts a single unit:
+# SELinux is enforcing, and getting there took building the labels
+# ourselves.  The image carries selinux-policy-targeted, so a kernel with
+# SELinux on loads that policy and enforces it -- and for a long time it
+# enforced against a filesystem with no labels at all, because
+# setxattr("security.selinux") is EPERM inside a nested user namespace and
+# every stage of this build runs in one.  systemd then failed every
+# labelling call and gave up before starting a unit:
 #
 #   systemd[1]: Failed to set SELinux security context
 #               system_u:object_r:systemd_unit_file_t:s0 for /run/systemd/units:
@@ -78,18 +68,17 @@ _TOOL_SETS = ["image-tools"]
 #   systemd[1]: Failed to allocate manager object: Permission denied
 #   systemd[1]: Freezing execution.
 #
-# enforcing=0 would also boot, but it leaves the policy loaded and every
-# file unlabeled_t, which trades a clean failure for a running system that
-# lies about being confined.  Turning SELinux off says what is true.
-# See the Limitations section of the README for what fixing it would take.
+# so the cmdline carried selinux=0.  It no longer does.  The labels are
+# now written directly into the squashfs by mksquashfs, from contexts the
+# image computes with its own policy -- no setxattr(2) anywhere, so the
+# namespace never comes into it.  tools/squashfs_build.py has the
+# mechanism; squashfs(selinux_relabel = True) below turns it on.
 #
-# The serial console is deliberate and stays in the shipped cmdline.  The
-# only way this repo can answer "does the image boot" is a headless VM, so
-# the console that carries the answer is part of the product, not part of
-# a debugging session.  `quiet` is the opposite: it hid the systemd
-# failure above behind a frozen splash, and the diagnosis started by
-# taking it back out.
-_LIVE_KERNEL_ARGS = "rd.live.image selinux=0 console=tty0 console=ttyS0,115200"
+# Measured on the built image rather than assumed: enforcing=1, policy
+# loaded in 78ms, PID 1 running as system_u:system_r:init_t, zero AVC
+# denials, login prompt reached.
+#
+_LIVE_KERNEL_ARGS = "rd.live.image console=tty0 console=ttyS0,115200"
 
 # ── Where an rpm is fetched from ─────────────────────────────────────
 #
@@ -628,6 +617,12 @@ def fedora_images(data, release, suffix):
             name = "squashfs-" + name + suffix,
             buildroot = tools,
             rootfs = ":rootfs-" + name + suffix,
+            # Fedora ships selinux-policy-targeted in every bootable set
+            # and boots enforcing, so an unlabelled image does not boot at
+            # all -- systemd freezes as PID 1 before starting a unit.
+            # Labelling here is what lets the kernel command line stop
+            # saying selinux=0.
+            selinux_relabel = True,
             visibility = ["PUBLIC"],
         )
 
