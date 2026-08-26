@@ -45,6 +45,39 @@ HEADER = '''\
 '''
 
 
+# What buck2 accepts in a target name.  rpm's version grammar produces two
+# characters that are not on this list, and both are ordinary rather than
+# exotic:
+#
+#   `:`  an epoch, as in 1:2.12-43.
+#   `^`  a post-release marker.  Fedora writes downgrades as
+#        2.44.6^really2.44.4, meaning "sorts below what it looks like",
+#        and gdk-pixbuf2 carries exactly that today.
+#
+# The `^` case is the one that bit.  URL escaping for it was already in
+# place -- flavors/fedora/defs.bzl percent-encodes it -- with a comment
+# saying no pin carried one yet and it was handled rather than waited for.
+# The target name was not, so widening the build set turned "handled" into
+# a parse error naming a character nobody had connected to rpm.
+_TARGET_SAFE = frozenset(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    ",.=-/~@!+$_"
+)
+
+
+def target_safe(text):
+    """Map anything buck2 will not take in a target name to an underscore.
+
+    Lossy on purpose, and safe to be: the sha256 is what identifies an rpm,
+    and flavors/fedora/defs.bzl refuses two pins that collapse to one
+    target name with different digests.  So a collision is a loud failure
+    rather than a silently shared download.
+    """
+    return "".join(char if char in _TARGET_SAFE else "_" for char in text)
+
+
 def _target_name(entry):
     """Buck target name for one binary rpm.
 
@@ -52,9 +85,9 @@ def _target_name(entry):
     name coexist in a repo, and version-release because two releases of
     the same distro can be in one graph at once.
     """
-    return "rpm-{}-{}-{}".format(
-        entry["name"], entry["evr"].replace(":", "_"), entry["arch"]
-    )
+    return target_safe("rpm-{}-{}-{}".format(
+        entry["name"], entry["evr"], entry["arch"]
+    ))
 
 
 def _dedupe(entries):
@@ -236,7 +269,7 @@ def _source_literal(entry):
         "location": entry["location"],
         "sha256": entry["sha256"],
         "repo": entry.get("repo") or "",
-        "target": "srpm-{}".format(entry["name"]),
+        "target": target_safe("srpm-{}".format(entry["name"])),
     }, sort_keys=True)
 
 

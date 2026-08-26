@@ -79,22 +79,53 @@ def run_probes(buck2, targets, config, cwd):
     One invocation, not one per package: the probes share a buildroot and
     most of their inputs, and buck2 schedules them against each other far
     better than a loop out here could.
+
+    --keep-going, and a failure that is reported rather than fatal.  The
+    probe pass is bootstrapping: a package's probe can need another
+    package *built*, and that build can be exactly what is blocked by the
+    dependency this pass exists to discover.  libcap-ng is the case --
+    its %ifarch BuildRequires are invisible to repodata, so its buildroot
+    is short of clang and libbpf-devel, so it cannot build, so anything
+    whose probe wants it built fails too.
+
+    Sinking the whole batch for that would make the pass useless at the
+    scale it is for: over a hundred packages, something is always in this
+    state, and the answers from the rest are what break the deadlock on
+    the next solve.  So partial results are the normal case, and the
+    caller is told what is missing rather than left with nothing.
     """
     if not targets:
         return {}
-    argv = [buck2, "build"] + list(config) + ["--show-json-output"] + targets
+    argv = ([buck2, "build"] + list(config)
+            + ["--keep-going", "--show-json-output"] + targets)
     print("$ {}".format(" ".join(argv)), file=sys.stderr)
     proc = subprocess.run(argv, cwd=cwd, stdout=subprocess.PIPE, text=True)
-    if proc.returncode != 0:
-        sys.exit("probe build failed ({})".format(proc.returncode))
 
+    outputs = {}
     # buck2 prints its progress on stderr and the JSON map on stdout, but
-    # only the last line of stdout is that map.
+    # only the last line of stdout is that map.  With --keep-going the map
+    # carries the targets that succeeded and a null for those that did not.
     for line in reversed(proc.stdout.splitlines()):
         line = line.strip()
         if line.startswith("{"):
-            return json.loads(line)
-    sys.exit("buck2 --show-json-output printed no output map")
+            outputs = {k: v for k, v in json.loads(line).items() if v}
+            break
+
+    missing = [t for t in targets if t not in outputs]
+    if missing:
+        print(
+            "buckos-distro: {} of {} probes did not build; solving with the "
+            "rest and leaving these for the next pass:\n  {}".format(
+                len(missing), len(targets), "\n  ".join(sorted(missing))
+            ),
+            file=sys.stderr,
+        )
+    if not outputs:
+        sys.exit(
+            "probe build failed ({}) and produced nothing to solve "
+            "with".format(proc.returncode)
+        )
+    return outputs
 
 
 def collect(outputs, cwd):

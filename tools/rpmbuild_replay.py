@@ -292,6 +292,26 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
 
     script = (
         "set -e\n"
+        # The static query goes first, and unconditionally, because it is
+        # the half that always answers.  rpmspec parses the spec and runs
+        # nothing, so it needs no buildroot -- and it evaluates %ifarch,
+        # which is the whole reason this ordering matters.
+        #
+        # A source header records the BuildRequires that were in force
+        # when the srpm was built, and Fedora's srpms are arch-neutral, so
+        # an %ifarch-guarded BuildRequires is simply absent from repodata.
+        # libcap-ng is the case that found this: its spec asks for clang,
+        # bpftool, libbpf-devel and audit-libs-devel inside
+        # `%ifarch %{bpf_supported_arches}`, none of which repodata
+        # mentions, so the solver built a buildroot without them and
+        # rpmbuild refused to start.
+        #
+        # Which is exactly when the -br below cannot run: rpm checks the
+        # static BuildRequires before it will execute a generator.  Asking
+        # rpmspec first means the probe still returns the list that fixes
+        # the buildroot, instead of failing with a message about a missing
+        # header.
+        "{query} > {staticout}\n"
         # Exit 11 is an answer, not a failure: it means the generator
         # asked for something the buildroot does not have, which is
         # exactly what a probe is for.  Recorded rather than swallowed --
@@ -313,11 +333,17 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
         "    break\n"
         "  fi\n"
         "done\n"
+        # No header is a partial answer rather than an error.  rpm wrote
+        # none because it stopped at the static dependency check, so the
+        # dynamic set is unknown -- but the static set above is known, and
+        # it is the one that unblocks the next solve.  Saying so and
+        # carrying on beats failing the probe of every %ifarch package.
         "if [ ! -s {headerout} ]; then\n"
-        '  echo "rpmbuild -br wrote no source header under {srpms}" >&2\n'
-        "  exit 1\n"
+        '  echo "buckos-distro: rpmbuild -br stopped before writing a '
+        'source header, so only the static BuildRequires were learned. '
+        'Usually an unmet static BuildRequires -- re-solve with these and '
+        'probe again to reach the dynamic ones." >&2\n'
         "fi\n"
-        "{query} > {staticout}\n"
     ).format(
         build=_join(build),
         query=_join(query),
@@ -333,10 +359,18 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
     run_isolated(["/bin/sh", "-c", script], args.isolation,
                  work=work, chdir=topdir, sysroot=sysroot, env=env)
 
-    header = open(header_out).read().strip()
-    unmet = open(rc_out).read().strip() == str(BUILDREQUIRES_UNMET)
-    all_caps = _read_capabilities(requires_out)
+    def _slurp(path):
+        return open(path).read().strip() if os.path.exists(path) else ""
+
+    header = _slurp(header_out)
+    unmet = _slurp(rc_out) == str(BUILDREQUIRES_UNMET)
     static_set = set(_read_capabilities(static_out))
+    # Without a header there is nothing to subtract, so the union *is* the
+    # static set and the dynamic set is unknown rather than empty.  Those
+    # are different claims and the caller has to be able to tell them
+    # apart -- `probed` below is what says which one this is.
+    probed = bool(header)
+    all_caps = _read_capabilities(requires_out) if probed else sorted(static_set)
     dynamic = sorted({c for c in all_caps if c not in static_set})
     return {
         "package": args.package_name,
@@ -358,6 +392,10 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
         # only thing the flag is consulted for.
         "generated": bool(dynamic) or header.endswith(".nosrc.rpm"),
         "unmet": unmet,
+        # False when rpmbuild stopped before writing a header, which means
+        # `dynamic` is "not looked at" rather than "none".  A re-probe
+        # after the static set has been solved in is what turns it True.
+        "probed": probed,
         "buildrequires": sorted(set(all_caps)),
         "static": sorted(static_set),
         "dynamic": dynamic,
