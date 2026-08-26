@@ -499,9 +499,46 @@ Stated plainly, because each one is load-bearing:
   cost: the update loop is two solves deep — solve, probe, solve again —
   and the probe needs a working buildroot for the very package whose
   buildroot it is computing.
-- **Actions are coarse.** One `srpm_package` action is the whole
-  `%build`, so a one-line change recompiles the package. Buck's caching
-  works between packages, not within one. See SPEC.md §1.
+- **Actions are coarse, and permanently so — rpm forbids the fix.** One
+  `srpm_build` action is `%prep` through `%install`, so Buck's caching
+  works between packages and not within one.
+
+  The obvious repair is to make each `rpmbuild` stage its own action, and
+  rpm has exactly the flag for it: `--short-circuit` skips straight to
+  `-bc`, `-bi` or `-bb`. It cannot be used here, and not for a Buck
+  reason. Quoting rpm 6.0.2's own manual, the version these images are
+  built with:
+
+  > Useful for local testing only. Packages built this way will be marked
+  > with an unsatisfiable dependency to prevent their accidental use.
+
+  rpm deliberately poisons short-circuited output, because a package
+  assembled from stages that never ran together is not a package it is
+  willing to vouch for. So the choice is not "coarse actions or fine ones"
+  — it is coarse actions or rpms that refuse to install.
+
+  The usual framing of the cost is also wrong for this repo, and worth
+  correcting: "a one-line change recompiles the package" describes editing
+  upstream source, which a replay builder never does — the sources are
+  pinned tarballs. What actually invalidates is a buildroot change or a
+  `%bcond` flip, and both are *correct* invalidations rather than caching
+  failures: a package compiled against a different toolchain really is a
+  different artifact. The cost that bites is fan-out. Move one seed rpm
+  and everything built against it rebuilds, which is why the seed set's
+  size is tracked as `bootstrap_depth` rather than left implicit.
+
+  That fan-out cannot be narrowed either, for the reason in the remote
+  execution section above: the buildroot reaches each action as one whole
+  tree, because RE materializes only an action's declared inputs and a
+  projection would ship a subdirectory whose libraries are missing. Whole
+  tree means one hash, and one hash means any change to it invalidates
+  every consumer.
+
+  SPEC.md §1 names the escape hatch — per-package **graduation**, rewriting
+  one package as a native recipe when the control is worth the
+  maintenance. It is not implemented: `package()` dispatches only to the
+  fedora replay, and every other flavor fails with "frontend is not
+  implemented yet".
 - **USE flags reach only as far as the packaging exposes them.** For rpm
   that is `%bcond`, which is generous; for Debian it is much narrower.
 - **A rootfs needs subordinate id ranges, and its artifact is a tarball.**
