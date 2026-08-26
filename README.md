@@ -610,42 +610,41 @@ Stated plainly, because each one is load-bearing:
   back to `evmctl ima_setxattr`, which goes through the kernel and so
   silently no-ops unprivileged. `mksquashfs -pf` looks like the missing
   equivalent for that case too.
-- **Scriptlets run in a buildroot, but after the payloads rather than with
-  them.** Trees are unpacked with `rpm2archive | tar` — GNU tar's
+- **No scriptlets in a buildroot, and `--justdb` is why.** Trees are
+  unpacked with `rpm2archive | tar` — GNU tar's
   `--delay-directory-restore`, not `cpio`, because rpm payloads ship
   read-only directories with files beneath them and cpio applies a
-  directory's mode as soon as it creates it. So the payloads go down
-  without rpm's involvement, and the scriptlets fire afterwards, with the
-  `rpm --justdb` transaction that writes the database.
+  directory's mode as soon as it creates it. The database is then written
+  by `rpm --justdb --install`, which updates the database and declines to
+  run install scriptlets for files it is not installing. So no `%pre` or
+  `%post` executes, and `--noscripts` is passed to say so rather than to
+  cause it.
 
-  That ordering is not what rpm does, and it is worth being precise about
-  what it costs and what it does not. It does *not* mean a half-configured
-  tree: by the time the transaction runs every payload is already
-  extracted, so a `%post` that walks `/usr/lib` finds all of it. What it
-  does mean is that a scriptlet which cares about running *between* two
-  packages' payloads sees both. Nothing in the seed or image-tools sets
-  does. Triggers stay off (`--notriggers`) for the same reason inverted: a
-  trigger fires on another package's installation, and in one transaction
-  that installs everything the firing order is rpm's internal business
-  rather than anything this repo decides.
+  Dropping `--noscripts` was tried and reverted, and the reason is worth
+  recording because the mistake was in the measurement rather than the
+  idea. `/usr/sbin -> bin` and the systemd sysusers entries in
+  `/etc/passwd` were both observed after the change and attributed to it —
+  without ever building the same tree *with* `--noscripts` to compare.
+  The control says they are there either way: they come from package
+  payloads, not scriptlets.
 
-  What it buys, measured rather than assumed: `filesystem`'s `%pretrans`
-  creates `/usr/sbin -> bin` itself, and systemd's sysusers scriptlets
-  populate `/etc/passwd` and `/etc/group`, so a package whose build needs
-  `dbus` or `systemd-timesync` to exist finds it. Two clean runs produce a
-  byte-identical rpmdb and an identical tree — worth checking before
-  believing, since sysusers allocates uids dynamically and an allocation
-  that moved between runs would rehash the buildroot and invalidate every
-  package built against it.
+  What settles it is `golang-bin`, whose `%post` runs
+  `update-alternatives --install /usr/bin/go …`. Run by hand inside the
+  finished buildroot it exits 0 and `go version` works. Run as part of the
+  `--justdb` transaction it has no effect: `/etc/alternatives` stays
+  empty, and `/usr/bin/go` — which ships as a symlink into it — dangles.
 
-  The hazard this reintroduces is ownership. Inside the namespace a
-  scriptlet is root and may `chown` a file to any id in the subordinate
-  range; outside, that id belongs to nobody the Buck daemon can act as, so
-  the file cannot be deleted and the *next* build fails cleaning an output
-  path it cannot name. Nothing does this today — both sets measured zero —
-  and `_check_ownership` walks the tree afterwards to make sure, so if it
-  ever starts the error names the file instead of arriving a build later
-  as a permissions error from an unrelated action.
+  That is a real limit, not a detail. **A package whose build needs a tool
+  registered through `alternatives` cannot be built in this buildroot.**
+  `libcap` is the case: it autodetects Go with `go version`, gets nothing,
+  silently omits its `captree` program, and then fails in `%files` on a
+  file nothing said it was skipping. Every step is a warning or a success
+  until the last one. Fixing it needs a real (non-`--justdb`) transaction,
+  which is exactly what the ownership constraint above rules out — so it
+  is a genuine gap rather than an oversight.
+
+  Triggers are off (`--notriggers`) as well, and would be moot regardless.
+
 - **Backslashes in payload paths become directories, in buildroots only.**
   buck2 reserves the backslash as a path separator and cannot address a
   file whose name contains one. systemd escapes a dash in a unit name as

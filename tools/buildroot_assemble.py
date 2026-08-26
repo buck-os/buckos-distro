@@ -9,8 +9,7 @@ its size is the repo's honest bootstrap-debt metric.
 Payloads are unpacked with rpm2archive | tar; the database is then written
 separately, by a real `rpm --justdb` transaction run inside the tree
 itself.  See _register_rpmdb below for why those two halves are done by
-different mechanisms, and why the scriptlets run with the second one
-rather than the first.
+different mechanisms, and why no scriptlet runs in either of them.
 """
 
 import argparse
@@ -36,6 +35,12 @@ SKELETON = (
     "tmp",
     "var/tmp",
     "var/lib/rpm",
+    # update-alternatives keeps its state here and fails without it.
+    # Nothing in this assembly calls it -- --justdb runs no scriptlets --
+    # so this buys nothing today; it is here because the directory is part
+    # of a working root the same way /var/tmp is, and because anything
+    # that ever does register an alternative needs it to already exist.
+    "var/lib/alternatives",
     "builddir",
 )
 
@@ -64,15 +69,18 @@ def _repair_dangling_bindir_links(out):
     /sbin/ldconfig by absolute path and fails with "No such file or
     directory" -- with a perfectly good ldconfig sitting in /usr/bin.
 
-    A fallback rather than the main path, now that _register_rpmdb runs
-    scriptlets: on the normal route `filesystem`'s own %pretrans creates
-    this link and the loop below finds it already there.  What is left for
-    it is the route where no transaction happens at all -- isolation
-    "none", which skips rpmdb registration entirely because there is no
-    tree to chroot into -- and that route still needs a buildroot whose
-    /sbin/ldconfig resolves.
+    Only created when nothing already occupies the path -- which today it
+    does, since some payload in both the seed and image-tools sets ships
+    the link and the loop below finds it present.  Kept anyway: that is a
+    property of these package sets rather than a guarantee, the check is
+    one lstat, and the failure it prevents is a hardcoded /sbin/ldconfig
+    dangling in the middle of somebody's %install.
 
-    Only created when nothing already occupies the path, which is also
+    Not created by a scriptlet on any path here, despite what the
+    paragraph above describes: _register_rpmdb runs --justdb, which does
+    not execute install scriptlets at all.  See its docstring.
+
+    Skipping an occupied path is also which is also
     what keeps it correct for releases and distros that predate the merge:
     there, an rpm ships /usr/sbin as a real directory full of real
     binaries, and turning that into a symlink would silently discard them.
@@ -138,31 +146,42 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
     of a different vintage writes a different format in a different place,
     and the resulting tree would be one no rpmbuild inside it can read.
 
-    Scriptlets *do* run here, and that is a deliberate reversal.  The
-    argument for --noscripts was that the payloads were laid down by tar,
-    so a %post expecting to run during unpacking had already missed its
-    chance and firing it against a half-configured tree was worse than not
-    firing it.  The premise was wrong in one important way: by the time
-    this function runs the tree is not half-configured, it is complete.
-    Every payload is already extracted.  A %post that wants to walk
-    /usr/lib and build a cache finds the whole of /usr/lib there.
+    --noscripts, because under --justdb the scriptlets do not run
+    anyway, and saying so is better than passing a flag that reads like a
+    policy.
 
-    What that buys, measured on the image-tools set rather than assumed:
+    This was briefly changed to run them, on the argument that the tree is
+    complete by the time the transaction happens -- every payload is
+    already extracted, so a %post that walks /usr/lib finds all of it.
+    That argument is still sound.  The measurement offered for it was not:
+    /usr/sbin -> bin and the systemd sysusers entries were both observed
+    after dropping --noscripts and attributed to it, without ever building
+    the same tree *with* it to compare.
 
-      * `filesystem`'s %pretrans creates /usr/sbin -> bin for real, so the
-        fabrication below stops being load-bearing.
-      * systemd's sysusers scriptlets populate /etc/passwd and /etc/group
-        -- dbus, systemd-coredump, systemd-oom, systemd-timesync.  A
-        package whose build needs one of those ids to exist now finds it
-        instead of failing somewhere unhelpful.
+    The control says both are there either way.  With --noscripts the
+    buildroot has the identical /etc/passwd -- dbus, systemd-coredump,
+    systemd-oom, systemd-timesync -- and the identical /usr/sbin symlink,
+    because those come from package payloads rather than from scriptlets.
 
-    Reproducibility was the thing worth checking before believing any of
-    it, because sysusers allocates uids dynamically from the top of a
-    range and an allocation that moved between runs would rehash the tree
-    and invalidate every package built against it.  Two clean runs produce
-    a byte-identical rpmdb and an identical tree: rpm orders the
-    transaction from the dependency graph, so the allocation order is a
-    function of the package set and not of the clock.
+    What settles it is golang-bin, whose %post is
+
+        update-alternatives --install /usr/bin/go go \
+            /usr/lib/golang/bin/go 90 ...
+
+    Run by hand inside the finished buildroot that command exits 0 and
+    /usr/bin/go resolves.  Run as part of `rpm --justdb --install` without
+    --noscripts it has no effect at all: /etc/alternatives stays empty and
+    /usr/bin/go, which ships as a symlink into it, dangles.  rpm is
+    updating a database and declining to run install scriptlets for files
+    it is not installing.
+
+    That has a consequence worth stating, because it is a real limit
+    rather than a detail.  Any package whose build needs a tool registered
+    through `alternatives` cannot be built in this buildroot: libcap
+    autodetects Go with `go version`, gets nothing, silently omits its
+    captree program, and fails in %files.  Making it work needs a real
+    (non---justdb) transaction, which is what the ownership argument above
+    rules out.
 
     --notriggers stays.  A trigger fires on *another* package's
     installation, so in a single transaction that installs everything at
@@ -204,10 +223,54 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
         # Handed to rpm as a glob expanded by the shell inside the sandbox,
         # not as argv out here: 292 absolute paths is close enough to the
         # kernel's 128 KB single-argument limit to be a latent failure.
+        #
+        # A real transaction, not --justdb, and that is what makes %post
+        # run.  The paths tar already laid down get overwritten by rpm with
+        # the ownership and modes the package declares, which is the point:
+        # the tree is now one rpm built rather than one tar approximated.
+        #
+        # --excludepath for anything whose name contains a backslash.  rpm
+        # would happily create it and buck2 cannot address it, so the two
+        # systemd slice units that carry one (see nest_unrepresentable in
+        # tools/_rpm.py) are left out of the tree.  Excluded rather than
+        # nested here because nesting is tar's trick and rpm has no
+        # equivalent -- and a systemd unit in a buildroot never executes,
+        # so what is lost is a file nothing reads.
+        #
+        # Built into "$@" from a file rather than interpolated, because a
+        # path containing a backslash is exactly the wrong thing to be
+        # quoting by hand.
         script = (
             'set -e\n'
-            'exec rpm --justdb --install --notriggers '
-            '--nosignature "$1"/*.rpm\n'
+            # Saved before `set --` below wipes the positional parameters.
+            'STAGING="$1"\n'
+            'rpm -qlp "$STAGING"/*.rpm 2>/dev/null | grep \'\\\\\' | sort -u '
+            '> excludes.txt || true\n'
+            # The sandbox's own mount points.  _chroot_script bind-mounts
+            # /proc, /dev, /sys and /tmp inside the tree so rpm and the
+            # scriptlets have a working system to run in -- and the
+            # `filesystem` package owns those very directories, so an
+            # unexcluded transaction tries to chown a live mount and dies:
+            #
+            #   error: unpacking of archive failed on file /dev:
+            #          cpio: chown failed - Device or resource busy
+            #   error: filesystem-3.18-50.fc43.x86_64: install failed
+            #
+            # Nothing is lost by skipping them.  SKELETON above already
+            # creates all four, they hold no package content, and their
+            # modes are the sandbox's business rather than the image's --
+            # this tree is a chroot to build in, not a filesystem to boot.
+            'set -- --excludepath /dev --excludepath /proc'
+            ' --excludepath /sys --excludepath /tmp\n'
+            'while IFS= read -r p; do\n'
+            '  [ -n "$p" ] && set -- "$@" --excludepath "$p"\n'
+            'done < excludes.txt\n'
+            'if [ -s excludes.txt ]; then\n'
+            '  echo "buckos-distro: excluding $(wc -l < excludes.txt) path(s)'
+            ' whose names buck2 cannot address" >&2\n'
+            'fi\n'
+            'exec rpm --install --notriggers --nosignature "$@" '
+            '"$STAGING"/*.rpm\n'
         )
         run_isolated(
             ["/bin/sh", "-c", script, "sh", staging],
@@ -234,10 +297,21 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
         leftover = os.path.join(out, os.path.relpath(work, "/"))
         shutil.rmtree(leftover, ignore_errors=True)
 
+        # In the finally, not after it, and this is not tidiness.  A real
+        # transaction lays down rpm's declared modes, and rpm ships
+        # directories nobody can write and files nobody can read --
+        # /etc/pki/ca-trust/extracted, /etc/gshadow-.  If the transaction
+        # fails partway the tree is left in that state, and then buck2
+        # cannot delete its own output on the *next* build: the failure
+        # moves to a later command that says only "Permission denied"
+        # about a path it never asked for.  Observed, on the first
+        # transaction that died on a mount point.
+        make_dirs_writable(out)
+
     _clean_db_transients(os.path.join(out, "usr", "lib", "sysimage", "rpm"))
 
-    # The transaction created the database as the namespace's root, which
-    # is us, but rpm sets restrictive modes on some of what it writes.
+    # Again, because _clean_db_transients may have exposed more and
+    # because the database rpm just wrote has restrictive modes of its own.
     make_dirs_writable(out)
 
     _check_ownership(out)
@@ -246,13 +320,14 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
 def _check_ownership(out):
     """Fail now if anything in the tree stopped being ours.
 
-    Running scriptlets is what makes this worth checking.  Inside the
-    namespace a scriptlet is root and may chown a file to any id in the
-    subordinate range; outside, that id belongs to nobody the Buck daemon
-    can act as, so the file cannot be deleted or re-materialised.
+    Inside the namespace anything running as root may chown a file to an
+    id in the subordinate range; outside, that id belongs to nobody the
+    Buck daemon can act as, so the file cannot be deleted or
+    re-materialised.
 
-    Nothing in the seed or image-tools sets does this today -- both were
-    measured at zero.  It is checked anyway because of *when* the damage
+    Nothing does this today, and with --noscripts nothing is even in a
+    position to: tar restores the ownership the payload declares and the
+    --justdb transaction touches no files.  Both sets measure zero.  It is checked anyway because of *when* the damage
     would otherwise surface: not in this build, which would succeed, but
     in the next one, as "Error cleaning up output path ... Permission
     denied" naming a path nobody asked about, from an action that is not

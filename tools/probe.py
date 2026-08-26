@@ -111,7 +111,16 @@ def run_probes(buck2, targets, config, cwd):
             outputs = {k: v for k, v in json.loads(line).items() if v}
             break
 
-    missing = [t for t in targets if t not in outputs]
+    # Compared on the label after the cell, because the two sides spell it
+    # differently: this passes `//flavors/fedora:probe-acl-43` and buck2
+    # answers with `buckos//flavors/fedora:probe-acl-43`.  A plain `in`
+    # never matches, which reported every probe as failed while happily
+    # returning fifteen results.
+    def _label(target):
+        return target.split("//", 1)[-1]
+
+    got = {_label(key) for key in outputs}
+    missing = [t for t in targets if _label(t) not in got]
     if missing:
         print(
             "buckos-distro: {} of {} probes did not build; solving with the "
