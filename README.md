@@ -205,9 +205,9 @@ each one fails by omission: an author writes `ctx.actions.run(...)` without
 thinking about RE and nothing goes red until someone else downloads a
 machine-specific artifact.
 
-**Status: RE-shaped, not RE-tested.** No RE backend has ever run this graph.
-Both switches default off and `.buckconfig` ships no `[buck2_re_client]`
-section, so there is nothing to dispatch to:
+**Status: dispatch verified, execution not.** No RE backend has ever run
+this graph. Both switches default off and `.buckconfig` ships no
+`[buck2_re_client]` section:
 
 ```ini
 [buckos]
@@ -215,14 +215,53 @@ section, so there is nothing to dispatch to:
   remote_cache = true
 ```
 
-Two things are known to stand between that and a green remote build. Neither
-is a Buck problem:
+What flipping them has been shown to do, against no backend:
 
-- **`rootfs` cannot run on an arbitrary worker.** It needs unprivileged user
-  namespaces, setuid `newuidmap`/`newgidmap`, and a `/etc/subuid` +
-  `/etc/subgid` range for the executing user. A worker without them fails at
-  `unshare`, and no amount of action annotation changes that. The replay
-  actions have no such requirement.
+- **Analysis succeeds.** That is the whole point of the
+  `remote_execution_properties` / `remote_execution_use_case` defaults in
+  `defs/exec.bzl`: without them buck2 rejects `remote_enabled = True`
+  during analysis, so the switch used to fail before any action ran and
+  "config-driven RE" was a claim the config could not satisfy. A `cquery`
+  over the full ISO graph with both switches on now resolves cleanly.
+- **Dispatch is really attempted, and buck2 does not fall back.** With no
+  engine configured the build fails rather than quietly running locally:
+
+  ```
+  Internal error (stage: remote_action_cache): Remote Execution Error
+  Error: (Error creating Capabilities client: No address)
+  ```
+
+  Note the stage — that is the *cache* lookup, so `remote_cache = true`
+  alone is enough to hit it. This is why the section is absent rather than
+  present-and-empty.
+
+**A worker has to be built for this graph.** Every interesting action
+enters a sandbox, so the requirement is not a container image detail:
+
+| the worker needs | because |
+|---|---|
+| unprivileged user namespaces | `tools/_isolation.py` has no privileged path |
+| `bubblewrap` **or** util-linux `unshare` | the two sandbox mechanisms it will accept |
+| setuid `newuidmap` / `newgidmap` | mapping more than one id needs the shadow-utils helpers |
+| `/etc/subuid` + `/etc/subgid` ranges | rpm chowns payloads to `mail`, `tss` and friends |
+| roomy `/var/tmp` on buck-out's filesystem | unpacked trees are gigabytes, and staging hardlinks |
+
+Without the id range the build still runs, warns, and then fails on the
+first package shipping a non-root file — a degraded mode that is worse
+than a clean refusal, so a worker image should be checked against this
+list rather than discovered against it.
+
+**A different buck2 cannot be substituted to get RE for free.** This repo
+takes its prelude from `[external_cells] prelude = bundled` — the copy
+inside the buck2 binary itself, with `prelude/` as an empty mount point —
+so a buck2 built elsewhere fails at `File not found: prelude//prelude.bzl`
+before parsing a single target. Pointing the cell at a vendored or
+borrowed prelude would work and is precisely the dependency the bundled
+cell exists to avoid.
+
+One more thing stands between a configured backend and a green remote
+build, and it is not a Buck problem:
+
 - **Cold fetches are slower than buck2's HTTP timeout.** `http_head` gives up
   after 10s; a 21MB rpm pulled through a cold read-through cache took 36s
   here. Fetches are retried and eventually win, but a cold clone will show a
