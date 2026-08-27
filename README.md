@@ -1,403 +1,187 @@
 # buckos-distro
 
-A Buck2 repo that builds Linux distributions from their own upstream source
-packages. Point it at Fedora's source RPMs and it rebuilds Fedora; point it
-at Debian's source packages and it rebuilds Ubuntu; point it at BuckOS
-recipes and it builds BuckOS. The distro is a **flavor**, selected by
-config, and no rule knows which one is active.
+`buckos-distro` is a Buck2 repository for replaying upstream Linux package builds and assembling bootable distribution images.
+
+Fedora 43, Fedora 44, and CentOS Stream 10 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
+
+## Quick start
+
+The build runs on Linux. RPM-family builds need Python 3, GNU tar, `rpm2archive`, and either Bubblewrap or util-linux `unshare`. Debian-family builds need Python 3, GNU tar, `dpkg-source`, `dpkg-buildpackage`, `dpkg-deb`, and the same isolation choice. The unshare path also needs `newuidmap`, `newgidmap`, and subordinate UID and GID ranges for the build user.
+
+`setup.sh` installs the open-source Buck2 binary under `$HOME/.local/bin` when no working `buck2` is already available. It also creates the ignored `prelude/` mount point and writes `.buckconfig.local` when that file does not exist. It does not install system packages.
 
 ```sh
-./setup.sh                        # install buck2, check prerequisites
-buck2 build //tests:hello         # replay a source rpm end to end
-buck2 build //:flavor             # which flavor is configured
+export PATH="$HOME/.local/bin:$PATH"
+./setup.sh
+buck2 build //:flavor
+buck2 test //tools/...
+buck2 build //tests:hello //tests:hello-greeting
 ```
 
-## The idea in one paragraph
-
-Every distro's packaging already encodes how to build its packages —
-`.spec` files, `debian/rules`. That knowledge is enormous and
-battle-tested, and rewriting it as native Buck rules means maintaining a
-fork of it forever. So this repo does not translate packaging; it
-**replays** it. `rpmbuild -bb` runs inside a hermetic Buck action against a
-buildroot Buck assembled, with the spec file untouched. Buck supplies what
-the distro's build system does not: a content-addressed dependency graph,
-caching, and remote execution. See [SPEC.md](SPEC.md) §1 for the rejected
-alternative and what replay costs.
-
-## Status
-
-| flavor | source format | driver | state |
-|--------|---------------|--------|-------|
-| fedora | `.src.rpm` | `rpmbuild -bb` | **boots**: F43 and F44 live ISOs reach a login prompt in qemu, from solves against real repodata |
-| ubuntu | `.dsc` | `dpkg-buildpackage -b` | designed, not implemented — [flavors/ubuntu/README.md](flavors/ubuntu/README.md) |
-| buckos | tarball | configure/make | designed, not implemented — [flavors/buckos/README.md](flavors/buckos/README.md) |
-
-## What actually works
-
-`buck2 build //tests:hello` takes a checked-in `.src.rpm`, unpacks it,
-replays its spec with `rpmbuild -bb`, and produces an installroot
-containing a working binary. `//tests:hello-greeting` replays the *same*
-source package with one `%bcond` flipped and produces a different binary —
-the USE-flag mechanism, with nothing patched.
-
-`buck2 test //tools:depgraph_test` runs 27 tests over the graph algorithms:
-capability resolution, transitive closure, Tarjan SCC on a 5000-node chain,
-bootstrap-cycle staging, determinism.
-
-`tools/solve.py` resolves against real Fedora repodata — 77,664 binary and
-24,019 source packages for F43 — and writes a lockfile pinning every
-dependency by sha256. The only unresolved capabilities left are rich
-boolean deps, which are flagged rather than guessed at.
-
-`buck2 build //flavors/fedora:iso-live-43` produces a hybrid live ISO that
-boots. Verified by booting it, not by inspecting it: Fedora 43 reaches a
-login prompt under both BIOS (isolinux) and UEFI (OVMF), and Fedora 44
-under UEFI, on kernels `7.1.10-100.fc43` and `6.19.10-300.fc44` — two
-distros out of one build graph. Everything in the image is an upstream
-binary rpm pinned by the lockfile; the source-replay path is a separate,
-much smaller pipeline that the images do not consume yet.
-
-## Multiple releases at once
-
-Which release you build is an *axis*, not a mode the repo is switched
-into. Fedora 43 and Fedora 44 are different build universes — different
-compiler, different macros, different pinned dependency set — so every
-release named in `[buckos.fedora] releases` gets its own targets, and they
-coexist in one build graph:
+On a host without access to GitHub releases, install a local Buck2 binary through the same setup path:
 
 ```sh
-buck2 build //flavors/fedora:buildroot-binary-seed-43 \
-            //flavors/fedora:buildroot-binary-seed-44
+BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 ```
 
-The unsuffixed `:buildroot-host` aliases the newest release, so callers
-that do not care keep working. `//platforms:fedora-43-x86_64` is a real
-platform built from a `release` constraint, alongside the existing
-`flavor` and `provenance` constraints, so a target can be declared
-incompatible with a release rather than silently building against the
-wrong one.
+`//:flavor` writes the selected flavor name. The two `hello` targets replay the same checked-in source RPM; `hello-greeting` enables the package's `greeting` `%bcond`.
 
-The point is comparison. With both lockfiles present, "what changed
-between releases" is a diff rather than two builds you cannot line up —
-for the three-package set above, all 220 seed packages moved and gzip went
-`1.13-4.fc43` → `1.14-2.fc44`.
+## Current scope
 
-## The dependency chain
+| Flavor | Status | Primary outputs |
+|---|---|---|
+| Fedora | Implemented | RPMs, root filesystems, live ISOs |
+| [CentOS Stream](flavors/centos/README.md) | Implemented | RPMs, root filesystems, live ISO |
+| [Debian](flavors/debian/README.md) | Source replay | DEBs and install roots |
+| [Ubuntu](flavors/ubuntu/README.md) | Source replay | DEBs and install roots |
+| [BuckOS](flavors/buckos/README.md) | Stub | None |
 
-This is the hard part, and it is solved in three layers rather than one.
-[SPEC.md](SPEC.md) §3a has the full treatment; the short version:
+The Fedora lockfiles currently replay `gzip`, `xz`, and `zlib-ng` from source. Fedora and CentOS live image package sets are pinned upstream binary RPMs. The source-replay pipeline and image package sets are separate inputs.
 
-1. **Solve** — offline, against pinned repodata, producing a checked-in
-   lockfile. `tools/solve.py`. Not a build action: the solve is reviewed as
-   a diff, like `cargo update` or `reindeer vendor`.
-2. **Generate** — lockfile to Buck targets.
-3. **Build** — a DAG by construction, because the generate step already
-   resolved every capability to a concrete target.
+## Build model
 
-Genuine bootstrap cycles (gcc↔glibc) are found with Tarjan SCC and broken
-by explicit staging — `gcc-stage1` → `glibc-stage2` → `gcc-stage3` — not by
-quietly demoting a package to the prebuilt seed. The size of the seed set
-is the repo's honest bootstrap debt, and `tools/depgraph.py` reports it as
-`bootstrap_depth`.
+An upstream source package remains authoritative. The Fedora and CentOS frontends unpack the source RPM, assemble a buildroot from pinned packages, and run `rpmbuild -bb` without translating the spec file into Starlark. The Debian and Ubuntu frontends apply the same model to a `.dsc` source set and run `dpkg-buildpackage -b` inside a buildroot assembled from SHA-256-pinned DEBs.
 
-## From packages to a bootable image
+Dependency resolution happens before Buck analysis:
 
-Five rules stand between a solved package set and an ISO, and they are
-separate rules because of what each one costs:
+1. `tools/solve.py` reads RPM repository metadata, resolves capabilities, computes runtime closures, and emits a JSON lockfile.
+2. `tools/generate.py` converts the lockfile into Starlark data.
+3. Buck loads that generated data as an ordinary dependency graph.
 
-| rule | does | cost |
-|------|------|------|
-| `rootfs` | real `rpm --install`, with a database and scriptlets | minutes |
-| `kernel_image` | reads the rootfs tar index, copies `vmlinuz` out | instant |
-| `initramfs` | runs the *image's own* dracut inside the image | minutes |
-| `squashfs` | compresses the rootfs | minutes, the expensive half |
-| `iso_image` | arranges the result, stamps a bootloader on it | seconds |
+Debian and Ubuntu use the corresponding `tools/deb_lock.py` and `tools/deb_generate.py` pair. Both checked-in graphs currently replay GNU hello as the end-to-end source-build fixture.
 
-Fusing any adjacent pair would be less code and worse. `kernel_image` is
-split from `initramfs` because everything downstream needs the kernel
-version, and asking for it should not re-run dracut. `squashfs` is split
-from `iso_image` because a change to the kernel command line or the volume
-label should not recompress a root filesystem.
+The lockfile records exact package locations, SHA-256 digests, repository origins, source recipes, bootstrap stages, overrides, and image sets. Buck verifies each downloaded package against its recorded digest.
 
-`squashfs` and `iso_image` run inside an **`image-tools` buildroot** — a
-`seeded_buildroot` solved from its own package list, exactly like the one
-packages are compiled in. `mksquashfs`, `xorriso`, `grub2-mkimage` and
-`mtools` are build inputs like any rpm. An ISO built by whatever `xorriso`
-the build machine happened to have is not reproducible, and on a machine
-with none it is not buildable at all. It also makes both rules hermetic,
-which is what makes them RE-eligible and cacheable.
+`tools/relock.py` refreshes an existing release from Fedora's release and update repositories. It reuses the build list, overrides, and image roots already recorded in the lockfile.
 
-Two layout decisions are worth stating, because the obvious alternative is
-what most people write first:
-
-- **The squashfs has no top-level `LiveOS/`, so it *is* the root
-  filesystem.** Fedora's own images nest an ext4 `rootfs.img` inside the
-  squashfs; dracut's `dmsquash-live` supports both and falls back to using
-  the squashfs directly when that directory is absent. The ext4 variant
-  needs a filesystem image sized in advance and a loop mount, and the only
-  unprivileged way to build one is `mkfs.ext4 -d`, which silently truncates
-  when the size guess is low. Using the squashfs directly has no size to
-  guess.
-- **`EFI/BOOT` is written twice**, into the ISO9660 tree and again inside
-  `images/efiboot.img`. Firmware booting optical media reads the FAT image
-  named by the El Torito alternate entry, so `BOOTX64.EFI` and `grub.cfg`
-  have to be in there; firmware booting the same file written raw to a USB
-  stick reads the ISO9660 tree instead. Ship one and not the other and the
-  image boots in exactly one of the two ways someone will try.
-
-The grub binary is assembled by the *target's* `grub2-mkimage` from the
-target's modules, with the module list filtered against what that release
-actually ships — a module named and absent is a hard error, and which
-modules exist moves between releases. It is unsigned, so Secure Boot is
-not supported.
-
-`root=live:CDLABEL=` is derived from the volume label by the rule rather
-than taken as a second attribute. When those two disagree the initramfs
-waits for a device that never appears and says nothing about why.
-
-## Layout
-
-```
-defs/
-  providers.bzl          PackageInfo, BuildrootInfo, FlavorInfo, BootInfo
-  flavor.bzl             package(), the one macro every recipe calls
-  releases.bzl           release as a config-driven axis, not a mode
-  buildroot_helpers.bzl  the remote-execution contract
-  exec.bzl               execution platform registration
-  rules/
-    srpm.bzl             srpm_unpack, srpm_build, rpm_subpackage, prebuilt_rpm
-    buildroot.bzl        host_buildroot, seeded_buildroot
-    rootfs.bzl           rootfs — a real rpm transaction, output as a tarball
-    boot.bzl             kernel_image, initramfs
-    image.bzl            squashfs, iso_image
-flavors/<name>/          per-flavor buildroots, seed sets, lockfiles, recipes
-tools/                   the drivers, the solver, and the probe
-platforms/               target platforms, flavor and provenance constraints
-toolchains/              prelude toolchains, and toolchains//:buildroot
+```sh
+buck2 run //tools:relock -- --release 43 --dry-run
 ```
 
-`toolchains//:buildroot` is the only integration point — the socket every
-package build reaches its environment through, mirroring how buckos-build
-exposes `toolchains//:buckos`. Swapping flavors or swapping a flavor's
-buildroot provenance is a config change that touches no rule.
+Remove `--dry-run` to fetch metadata, solve the release, and regenerate `flavors/fedora/generated/`. Add `--probe` to run `%generate_buildrequires` before the final solve.
 
-## Remote execution
+## Releases and targets
 
-RE compatibility is a constraint, not a later concern, and the patterns are
-lifted from buckos-build where they were learned the hard way:
+`[buckos.fedora] releases` defines every Fedora release loaded into the graph. The final entry is the default unless `[buckos.fedora] release` selects another listed release.
 
-- **A non-hermetic buildroot never runs remotely and never uploads to the
-  shared cache.** `buildroot_local_only()` and `buildroot_cache_upload()`
-  derive both from `BuildrootInfo.hermetic`, so a `host`-provenance build is
-  pinned local automatically. An RE worker has no rpm macros and no host
-  `/usr`; an action that reads them either fails there or, worse, succeeds
-  with different inputs and poisons the cache for everyone.
-- **Tree artifacts are passed whole, as `hidden` inputs.** RE materializes
-  only an action's declared inputs, so projecting a subpath of a buildroot
-  gets you that subdirectory and nothing else — the tools then fail to load
-  their own libraries.
-- **The seed is never mutated.** Dependency installroots are composed into
-  a fresh tree, because the seed is a Buck input shared by every package in
-  the build.
+Each release receives suffixed targets such as:
 
-`tools/re_contract_test.py` enforces all three over the rule sources, because
-each one fails by omission: an author writes `ctx.actions.run(...)` without
-thinking about RE and nothing goes red until someone else downloads a
-machine-specific artifact.
-
-**Status: dispatch verified, execution not.** No RE backend has ever run
-this graph. Both switches default off and `.buckconfig` ships no
-`[buck2_re_client]` section:
-
-```ini
-[buckos]
-  remote_execution = true    # in .buckconfig.local
-  remote_cache = true
+```text
+//flavors/fedora:buildroot-binary-seed-43
+//flavors/fedora:rootfs-live-43
+//flavors/fedora:kernel-live-43
+//flavors/fedora:initramfs-live-43
+//flavors/fedora:squashfs-live-43
+//flavors/fedora:iso-live-43
 ```
 
-What flipping them has been shown to do, against no backend:
+The default release also receives unsuffixed targets. Release-specific target platforms, such as `//platforms:fedora-43-x86_64`, carry the release as a constraint value.
 
-- **Analysis succeeds.** That is the whole point of the
-  `remote_execution_properties` / `remote_execution_use_case` defaults in
-  `defs/exec.bzl`: without them buck2 rejects `remote_enabled = True`
-  during analysis, so the switch used to fail before any action ran and
-  "config-driven RE" was a claim the config could not satisfy. A `cquery`
-  over the full ISO graph with both switches on now resolves cleanly.
-- **Dispatch is really attempted, and buck2 does not fall back.** With no
-  engine configured the build fails rather than quietly running locally:
+CentOS Stream 10 provides the same release-suffixed rootfs, boot, and image targets as Fedora, plus its buildroot and hello targets. Debian 13 and Ubuntu 26.04 provide release-suffixed buildroot and hello targets. Each flavor also has unsuffixed aliases for its default release.
 
-  ```
-  Internal error (stage: remote_action_cache): Remote Execution Error
-  Error: (Error creating Capabilities client: No address)
-  ```
+## Buildroots
 
-  Note the stage — that is the *cache* lookup, so `remote_cache = true`
-  alone is enough to hit it. This is why the section is absent rather than
-  present-and-empty.
+Fedora, CentOS, Debian, and Ubuntu support two buildroot provenances:
 
-**A worker has to be built for this graph.** Every interesting action
-enters a sandbox, so the requirement is not a container image detail:
+- `binary-seed` assembles the build environment from pinned Fedora RPMs or Debian-family DEBs. It is the default and is eligible for remote execution and shared-cache upload.
+- `host` uses the host root filesystem and installed distro toolchain. It is non-hermetic, local-only, and excluded from shared-cache upload.
 
-| the worker needs | because |
-|---|---|
-| unprivileged user namespaces | `tools/_isolation.py` has no privileged path |
-| `bubblewrap` **or** util-linux `unshare` | the two sandbox mechanisms it will accept |
-| setuid `newuidmap` / `newgidmap` | mapping more than one id needs the shadow-utils helpers |
-| `/etc/subuid` + `/etc/subgid` ranges | rpm chowns payloads to `mail`, `tss` and friends |
-| roomy `/var/tmp` on buck-out's filesystem | unpacked trees are gigabytes, and staging hardlinks |
+The binary seed cuts bootstrap cycles that Buck cannot represent directly. The solver records staged source builds for cycles that are included in the source-replay set.
 
-Without the id range the build still runs, warns, and then fails on the
-first package shipping a non-root file — a degraded mode that is worse
-than a clean refusal, so a worker image should be checked against this
-list rather than discovered against it.
+Package dependencies contribute install-root trees. Each replay copies the seed and dependency trees into writable scratch space before invoking the target release's RPM tools.
 
-**A different buck2 cannot be substituted to get RE for free.** This repo
-takes its prelude from `[external_cells] prelude = bundled` — the copy
-inside the buck2 binary itself, with `prelude/` as an empty mount point —
-so a buck2 built elsewhere fails at `File not found: prelude//prelude.bzl`
-before parsing a single target. Pointing the cell at a vendored or
-borrowed prelude would work and is precisely the dependency the bundled
-cell exists to avoid.
+## Image pipeline
 
-One more thing stands between a configured backend and a green remote
-build, and it is not a Buck problem:
+The RPM-family image pipeline has separate targets for work with different invalidation costs:
 
-- **Cold fetches are slower than buck2's HTTP timeout.** `http_head` gives up
-  after 10s; a 21MB rpm pulled through a cold read-through cache took 36s
-  here. Fetches are retried and eventually win, but a cold clone will show a
-  wave of HTTP warnings first.
+- `rootfs` runs an RPM transaction with a package database and scriptlets, then returns a tar archive.
+- `kernel_image` extracts the selected kernel and version from the rootfs archive.
+- `initramfs` runs the image's own dracut against the rootfs.
+- `squashfs` compresses the rootfs and can write SELinux labels from the image's policy.
+- `iso_image` creates BIOS and UEFI boot layouts around the kernel, initramfs, and squashfs.
+
+The rootfs is a tar archive because package ownership and valid RPM filenames cannot always be represented safely as a Buck directory artifact. Image actions unpack it inside their isolated work areas.
+
+The live squashfs is used directly as the root filesystem. The ISO contains BIOS and UEFI boot entries, derives `root=live:CDLABEL=` from its volume label, and is not signed for Secure Boot.
+
+Build Fedora 44 or CentOS Stream 10 live media with:
+
+```sh
+buck2 build //flavors/fedora:iso-live-44
+buck2 build //flavors/centos:iso-live-10
+```
 
 ## Configuration
 
-```ini
-[buckos]
-  flavor = fedora            # -c buckos.flavor=ubuntu to override
+The checked-in configuration builds Fedora releases 43 and 44 with the binary-seeded buildroot. Machine-specific overrides belong in `.buckconfig.local`, which is ignored by Git.
 
-[buckos.fedora]
-  releases = 43,44           # every release to define targets for
-  # release = 43             # which one the unsuffixed targets alias;
-                             # defaults to the newest in `releases`
-  buildroot = binary-seed    # or host, for local development
-```
-
-Pinned rpms are fetched straight from Fedora's own mirrors, so a fresh
-clone builds with nothing else running. Each `http_file` gets exactly one
-URL — this prelude's `http_file` asserts `len(urls) == 1`, so a fallback
-chain is not on offer — which means the URL has to be right rather than
-merely likely. It is built from a table of repos recorded in the lockfile
-at solve time, plus a `repo` key on every pin:
-
-```
-"repos": [
-  {"name": "binary-releases", "kind": "binary",
-   "base": "https://dl.fedoraproject.org/.../releases/43/Everything/x86_64/os"},
-  {"name": "binary-updates",  "kind": "binary",
-   "base": "https://dl.fedoraproject.org/.../updates/43/Everything/x86_64"}
-]
-```
-
-A table rather than one binary and one source base, because a closure
-legitimately spans both trees once updates are layered in — see [Package
-updates](#package-updates).
-
-The bases are recorded rather than reconstructed because a package's
-`location` in repodata is relative to its repo and says nothing about which
-repo that was, and the repodata is gitignored — the solve is the last point
-that knows. They are always canonical upstream URLs, even when a mirror
-served the solve: the sha256 is the package's identity and buck2 enforces
-it, so any mirror of the same digest is interchangeable and none can
-corrupt a build. `tools/solve.py` refuses to write a base that is not a
-public Fedora host, since the lockfile is committed and that URL gets
-published with it.
-
-Fetches can be redirected without touching the pins:
+Select a different configured release:
 
 ```ini
 [buckos.fedora]
-  # A plain mirror of upstream's layout: rewrites the recorded base's prefix.
+  release = 43
+```
+
+Use the host buildroot for local development:
+
+```ini
+[buckos.fedora]
+  buildroot = host
+```
+
+CentOS, Debian, and Ubuntu use the same release and provenance settings under `[buckos.centos]`, `[buckos.debian]`, and `[buckos.ubuntu]`; the checked-in releases are `10`, `13`, and `26.04`.
+
+Rewrite Fedora's recorded repository prefix to a mirror with the same directory layout:
+
+```ini
+[buckos.fedora]
   mirror_base = https://archives.fedoraproject.org/pub/archive/fedora/linux
 ```
 
-That knob is what a URL pin needs, because a pin rots on upstream's
-schedule rather than this repo's: at EOL a release moves to
-`archives.fedoraproject.org` and the recorded base stops resolving even
-though every pin in the lockfile is still perfectly good. Repointing the
-prefix fixes that without a re-solve.
+A static content-addressed HTTP store can provide pinned packages through `package_url_template`. The template must contain `{sha256}` and may contain `{sha256_12}`, `{filename}`, `{stem}`, `{ext}`, and `{release}`. Filename and release components are escaped for use in URL paths.
 
-Re-solving is the part that genuinely needs a non-EOL release, because the
-repodata the solver reads is only published for current ones — so
-`releases` is a list to revisit once a year rather than a permanent
-setting.
-
-### Package updates
-
-Fedora publishes a release twice. `releases/43/` is the frozen GA compose
-and never changes; every rebuild after it — errata, CVE fixes, plain bug
-fixes — lands under `updates/43/`. Solving against `releases/` alone gives
-a lockfile that is perfectly reproducible and permanently unpatched, so
-both trees are layered, newest build wins:
-
-```console
-$ buck2 run //tools:relock -- --release 43
-fedora 43:
-  binary-releases: unchanged
-  binary-updates: fetching 4a1f…-primary.xml.zst
-  source-releases: unchanged
-  source-updates: fetching c7b2…-primary.xml.zst
-universe: 81817 binary, 24858 source packages (23730 binary / 5341 source superseded by a later repo)
-  unresolved            : 0
-  image live           : 187 packages
-  from binary-releases : 591 pins
-  from binary-updates  : 618 pins
+```ini
+[buckos.fedora]
+  package_url_template = https://cache.example.invalid/fedora/{release}/{stem}-{sha256_12}{ext}?digest={sha256}
 ```
 
-One command fetches each repo's `primary.xml`, re-solves, and regenerates
-the `.bzl` data. Run it on whatever cadence you want fixes at and review
-the lockfile diff — that diff *is* the update, and it is the artifact worth
-reading. The last two lines are the ones to check: they say how much of
-what actually gets installed came from the updates tree, and a zero there
-is what a mispointed repo looks like from the outside — a solve that
-succeeds and changes nothing.
+A content-addressed read-through service can be configured with `blob_base`. The service receives the SHA-256 digest and filename in the path, plus the Fedora release and repository-relative location as query parameters.
 
-The refresh reuses the build list, overrides and image sets recorded in the
-existing lockfile, so it changes package versions and nothing else. It
-cannot bootstrap a release that has no lockfile yet: arriving at that first
-set of overrides is iterative human work.
+```ini
+[buckos.fedora]
+  blob_base = https://cache.example.invalid/rpm
+```
 
-Useful flags: `--offline` re-solves from repodata already on disk, and
-`--dry-run` prints the URLs it would sync without touching anything.
+`package_url_template` cannot be combined with `mirror_base` or `blob_base`. These settings change where bytes are fetched but do not change the full SHA-256 digest enforced by Buck2.
 
-Three details are load-bearing:
+Enable remote cache lookups or remote execution through the execution platform:
 
-- **Version comparison is rpm's, not string comparison.** Lexicographically
-  `1.10` < `1.9` and `1.0` < `1.0~rc1`, and both are backwards. Getting this
-  wrong does not fail loudly — it pins an older build, which looks like a
-  perfectly normal lockfile and quietly means the security update everyone
-  believes is applied is not. `tools/rpmvercmp.py` is a transcription of
-  rpm's `lib/rpmvercmp.c`, tested against rpm's own `tests/rpmvercmp.at`
-  corpus rather than against cases invented here.
-- **Repo order settles ties only.** The winner is whichever build has the
-  higher EVR, so passing the repos the wrong way round cannot silently
-  downgrade a package.
-- **The base URL is per package, not per release.** An updated rpm has the
-  same repo-relative `location` under `updates/` that its original has
-  under `releases/`, so a single base would be wrong for whichever half it
-  does not describe — quietly, as a 404 on exactly the packages that
-  received a fix. Hence the `repos` table and the `repo` key on every pin.
+```ini
+[buckos]
+  remote_cache = true
+  remote_execution = true
+```
 
-`updates/` also has a genuinely different path shape from `releases/`:
-`updates/43/Everything/x86_64` with no `os` component, and
-`updates/43/Everything/source/tree` rather than `SRPMS`. Both are upstream
-inconsistencies rather than typos; they are transcribed in
-`FEDORA_REPOS` in `tools/relock.py`.
+A remote backend still requires a matching `[buck2_re_client]` configuration. Remote workers need Linux user namespaces, an accepted isolation tool, subordinate IDs, RPM namespace helpers, and enough scratch space for unpacked package trees.
 
-Expect new ambiguities over time. An override settles a capability that
-several packages provide, and `updates/` can introduce a new provider of
-one that previously had exactly one — Fedora 43's `python3.9` compat
-interpreter started providing `python(abi)`, which is why that override is
-in the 43 lockfile. It surfaces as an unresolved-capability report naming
-both candidates, and is fixed by adding an `--override` to the lockfile's
-`solve` block and re-running.
+## Repository layout
+
+```text
+defs/                    Providers, flavor dispatch, release handling, and Buck rules
+flavors/fedora/          Fedora target generation, lockfiles, and generated package data
+flavors/centos/          CentOS Stream lockfile, generated package data, and replay targets
+flavors/debian/          Debian lockfile, generated package data, and replay targets
+flavors/ubuntu/          Ubuntu lockfile, generated package data, and replay targets
+flavors/buckos/          BuckOS implementation-status documentation
+platforms/               Target constraints and execution-platform registration
+tests/                   Checked-in source RPM replay fixtures
+toolchains/              Prelude toolchain registrations
+tools/                   Solver, generators, action drivers, and tests
+```
+
+See [SPEC.md](SPEC.md) for the implemented interfaces and data flow.
+
+## Constraints
 
 A release with no `updates/` tree yet — a just-branched one — is not an
 error; the repo is reported absent and skipped.
@@ -679,5 +463,6 @@ Stated plainly, because each one is load-bearing:
 
 ## Non-goals
 
-Reimplementing rpm or dpkg. Reproducing Koji or sbuild bit-for-bit.
-Transpiling `.spec` files into Buck rules. See SPEC.md §7.
+- Reimplementing RPM or DPKG semantics.
+- Translating spec files into native Buck rules.
+- Reproducing Fedora's Koji artifacts bit for bit.

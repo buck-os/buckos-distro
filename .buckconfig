@@ -102,9 +102,17 @@
   releases = 43,44
   buildroot = binary-seed
 
+[buckos.centos]
+  releases = 10
+  buildroot = binary-seed
+
 [buckos.ubuntu]
-  releases = jammy,noble
-  buildroot = host
+  releases = 26.04
+  buildroot = binary-seed
+
+[buckos.debian]
+  releases = 13
+  buildroot = binary-seed
 
 # ── Source mirror ────────────────────────────────────────────────────
 # upstream  fetch source packages from the distro's own mirrors

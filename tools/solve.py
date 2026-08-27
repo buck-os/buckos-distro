@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Resolve a Fedora build set into a pinned lockfile.
+"""Resolve an RPM-family build set into a pinned lockfile.
 
 Runs offline against repository metadata only -- never downloads source
 packages.  See SPEC.md section 3a for why this is a separate out-of-band
 step rather than something Buck evaluates.
 
-Inputs are the two primary.xml files a Fedora mirror publishes:
+Inputs are the binary and source primary.xml files RPM repositories publish:
 
     binary primary.xml   Provides, Requires, and <rpm:sourcerpm> for every
                          binary package.  Gives the capability map and the
@@ -20,6 +20,14 @@ Usage:
              --build zlib --build curl \
              --release 41 --dist-tag .fc41 \
              --out flavors/fedora/lock/f41.lock.json
+
+For a buildroot-only flavor bootstrap, source metadata is not required:
+
+    solve.py --flavor centos --seed-only \
+             --binary-primary baseos-primary.xml.gz \
+             --binary-base https://mirror.stream.centos.org/10-stream/BaseOS/x86_64/os \
+             --release 10 --dist-tag .el10 \
+             --out flavors/centos/lock/centos-10.lock.json
 """
 
 import argparse
@@ -90,6 +98,7 @@ PUBLIC_BASE_HOSTS = (
     "download.fedoraproject.org",
     "archives.fedoraproject.org",
     "kojipkgs.fedoraproject.org",
+    "mirror.stream.centos.org",
 )
 
 
@@ -113,13 +122,14 @@ def check_public_base(flag, url):
     port_is_default = parts.port is None or parts.port in (80, 443)
     if parts.hostname not in PUBLIC_BASE_HOSTS or not port_is_default:
         sys.exit(
-            "{}={} names {!r}, which is not a public Fedora mirror.\n"
+            "{}={} names {!r}, which is not an approved public RPM mirror.\n"
             "The lockfile is committed, so this URL gets published and has "
             "to be one any clone can reach.\n"
             "Solve against whatever mirror you like, but pass the canonical "
             "upstream URL here -- the sha256 pins make the two "
-            "interchangeable. Point the *build* at a mirror instead, with "
-            "[buckos.fedora] mirror_base or blob_base in .buckconfig.local.\n"
+            "interchangeable. Point the *build* at another source instead, "
+            "with the selected flavor's mirror_base, package_url_template, or "
+            "blob_base in .buckconfig.local.\n"
             "Public hosts: {}".format(
                 flag, url, parts.hostname, ", ".join(PUBLIC_BASE_HOSTS)
             )
@@ -564,6 +574,39 @@ BUILDSYS_BUILD = (
     "xz",
 )
 
+CENTOS_BUILDSYS_BUILD = (
+    "bash",
+    "binutils",
+    "bzip2",
+    "centos-stream-release",
+    "coreutils",
+    "cpio",
+    "diffutils",
+    "findutils",
+    "gawk",
+    "gcc",
+    "gcc-c++",
+    "grep",
+    "gzip",
+    "info",
+    "make",
+    "patch",
+    "redhat-rpm-config",
+    "rpm-build",
+    "sed",
+    "shadow-utils",
+    "tar",
+    "unzip",
+    "util-linux",
+    "which",
+    "xz",
+)
+
+IMPLICIT_GROUPS = {
+    "centos": CENTOS_BUILDSYS_BUILD,
+    "fedora": BUILDSYS_BUILD,
+}
+
 
 def build_requires_of(source_pkg_record, implicit=BUILDSYS_BUILD):
     """Extract BuildRequires from a source package's repodata record.
@@ -571,8 +614,8 @@ def build_requires_of(source_pkg_record, implicit=BUILDSYS_BUILD):
     For a src.rpm, rpm:requires IS the BuildRequires list -- verified
     against a real SRPM header. Pseudo-capabilities are filtered.
 
-    The implicit @buildsys-build group is prepended, because every Fedora
-    spec is written assuming it is already installed.  Passing
+    The flavor's implicit build-system group is prepended, because RPM specs
+    are written assuming it is already installed. Passing
     implicit=() gives the declared set alone, which is what a report on
     "what does this package actually ask for" wants.
     """
@@ -620,7 +663,7 @@ def probed_buildrequires(report, implicit=BUILDSYS_BUILD):
     anything using rust-packaging or pyproject-rpm-macros is most of the
     list.
 
-    The implicit group is still prepended.  A probe runs inside a
+    The flavor's implicit group is still prepended. A probe runs inside a
     buildroot that already has @buildsys-build, so the generator never
     mentions it, and dropping it here would quietly remove make and gcc
     from every probed package's buildroot.
@@ -660,7 +703,8 @@ def load_probe(path, build_set):
     return known
 
 
-def solve(universe, build_set, overrides=None, strict=False, probe=None):
+def solve(universe, build_set, overrides=None, strict=False, probe=None,
+          implicit=BUILDSYS_BUILD):
     """Resolve every build package's BuildRequires into pinned deps.
 
     `probe` is {source: report} from tools/probe.py, and where it has an
@@ -687,7 +731,7 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None):
 
         report = probe.get(src)
         if report is None:
-            requires = build_requires_of(record)
+            requires = build_requires_of(record, implicit=implicit)
             dynamic[src] = {
                 "source": "repodata",
                 "capabilities": [],
@@ -698,7 +742,7 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None):
                 "unmet": False,
             }
         else:
-            requires = probed_buildrequires(report)
+            requires = probed_buildrequires(report, implicit=implicit)
             dynamic[src] = {
                 "source": "probe",
                 "capabilities": sorted(report.get("dynamic", [])),
@@ -764,6 +808,28 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None):
     return build_deps, resolutions, problems, dynamic
 
 
+def solve_package_set(universe, roots, overrides=None, scope="package-set"):
+    """Close one set of binary package names over runtime Requires."""
+    overrides = overrides or {}
+    problems = []
+    missing = [root for root in roots if root not in universe["binary_index"]]
+    for root in missing:
+        problems.append(
+            ("missing-binary",
+             "no binary package named {!r} in repodata".format(root),
+             scope)
+        )
+    closure, closure_problems = runtime_closure(
+        [root for root in roots if root not in missing],
+        universe["requires"], universe["provides"], overrides,
+    )
+    problems.extend(
+        (kind, detail, "{} ({})".format(scope, who))
+        for kind, detail, who in closure_problems
+    )
+    return sorted(closure), problems
+
+
 def solve_image_sets(universe, image_roots, overrides=None,
                      image_overrides=None):
     """Close each named set of binary packages over its runtime Requires.
@@ -805,27 +871,11 @@ def solve_image_sets(universe, image_roots, overrides=None,
             image_overrides.get(name, {}), universe["provides"],
             scope="image:" + name,
         ))
-        missing = [r for r in roots if r not in universe["binary_index"]]
-        for r in missing:
-            problems.append(
-                ("missing-binary",
-                 "no binary package named {!r} in repodata".format(r),
-                 "image:" + name)
-            )
-        closure, closure_problems = runtime_closure(
-            [r for r in roots if r not in missing],
-            universe["requires"], universe["provides"], scoped,
+        closure, set_problems = solve_package_set(
+            universe, roots, scoped, scope="image:" + name,
         )
-        # Retagged with the image set rather than the requiring package, so
-        # a problem reported here is attributable to the set that asked for
-        # it -- the build closure and an image can disagree about the same
-        # capability, and "unresolved in image:live" is actionable in a way
-        # that a bare package name is not.
-        problems.extend(
-            (kind, detail, "image:{} ({})".format(name, who))
-            for kind, detail, who in closure_problems
-        )
-        sets[name] = sorted(closure)
+        problems.extend(set_problems)
+        sets[name] = closure
     return sets, problems
 
 
@@ -860,7 +910,8 @@ def _count_pins_by_repo(lock):
 
 
 def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
-                  dynamic, plan, depth, image_sets, replacements, args):
+                  dynamic, plan, depth, image_sets, seed_packages,
+                  replacements, args):
     """Produce the lockfile. Every entry is pinned by checksum."""
 
     def pin_binary(name):
@@ -934,11 +985,13 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
     # excluded from the seed, so nothing could be built -- including
     # zlib-ng.  Fedora's own bootstrap has exactly this shape; stage 1
     # compiles against the previous release's binaries.
-    seed_closure = sorted({d for deps in build_deps.values() for d in deps})
+    seed_closure = sorted(
+        {d for deps in build_deps.values() for d in deps} | set(seed_packages)
+    )
 
     lock = {
         "schema": LOCK_SCHEMA,
-        "flavor": "fedora",
+        "flavor": args.flavor,
         "release": args.release,
         "dist_tag": args.dist_tag,
         "target_cpu": args.target_cpu,
@@ -966,7 +1019,9 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
         "solve": {
             "build": sorted(build_set),
             "overrides": sorted(args.override),
-            "implicit_group": list(BUILDSYS_BUILD),
+            "implicit_group": list(args.implicit_group),
+            "seed_only": args.seed_only,
+            "seed_packages": sorted(args.seed_package),
             "stages": args.stages,
             "images": sorted(args.image),
             "image_overrides": sorted(args.image_override),
@@ -1044,7 +1099,7 @@ def main(argv=None):
                     required=True, metavar="PATH",
                     help="binary primary.xml (repeatable, layered in order)")
     ap.add_argument("--source-primary", action="append", default=[],
-                    required=True, metavar="PATH",
+                    metavar="PATH",
                     help="source primary.xml (repeatable, layered in order)")
     ap.add_argument("--binary-base", action="append", default=[],
                     metavar="URL",
@@ -1066,6 +1121,14 @@ def main(argv=None):
                     help="source package to build from source (repeatable)")
     ap.add_argument("--build-list", default=None,
                     help="file with one source package name per line")
+    ap.add_argument("--flavor", choices=sorted(IMPLICIT_GROUPS),
+                    default="fedora")
+    ap.add_argument("--seed-only", action="store_true",
+                    help="pin the flavor's implicit build group without "
+                         "requiring source repodata")
+    ap.add_argument("--seed-package", action="append", default=[],
+                    help="additional binary package root for the buildroot "
+                         "seed (repeatable)")
     ap.add_argument("--override", action="append", default=[],
                     help="capability=package to break an ambiguity (repeatable)")
     ap.add_argument("--image", action="append", default=[], metavar="NAME=PKGS",
@@ -1091,6 +1154,7 @@ def main(argv=None):
                          "they replace repodata's BuildRequires")
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
+    args.implicit_group = IMPLICIT_GROUPS[args.flavor]
 
     # Before the solve, not after: a solve is minutes of work and a
     # mispaired repo list is worth reporting before spending them.
@@ -1103,8 +1167,11 @@ def main(argv=None):
                 line.strip() for line in fh
                 if line.strip() and not line.startswith("#")
             }
-    if not build_set:
-        sys.exit("nothing to build: pass --build or --build-list")
+    if not build_set and not args.seed_only and not args.seed_package:
+        sys.exit("nothing to solve: pass --build, --build-list, --seed-only, "
+                 "or --seed-package")
+    if build_set and not args.source_primary:
+        sys.exit("source builds require at least one --source-primary")
 
     overrides = {}
     for item in args.override:
@@ -1168,6 +1235,7 @@ def main(argv=None):
     build_deps, resolutions, problems, dynamic = solve(
         universe, build_set, overrides, strict=args.strict,
         probe=load_probe(args.probe, build_set),
+        implicit=args.implicit_group,
     )
     plan = plan_build_order(
         build_deps, universe["source_of"], build_set, stages=args.stages
@@ -1184,9 +1252,23 @@ def main(argv=None):
         sys.exit("solve failed with {} unresolved image item(s)".format(
             len(image_problems)))
 
+    seed_roots = set(args.seed_package)
+    if args.seed_only:
+        seed_roots.update(args.implicit_group)
+    seed_packages, seed_problems = solve_package_set(
+        universe, sorted(seed_roots), overrides, scope="buildroot",
+    )
+    problems.extend(seed_problems)
+    if args.strict and seed_problems:
+        for kind, detail, who in seed_problems:
+            print("solve error [{}] {}: {}".format(
+                kind, who, detail), file=sys.stderr)
+        sys.exit("solve failed with {} unresolved buildroot item(s)".format(
+            len(seed_problems)))
+
     lock = emit_lockfile(
         universe, build_set, build_deps, resolutions, problems,
-        dynamic, plan, depth, image_sets, replacements, args,
+        dynamic, plan, depth, image_sets, seed_packages, replacements, args,
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)

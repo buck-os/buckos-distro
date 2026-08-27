@@ -51,7 +51,19 @@ constraint_value(
 )
 
 constraint_value(
+    name = "centos",
+    constraint_setting = ":flavor",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
     name = "ubuntu",
+    constraint_setting = ":flavor",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "debian",
     constraint_setting = ":flavor",
     visibility = ["PUBLIC"],
 )
@@ -101,6 +113,75 @@ constraint_setting(
         visibility = ["PUBLIC"],
     )
     for _release in flavor_releases("fedora", default = "43,44")
+]
+
+[
+    constraint_value(
+        name = "centos-{}".format(_release),
+        constraint_setting = ":release",
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("centos", default = "10")
+]
+
+[
+    platform(
+        name = "centos-{}-x86_64".format(_release),
+        constraint_values = [
+            "prelude//cpu/constraints:x86_64",
+            "prelude//os/constraints:linux",
+            ":centos",
+            ":centos-{}".format(_release),
+        ],
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("centos", default = "10")
+]
+
+[
+    constraint_value(
+        name = "ubuntu-{}".format(_release),
+        constraint_setting = ":release",
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("ubuntu", default = "26.04")
+]
+
+[
+    platform(
+        name = "ubuntu-{}-x86_64".format(_release),
+        constraint_values = [
+            "prelude//cpu/constraints:x86_64",
+            "prelude//os/constraints:linux",
+            ":ubuntu",
+            ":ubuntu-{}".format(_release),
+        ],
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("ubuntu", default = "26.04")
+]
+
+[
+    constraint_value(
+        name = "debian-{}".format(_release),
+        constraint_setting = ":release",
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("debian", default = "13")
+]
+
+[
+    platform(
+        name = "debian-{}-x86_64".format(_release),
+        constraint_values = [
+            "prelude//cpu/constraints:x86_64",
+            "prelude//os/constraints:linux",
+            ":debian",
+            ":debian-{}".format(_release),
+        ],
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("debian", default = "13")
 ]
 
 # ── Buildroot provenance ─────────────────────────────────────────────

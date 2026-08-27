@@ -1,4 +1,4 @@
-"""Fedora source-RPM replay rules.
+"""RPM source-package replay rules.
 
 The pipeline, per SPEC.md section 4:
 
@@ -226,7 +226,7 @@ def _srpm_build_impl(ctx: AnalysisContext) -> list[Provider]:
             name = ctx.attrs.package_name,
             version = ctx.attrs.version,
             release = ctx.attrs.release,
-            flavor = "fedora",
+            flavor = ctx.attrs.flavor,
             prefix = installroot,
             libraries = ctx.attrs.libraries,
             cflags = [],
@@ -253,6 +253,7 @@ srpm_build = rule(
         "defines": attrs.list(attrs.string(), default = []),
         "description": attrs.string(default = ""),
         "fedora_release": attrs.option(attrs.string(), default = None),
+        "flavor": attrs.string(default = "fedora"),
         "homepage": attrs.option(attrs.string(), default = None),
         "libraries": attrs.list(attrs.string(), default = []),
         "license": attrs.string(default = ""),
@@ -419,7 +420,7 @@ def _prebuilt_rpm_impl(ctx: AnalysisContext) -> list[Provider]:
             name = ctx.attrs.package_name,
             version = ctx.attrs.version,
             release = ctx.attrs.release,
-            flavor = "fedora",
+            flavor = ctx.attrs.flavor,
             prefix = out,
             libraries = ctx.attrs.libraries,
             cflags = [],
@@ -430,7 +431,7 @@ def _prebuilt_rpm_impl(ctx: AnalysisContext) -> list[Provider]:
             src_uri = ctx.attrs.src_uri,
             src_sha256 = ctx.attrs.src_sha256,
             homepage = None,
-            supplier = "Organization: Fedora Project",
+            supplier = ctx.attrs.supplier,
             description = ctx.attrs.description,
             cpe = None,
         ),
@@ -440,6 +441,7 @@ prebuilt_rpm = rule(
     impl = _prebuilt_rpm_impl,
     attrs = {
         "description": attrs.string(default = ""),
+        "flavor": attrs.string(default = "fedora"),
         "libraries": attrs.list(attrs.string(), default = []),
         "license": attrs.string(default = ""),
         "package_name": attrs.string(),
@@ -448,6 +450,7 @@ prebuilt_rpm = rule(
         "rpm": attrs.source(),
         "src_sha256": attrs.string(default = ""),
         "src_uri": attrs.string(default = ""),
+        "supplier": attrs.string(default = "Organization: Fedora Project"),
         "version": attrs.string(default = ""),
         "_extract": attrs.default_only(
             attrs.exec_dep(default = "//tools:rpm_extract"),

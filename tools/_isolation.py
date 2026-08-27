@@ -67,9 +67,9 @@ def resolve_isolation(mode):
     sys.exit(
         "isolation=auto found neither bwrap nor unshare. A hermetic "
         "buildroot cannot be entered without one of them; install "
-        "bubblewrap or util-linux, or select the host buildroot "
-        "explicitly with `-c buckos.fedora.buildroot=host` and accept "
-        "that the result is not built with the target distro's toolchain."
+        "bubblewrap or util-linux, or set `buildroot = host` for the "
+        "selected flavor in .buckconfig.local and accept that the result "
+        "is not built with the target distro's toolchain."
     )
 
 
@@ -200,7 +200,12 @@ def _chroot_script(work, chdir, sysroot, sync_fds=None):
         # real root to pivot onto.
         'mount --bind "$ROOT" "$ROOT"',
         'mkdir -p "$ROOT/proc" "$ROOT/dev" "$ROOT/sys" "$ROOT/tmp"',
-        'mount -t proc proc "$ROOT/proc"',
+        # Reuse the caller's procfs rather than mounting a new one. Linux
+        # rejects a nested procfs mount when the caller's existing procfs
+        # hides entries, as container managers commonly do. The recursive
+        # bind preserves those restrictions and still avoids host paths in
+        # the buildroot itself.
+        'mount --rbind /proc "$ROOT/proc"',
         # rbind rather than a fresh devtmpfs: an unprivileged user
         # namespace cannot create device nodes, but it can carry the
         # host's existing ones across.
@@ -327,7 +332,10 @@ def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
             # The work area stays writable at its real path so paths the
             # caller computed outside resolve identically inside.
             "--bind", os.path.abspath(work), os.path.abspath(work),
-            "--proc", "/proc",
+            # Preserve any restrictions imposed on the caller's procfs.
+            # A fresh procfs mount can be rejected inside a container when
+            # its existing procfs hides sensitive entries.
+            "--ro-bind", "/proc", "/proc",
             "--dev", "/dev",
             "--tmpfs", "/tmp",
             "--setenv", "HOME", "/builddir",

@@ -8,6 +8,8 @@ fills the four slots from SPEC.md section 2:
     flavor  source package        declared deps    build driver        output
     ------  -------------------   --------------   -----------------   ------
     fedora  .src.rpm             BuildRequires    rpmbuild -bb        .rpm
+    centos  .src.rpm             BuildRequires    rpmbuild -bb        .rpm
+    debian  .dsc + debian.tar    Build-Depends    dpkg-buildpackage   .deb
     ubuntu  .dsc + debian.tar    Build-Depends    dpkg-buildpackage   .deb
     buckos  upstream tarball     Buck labels      configure && make   prefix tree
 
@@ -19,6 +21,12 @@ restructuring anything.
 """
 
 load(
+    "//defs/rules/dsc.bzl",
+    "deb_build",
+    "deb_subpackage",
+    "dsc_unpack",
+)
+load(
     "//defs/rules/srpm.bzl",
     "built_rpm",
     "prebuilt_rpm",
@@ -28,17 +36,18 @@ load(
     "srpm_unpack",
 )
 
-FLAVORS = ("fedora", "ubuntu", "buckos")
+FLAVORS = ("fedora", "centos", "debian", "ubuntu", "buckos")
 
 def current_flavor():
     """The flavor selected by .buckconfig, overridable per invocation with
     `buck2 build ... -c buckos.flavor=ubuntu`."""
     return read_config("buckos", "flavor", "fedora")
 
-# ── Fedora frontend ──────────────────────────────────────────────────
+# ── RPM-family frontend ──────────────────────────────────────────────
 
-def _fedora_package(
+def _rpm_package(
         name,
+        flavor,
         srpm,
         source_name = None,
         version = "",
@@ -52,7 +61,7 @@ def _fedora_package(
         # Named rather than left in **kwargs because two rules need it and
         # only one would get it otherwise.  A probe that ran against the
         # flavor's default buildroot instead of the release's would answer
-        # a question about the wrong Fedora -- silently, since it produces
+        # a question about the wrong release -- silently, since it produces
         # a plausible dependency list either way.
         buildroot = None,
         visibility = None,
@@ -95,6 +104,10 @@ def _fedora_package(
     # property of the spec, and the recipe generator only sees repodata.
     # A probe of a spec without a generator is cheap and returns an empty
     # dynamic set, which is a useful thing to have recorded.
+    distro_release = None
+    if flavor == "fedora":
+        distro_release = read_config("buckos.fedora", "release", None)
+
     srpm_buildrequires(
         name = name + "-buildrequires",
         topdir = ":" + name + "-topdir",
@@ -104,7 +117,7 @@ def _fedora_package(
         with_bconds = with_bconds,
         without_bconds = without_bconds,
         buildroot = buildroot,
-        fedora_release = read_config("buckos.fedora", "release", None),
+        fedora_release = distro_release,
         visibility = visibility,
     )
 
@@ -120,10 +133,11 @@ def _fedora_package(
         without_bconds = without_bconds,
         nocheck = nocheck,
         buildroot = buildroot,
-        fedora_release = read_config("buckos.fedora", "release", None),
+        fedora_release = distro_release,
+        flavor = flavor,
         # Only the frontend knows the ambient rpmbuild may be a wrapper;
         # host provenance needs the real binary.
-        rpmbuild = read_config("buckos.fedora", "rpmbuild", None),
+        rpmbuild = read_config("buckos." + flavor, "rpmbuild", None),
         visibility = visibility,
         **kwargs
     )
@@ -254,6 +268,72 @@ def _resolve_bconds(use, use_bcond):
 
     return sorted(enabled), sorted(disabled)
 
+# ── Debian-family frontend ──────────────────────────────────────────
+
+def _deb_package(
+        name,
+        flavor,
+        dsc,
+        source_files,
+        source_name = None,
+        version = "",
+        release = "",
+        build_deps = None,
+        subpackages = None,
+        build_profiles = None,
+        nocheck = True,
+        buildroot = None,
+        visibility = None,
+        **kwargs):
+    """Replay one Debian source package with dpkg-buildpackage."""
+    source_name = source_name or name
+    build_deps = build_deps or []
+    subpackages = subpackages or [source_name]
+    build_profiles = build_profiles or []
+
+    dsc_unpack(
+        name = name + "-source",
+        dsc = dsc,
+        source_files = source_files,
+        package_name = source_name,
+        flavor = flavor,
+        version = version,
+        release = release,
+        visibility = visibility,
+    )
+
+    deb_build(
+        name = name + "-build",
+        source = ":" + name + "-source",
+        dsc = dsc,
+        build_deps = build_deps,
+        build_profiles = build_profiles,
+        nocheck = nocheck,
+        buildroot = buildroot,
+        dpkg_buildpackage = read_config("buckos." + flavor, "dpkg_buildpackage", None),
+        visibility = visibility,
+        **kwargs
+    )
+
+    for subpackage in subpackages:
+        deb_subpackage(
+            name = _subpackage_target(name, source_name, subpackage),
+            source = ":" + name + "-build",
+            package_name = subpackage,
+            visibility = visibility,
+        )
+
+    if source_name in subpackages:
+        actual = ":" + _subpackage_target(name, source_name, source_name)
+    else:
+        actual = ":" + name + "-build"
+
+    native.alias(
+        name = name,
+        actual = actual,
+        visibility = visibility,
+    )
+
 # ── Dispatch ─────────────────────────────────────────────────────────
 
 def package(name, flavor = None, **kwargs):
@@ -265,8 +345,10 @@ def package(name, flavor = None, **kwargs):
     """
     flavor = flavor or current_flavor()
 
-    if flavor == "fedora":
-        _fedora_package(name = name, **kwargs)
+    if flavor in ("fedora", "centos"):
+        _rpm_package(name = name, flavor = flavor, **kwargs)
+    elif flavor in ("debian", "ubuntu"):
+        _deb_package(name = name, flavor = flavor, **kwargs)
     elif flavor in FLAVORS:
         fail(
             "flavor {} is declared but its frontend is not implemented yet; see flavors/{}/README.md".format(flavor, flavor),

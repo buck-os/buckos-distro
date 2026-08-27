@@ -2,11 +2,12 @@
 # Do not edit.  Re-run:
 #     tools/generate.py flavors/fedora/lock/fedora-44.lock.json
 #
-# Pure data, deliberately: flavors/fedora/defs.bzl turns it into targets.
+# Pure data, deliberately: defs/rpm_family.bzl turns it into targets.
 # Every sha256 here is a pin carried through from the lockfile, and it is
 # what the http_file targets verify against, so a mirror that serves the
 # wrong bytes fails the build rather than poisoning it.
 
+FLAVOR = "fedora"
 RELEASE = "44"
 DIST_TAG = ".fc44"
 TARGET_CPU = "x86_64"
@@ -16,8 +17,8 @@ REPO_BASE = {
     "source-releases": "https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Everything/source/tree",
 }
 
-# The binary-seed closure: prebuilt Fedora rpms that cut the
-# dependency graph.  This *is* the Fedora toolchain -- gcc,
+# The binary-seed closure: prebuilt distro rpms that cut the
+# dependency graph.  This is the target toolchain -- gcc,
 # glibc, rpm macros and redhat-rpm-config all come from here,
 # not from whatever the host happens to have installed.
 SEED_RPMS = [

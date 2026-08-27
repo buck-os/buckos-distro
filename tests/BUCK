@@ -1,5 +1,11 @@
 load("//defs:flavor.bzl", "package")
 
+export_file(
+    name = "hello-srpm",
+    src = "fixtures/hello-1.0-1.el9.src.rpm",
+    visibility = ["PUBLIC"],
+)
+
 # End-to-end exercise of the replay path on a checked-in fixture srpm.
 #
 # Deliberately a real .src.rpm rather than a synthetic topdir: the point is
@@ -23,6 +29,7 @@ load("//defs:flavor.bzl", "package")
 
 package(
     name = "hello",
+    flavor = "fedora",
     srpm = "fixtures/hello-1.0-1.el9.src.rpm",
     version = "1.0",
     release = "1",
@@ -40,6 +47,7 @@ package(
 # spec's own %bcond_with (SPEC.md section 5).
 package(
     name = "hello-greeting",
+    flavor = "fedora",
     srpm = "fixtures/hello-1.0-1.el9.src.rpm",
     source_name = "hello",
     version = "1.0",

@@ -6,9 +6,8 @@ load(":noop_re_toolchain.bzl", "noop_remote_test_execution_toolchain")
 
 # ── Prelude toolchains ───────────────────────────────────────────────
 #
-# These build the repo's own Python tooling, not distro packages.  The
-# packages themselves are built by their flavor's native driver
-# (rpmbuild, dpkg-buildpackage), which is what :buildroot below provides.
+# These build the repo's own Python tooling, not distro packages. The
+# packages themselves are built by their flavor's native driver.
 
 system_genrule_toolchain(
     name = "genrule",
@@ -37,36 +36,5 @@ noop_test_toolchain(
 
 noop_remote_test_execution_toolchain(
     name = "remote_test_execution",
-    visibility = ["PUBLIC"],
-)
-
-# ── The flavor buildroot ─────────────────────────────────────────────
-#
-# The sole integration point for package builds, exactly as buckos-build
-# exposes toolchains//:buckos.  Everything that replays a source package
-# reaches its build environment through this alias, so swapping flavors or
-# swapping a flavor's provenance is a one-line config change and touches
-# no rule.
-#
-# Selected by, in .buckconfig:
-#   [buckos] flavor = fedora
-#   [buckos.fedora] buildroot = host | binary-seed
-#
-# Resolved here rather than with select() because the choice is a
-# repo-level configuration, not a per-target configuration -- and because
-# a select() cannot pick a different *provenance*, which changes whether
-# consuming actions may run on RE at all.
-
-_FLAVOR = read_config("buckos", "flavor", "fedora")
-
-_BUILDROOT = read_config(
-    "buckos." + _FLAVOR,
-    "buildroot",
-    "host",
-)
-
-toolchain_alias(
-    name = "buildroot",
-    actual = "buckos//flavors/{}:buildroot-{}".format(_FLAVOR, _BUILDROOT),
     visibility = ["PUBLIC"],
 )

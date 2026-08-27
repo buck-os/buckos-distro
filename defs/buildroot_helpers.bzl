@@ -30,8 +30,8 @@ load("//defs:providers.bzl", "BuildrootInfo", "PackageInfo")
 #               release axis: fedora's package macros pin each release's
 #               targets to that release's buildroot, so gzip-43 cannot end
 #               up compiled against Fedora 44 (defs/releases.bzl).
-#   _buildroot  the flavor's default, reached through the toolchains cell
-#               exactly as buckos-build reaches toolchains//:buckos.
+#   _buildroot  the flavor's default, selected in the root cell so it reads
+#               the same configuration as the package graph.
 #
 # Both are toolchain_dep, not dep: host_buildroot and seeded_buildroot are
 # toolchain rules, and buck2 rejects a plain dep on one.
@@ -41,7 +41,7 @@ BUILDROOT_ATTRS = {
         default = None,
     ),
     "_buildroot": attrs.toolchain_dep(
-        default = "toolchains//:buildroot",
+        default = "//:buildroot",
         providers = [BuildrootInfo],
     ),
 }

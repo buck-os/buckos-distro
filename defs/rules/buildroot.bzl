@@ -48,9 +48,8 @@ def _host_buildroot_impl(ctx: AnalysisContext) -> list[Provider]:
 
 host_buildroot = rule(
     impl = _host_buildroot_impl,
-    # A toolchain rule, so it can sit behind toolchains//:buildroot and be
-    # swapped per flavor from .buckconfig -- the same socket buckos-build
-    # exposes as toolchains//:buckos.
+    # A toolchain rule, so it can sit behind //:buildroot and be swapped
+    # per flavor from .buckconfig.
     is_toolchain_rule = True,
     attrs = {
         "dist_tag": attrs.string(default = ""),
@@ -130,6 +129,50 @@ seeded_buildroot = rule(
         "target_cpu": attrs.string(default = "x86_64"),
         "_assemble": attrs.default_only(
             attrs.exec_dep(default = "//tools:buildroot_assemble"),
+        ),
+    },
+)
+
+
+def _seeded_deb_buildroot_impl(ctx: AnalysisContext) -> list[Provider]:
+    out = ctx.actions.declare_output("buildroot", dir = True)
+    cmd = cmd_args(ctx.attrs._assemble[RunInfo])
+    cmd.add("--out", out.as_output())
+    for deb in ctx.attrs.seed_debs:
+        for artifact in deb[DefaultInfo].default_outputs:
+            cmd.add("--deb", artifact)
+
+    # re-contract: buildroot-independent -- this action builds the Debian
+    # buildroot exclusively from SHA-256-pinned package artifacts.
+    ctx.actions.run(
+        cmd,
+        category = "deb_buildroot_assemble",
+        identifier = ctx.attrs.name,
+        allow_cache_upload = True,
+    )
+    return [
+        DefaultInfo(default_output = out),
+        BuildrootInfo(
+            root = out,
+            provenance = "binary-seed",
+            target_cpu = ctx.attrs.target_cpu,
+            dist_tag = "",
+            macros = None,
+            hermetic = True,
+            env = ctx.attrs.env,
+        ),
+    ]
+
+
+seeded_deb_buildroot = rule(
+    impl = _seeded_deb_buildroot_impl,
+    is_toolchain_rule = True,
+    attrs = {
+        "env": attrs.dict(attrs.string(), attrs.string(), default = {}),
+        "seed_debs": attrs.list(attrs.dep(), default = []),
+        "target_cpu": attrs.string(default = "x86_64"),
+        "_assemble": attrs.default_only(
+            attrs.exec_dep(default = "//tools:deb_buildroot_assemble"),
         ),
     },
 )

@@ -1,12 +1,12 @@
 load("//defs:releases.bzl", "default_release", "flavor_releases")
-load("//flavors/fedora/generated:index.bzl", "DATA_BY_RELEASE")
 load(
-    ":defs.bzl",
-    "fedora_buildroots_for",
-    "fedora_downloads_for",
-    "fedora_packages_for",
-    "fedora_rootfs_for",
+    "//defs:rpm_family.bzl",
+    "rpm_buildroots_for",
+    "rpm_downloads_for",
+    "rpm_packages_for",
+    "rpm_rootfs_for",
 )
+load("//flavors/fedora/generated:index.bzl", "DATA_BY_RELEASE")
 
 # ── The fedora build environment ─────────────────────────────────────
 #
@@ -15,7 +15,7 @@ load(
 #   [buckos.fedora] buildroot = host          -> :buildroot-host
 #   [buckos.fedora] buildroot = binary-seed   -> :buildroot-binary-seed
 #
-# toolchains//:buildroot aliases to whichever one is configured, so
+# //:buildroot aliases to whichever one is configured, so
 # nothing downstream names either target directly.
 #
 # Releases are a list, not a single value (defs/releases.bzl).  Every
@@ -40,14 +40,14 @@ DEFAULT_RELEASE = default_release("fedora", RELEASES)
 
 # The pinned rpms: one http_file per blob, sha256-verified by buck2 itself.
 # These must exist before the buildroots that reference them.
-fedora_downloads_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_downloads_for("fedora", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
 
-fedora_buildroots_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_buildroots_for("fedora", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
 
 # The source packages this release actually replays.
-fedora_packages_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_packages_for("fedora", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
 
 # Rootfs assembly: rpm running a real transaction over the pinned set,
 # with a database and scriptlets.  See fedora_rootfs() for why the seed
 # closure is the honest first subject.
-fedora_rootfs_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_rootfs_for("fedora", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)

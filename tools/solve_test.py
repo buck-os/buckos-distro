@@ -16,6 +16,7 @@ import unittest
 
 from solve import (
     BUILDSYS_BUILD,
+    CENTOS_BUILDSYS_BUILD,
     PROBE_SCHEMA,
     build_universe,
     check_public_base,
@@ -26,6 +27,7 @@ from solve import (
     probed_buildrequires,
     solve,
     solve_image_sets,
+    solve_package_set,
 )
 
 
@@ -104,6 +106,14 @@ class TestImageSets(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertEqual(sets["live"], ["shell"])
         self.assertEqual(sets["netinst"], ["kernel"])
+
+    def test_generic_package_set_uses_the_requested_scope(self):
+        universe = universe_of(binary("shell", requires=["missing-cap"]))
+        closure, problems = solve_package_set(
+            universe, ["shell"], scope="buildroot",
+        )
+        self.assertEqual(closure, ["shell"])
+        self.assertEqual(problems[0][2], "buildroot (shell)")
 
 
 class TestScopedOverrides(unittest.TestCase):
@@ -233,6 +243,18 @@ class TestDynamicBuildRequires(unittest.TestCase):
         self.assertIn("gcc", got)
         self.assertIn("rpm-build", got)
         self.assertEqual(got[-1], "openssl-devel")
+
+    def test_centos_can_supply_its_own_implicit_build_group(self):
+        binaries = [binary(name) for name in CENTOS_BUILDSYS_BUILD]
+        universe = build_universe(binaries, [source("widget")])
+        deps, _, problems, _ = solve(
+            universe,
+            {"widget"},
+            implicit=CENTOS_BUILDSYS_BUILD,
+        )
+        self.assertEqual(problems, [])
+        self.assertIn("centos-stream-release", deps["widget"])
+        self.assertNotIn("fedora-release-common", deps["widget"])
 
     def test_rpmlib_entries_from_the_header_are_dropped(self):
         # `rpm -qp --requires` on a source header emits these unconditionally
@@ -554,6 +576,7 @@ class TestPublicBaseURLs(unittest.TestCase):
             "/Everything/x86_64/os",
             "https://archives.fedoraproject.org/pub/archive/fedora/linux"
             "/releases/41/Everything/source/tree",
+            "https://mirror.stream.centos.org/10-stream/BaseOS/x86_64/os",
         ):
             with self.subTest(url=url):
                 self.assertEqual(check_public_base("--binary-base", url), url)

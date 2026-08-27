@@ -26,7 +26,7 @@ PackageInfo = provider(fields = [
     "name",             # str
     "version",          # str: upstream version ("1.3.1")
     "release",          # str | None: distro release ("2.fc41", "1ubuntu3")
-    "flavor",           # str: "fedora" | "ubuntu" | "buckos"
+    "flavor",           # str: "fedora" | "centos" | "debian" | "ubuntu" | "buckos"
 
     # Build outputs
     "prefix",           # artifact: the install prefix tree (an installroot)
@@ -77,7 +77,7 @@ BuildrootInfo = provider(fields = [
 # ── Flavor definition ────────────────────────────────────────────────
 
 FlavorInfo = provider(fields = [
-    "name",             # str: "fedora"
+    "name",             # str: "fedora" | "centos" | "debian" | "ubuntu" | "buckos"
     "artifact_kind",    # str: "rpm" | "deb" | "tree"
     "buildroot",        # dep providing BuildrootInfo
     "dist_tag",         # str

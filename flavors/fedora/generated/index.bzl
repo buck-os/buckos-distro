@@ -7,6 +7,7 @@
 
 load(
     "//flavors/fedora/generated:fedora-43.bzl",
+    _r43_flavor = "FLAVOR",
     _r43_dist_tag = "DIST_TAG",
     _r43_image_sets = "IMAGE_SETS",
     _r43_recipes = "RECIPES",
@@ -19,6 +20,7 @@ load(
 )
 load(
     "//flavors/fedora/generated:fedora-44.bzl",
+    _r44_flavor = "FLAVOR",
     _r44_dist_tag = "DIST_TAG",
     _r44_image_sets = "IMAGE_SETS",
     _r44_recipes = "RECIPES",
@@ -32,6 +34,7 @@ load(
 
 DATA_BY_RELEASE = {
     "43": struct(
+        FLAVOR = _r43_flavor,
         RELEASE = _r43_release,
         DIST_TAG = _r43_dist_tag,
         TARGET_CPU = _r43_target_cpu,
@@ -43,6 +46,7 @@ DATA_BY_RELEASE = {
         STAGED = _r43_staged,
     ),
     "44": struct(
+        FLAVOR = _r44_flavor,
         RELEASE = _r44_release,
         DIST_TAG = _r44_dist_tag,
         TARGET_CPU = _r44_target_cpu,
