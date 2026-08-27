@@ -89,7 +89,9 @@ Fedora, CentOS Stream, CentOS Hyperscale, Debian, and Ubuntu support two buildro
 
 The binary seed cuts bootstrap cycles that Buck cannot represent directly. The solver records staged source builds for cycles that are included in the source-replay set.
 
-Package dependencies contribute install-root trees. Each replay copies the seed and dependency trees into writable scratch space before invoking the target release's RPM tools.
+A package builds in a base plus its own overlay, not in the union of everyone's build dependencies. The base is the flavor's implicit build group — `@buildsys-build` — closed over its runtime `Requires`, which is fixed per release rather than derived from the build set; each package then installs what its own `BuildRequires` closed over on top of it. That distinction is not cosmetic. A union is not a buildroot, it is every tool any package asked for handed to all of them, and autoconf-era build systems feature-detect: `libmnl` declares `gcc`, `gnupg2` and `make`, the union handed it 311 packages including `doxygen`, and it emitted man pages its `%files` does not list. Under base-plus-overlay it builds in 166 packages. The mirror-image failure — a *missing* tool, `libcap` finding no Go and silently omitting a program — is the same fault seen from the other side: the buildroot did not match what the spec expects.
+
+The overlay is installed, not merely unpacked, because rpmbuild resolves `BuildRequires` against the rpmdb rather than the filesystem. It uses `--replacepkgs --replacefiles`, since a bootstrap stage rebuilding something the base already carries at the same NEVRA is both a reinstall and a file conflict against the copy the overlay just wrote.
 
 ## Image pipeline
 
@@ -223,11 +225,21 @@ Stated plainly, because each one is load-bearing:
 
 - **The FHS skeleton is still fabricated.** `tools/buildroot_assemble.py`
   creates `/dev`, `/proc`, `/sys`, `/tmp` and friends, because several
-  `brp-*` scripts and `%__os_install_post` steps fail on a missing one and
-  no package owns them. Each fabrication is listed explicitly in that file
-  rather than inferred. The `/usr/sbin -> bin` compat link used to be on
-  this list and no longer is — `filesystem`'s `%pretrans` now makes it for
-  real, see below.
+  `brp-*` scripts and `%__os_install_post` steps fail on a missing one.
+  Each fabrication is listed explicitly in that file rather than inferred.
+
+  `filesystem` does own those four, and they are `--excludepath`'d out of
+  the transaction rather than left to it: the sandbox bind-mounts them
+  inside the tree so rpm and the scriptlets have a working system to run
+  in, and rpm cannot chown a live mount — `cpio: chown failed - Device or
+  resource busy`. Nothing is lost. They hold no package content, and their
+  modes are the sandbox's business rather than the image's; this tree is a
+  chroot to build in, not a filesystem to boot.
+
+  The `/usr/sbin -> bin` compat link used to be on this list and is now
+  made for real by `filesystem`'s `%pretrans`. It is still created up
+  front, because payloads are unpacked *before* that transaction and
+  anything reading the tree in between would see the gap.
 - **Genuinely ambiguous capabilities need a human.** Real repodata has
   capabilities with many providers — `glibc-langpack` has 211,
   `system-release` 34 — and the solver refuses to guess. `--override
@@ -408,40 +420,45 @@ Stated plainly, because each one is load-bearing:
   back to `evmctl ima_setxattr`, which goes through the kernel and so
   silently no-ops unprivileged. `mksquashfs -pf` looks like the missing
   equivalent for that case too.
-- **No scriptlets in a buildroot, and `--justdb` is why.** Trees are
-  unpacked with `rpm2archive | tar` — GNU tar's
-  `--delay-directory-restore`, not `cpio`, because rpm payloads ship
-  read-only directories with files beneath them and cpio applies a
-  directory's mode as soon as it creates it. The database is then written
-  by `rpm --justdb --install`, which updates the database and declines to
-  run install scriptlets for files it is not installing. So no `%pre` or
-  `%post` executes, and `--noscripts` is passed to say so rather than to
-  cause it.
+- **Scriptlets run, and a real transaction is why.** Trees are unpacked
+  with `rpm2archive | tar` — GNU tar's `--delay-directory-restore`, not
+  `cpio`, because rpm payloads ship read-only directories with files
+  beneath them and cpio applies a directory's mode as soon as it creates
+  it. That unpack is a bootstrap step: it puts an rpm on disk to run the
+  real transaction with. `rpm --install` then runs inside the tree, writes
+  the database, and executes `%pre`/`%post`.
 
-  Dropping `--noscripts` was tried and reverted, and the reason is worth
-  recording because the mistake was in the measurement rather than the
-  idea. `/usr/sbin -> bin` and the systemd sysusers entries in
-  `/etc/passwd` were both observed after the change and attributed to it —
-  without ever building the same tree *with* `--noscripts` to compare.
-  The control says they are there either way: they come from package
-  payloads, not scriptlets.
+  This used to be `rpm --justdb --noscripts`, chosen for an ownership
+  property: a real install chowns files into the subordinate id range, and
+  Buck — which does not own those ids — then cannot delete or
+  re-materialize its own output. That is now handled by making directories
+  writable in a `finally` rather than by avoiding the transaction, which
+  also covers the case a `--justdb` tree never had: a transaction that
+  fails partway leaves the tree unwritable too.
 
-  What settles it is `golang-bin`, whose `%post` runs
-  `update-alternatives --install /usr/bin/go …`. Run by hand inside the
-  finished buildroot it exits 0 and `go version` works. Run as part of the
-  `--justdb` transaction it has no effect: `/etc/alternatives` stays
-  empty, and `/usr/bin/go` — which ships as a symlink into it — dangles.
+  What forced the change is `golang-bin`, whose `%post` runs
+  `update-alternatives --install /usr/bin/go …`. Under `--justdb` it had no
+  effect — `/etc/alternatives` stayed empty and `/usr/bin/go`, which ships
+  as a symlink into it, dangled. `libcap` then autodetected Go with `go
+  version`, got nothing, silently omitted its `captree` program, and failed
+  in `%files` on a file nothing said it was skipping. Every step is a
+  warning or a success until the last one.
 
-  That is a real limit, not a detail. **A package whose build needs a tool
-  registered through `alternatives` cannot be built in this buildroot.**
-  `libcap` is the case: it autodetects Go with `go version`, gets nothing,
-  silently omits its `captree` program, and then fails in `%files` on a
-  file nothing said it was skipping. Every step is a warning or a success
-  until the last one. Fixing it needs a real (non-`--justdb`) transaction,
-  which is exactly what the ownership constraint above rules out — so it
-  is a genuine gap rather than an oversight.
+  One measurement lesson survives from the first attempt, because the
+  mistake was in the method rather than the conclusion. Dropping
+  `--noscripts` was initially justified by observing `/usr/sbin -> bin` and
+  the systemd sysusers entries in `/etc/passwd` afterwards and attributing
+  both to it — without building the same tree *with* `--noscripts` to
+  compare. The control says they are there either way: they come from
+  package payloads. `golang-bin` is the experiment that actually
+  distinguished the two.
 
-  Triggers are off (`--notriggers`) as well, and would be moot regardless.
+  Triggers are off (`--notriggers`) for the shared base, where a single
+  transaction installs everything at once and firing order would be rpm's
+  internal ordering rather than anything this repo decides. The per-package
+  overlay turns them on and needs to, because it installs into a tree that
+  already exists — glibc's file trigger rebuilds `/etc/ld.so.cache`, and
+  without it `bpftool` cannot load a library sitting on disk.
 
 - **Backslashes in payload paths become directories, in buildroots only.**
   buck2 reserves the backslash as a path separator and cannot address a
