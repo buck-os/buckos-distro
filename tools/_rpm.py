@@ -246,7 +246,35 @@ def overlay_tree(src, dest):
 
 
 def _overlay_dir(src, dest):
-    """Make dest a directory mirroring src, keeping anything already in it."""
+    """Make dest a directory mirroring src, keeping anything already in it.
+
+    A symlink to a directory is followed rather than replaced, and that is
+    the merged-usr rule rather than a convenience.  Fedora's `filesystem`
+    ships /lib64 as a symlink to usr/lib64, and a handful of packages --
+    libtirpc is the one that found this -- still declare their files under
+    /lib64.  On a real system that path *resolves through* the symlink and
+    the file lands in /usr/lib64; that is what the merge means.
+
+    Replacing the symlink with a real directory instead forks the two
+    apart, and the way it fails is nasty.  The buildroot ends up with
+    /lib64 holding one library and /usr/lib64 holding everything else,
+    including ld-linux-x86-64.so.2 -- which is every binary's ELF
+    interpreter, named absolutely as /lib64/ld-linux-x86-64.so.2.  Exec
+    then fails on the interpreter rather than on the binary, so the kernel
+    returns ENOENT for a file that plainly exists, the shell reports it as
+    127, and nothing is written to stderr at all:
+
+        Stdout: <empty>
+        Stderr:
+
+    26 of 126 probes died that way, each one reporting only that `rpm`
+    could not be found in a tree containing /usr/bin/rpm.
+    """
+    if os.path.islink(dest) and os.path.isdir(dest):
+        # Nothing to create: writes below here resolve through the link on
+        # their own.  Mode is forced on the target, which is what needs it.
+        _force_mode(dest, 0o700)
+        return
     if os.path.lexists(dest) and not _is_real_dir(dest):
         _remove_any(dest)
     if not os.path.lexists(dest):
