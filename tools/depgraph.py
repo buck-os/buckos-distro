@@ -686,6 +686,35 @@ def runtime_closure(roots, requires, provides, overrides=None, extra=None):
                 # in a --override, so there is no lever to offer.
                 problems.append(("rich", text, who))
                 return []
+            if text in overrides:
+                return [overrides[text]]
+
+            # An alternative nothing provides is not an alternative.  The
+            # `with` branch below already reasons this way -- one candidate
+            # is not a choice -- and an `or` deserves the same: asking a
+            # human to pick between a package that exists and one that does
+            # not is asking them to confirm arithmetic.
+            #
+            # gcc is the case.  Its spec offers
+            # `(glibc32 or glibc-devel(x86-32))`, Fedora 43 ships no
+            # glibc32 at all, and glibc-devel(x86-32) has exactly one
+            # provider.  There is nothing to settle.
+            #
+            # Ambiguity in a surviving branch still defers: two providers
+            # for one alternative is a real question, and answering it here
+            # would be the guessing this function exists to refuse.
+            live = set()
+            for name in alternatives:
+                try:
+                    live.add(resolve_capability(name, provides, who, overrides))
+                except UnresolvedCapability:
+                    continue
+                except AmbiguousProvider:
+                    live = None
+                    break
+            if live is not None and len(live) == 1:
+                return [live.pop()]
+
             choices.append((text, alternatives, who))
             return []
 

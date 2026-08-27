@@ -23,8 +23,6 @@ from solve import (
     check_public_base,
     collect_repos,
     derive_repo_name,
-    expand_foreign,
-    foreign_closure,
     load_probe,
     merge_packages,
     parse_override,
@@ -476,14 +474,18 @@ class TestArchSelection(unittest.TestCase):
                     universe["binary_index"]["glibc"]["arch"], "x86_64"
                 )
 
-    def test_a_losing_builds_capabilities_do_not_leak(self):
+    def test_a_losing_builds_capabilities_are_not_attributed_to_the_winner(self):
         """The reason winners are picked before any Provides are read.
 
         The 32-bit build provides `libc.so.6` with no (64bit) marker.  If it
         contributed to the capability map on its way to losing, that
-        capability would resolve to the name of the 64-bit package, which
+        capability would resolve to the *name* of the 64-bit package, which
         does not provide it -- and the buildroot would be quietly missing a
         library that the solve says is present.
+
+        The capability itself is legitimate and now resolvable, to the build
+        that actually has it; see TestForeignArch.  What must never happen
+        is the attribution, which is what this checks.
         """
         universe = build_universe([
             binary("glibc", arch="i686", release="9.fc43",
@@ -491,8 +493,8 @@ class TestArchSelection(unittest.TestCase):
             binary("glibc", arch="x86_64", release="1.fc43",
                    provides=["libc.so.6()(64bit)"]),
         ], [], target_cpu="x86_64")
-        self.assertNotIn("libc.so.6", universe["provides"])
-        self.assertIn("libc.so.6()(64bit)", universe["provides"])
+        self.assertEqual(universe["provides"]["libc.so.6"], ["glibc.i686"])
+        self.assertEqual(universe["provides"]["libc.so.6()(64bit)"], ["glibc"])
 
     def test_a_package_that_exists_only_as_a_foreign_arch_is_kept(self):
         # Ranked last, not dropped: it is still the only answer to a
@@ -520,15 +522,33 @@ class TestForeignArch(unittest.TestCase):
     """
 
     def multilib(self):
+        """Shaped after what Fedora 43 actually publishes.
+
+        The mix matters and an invented fixture gets it wrong: glibc-devel
+        for i686 requires plain `glibc` and plain `kernel-headers`, which
+        are arch-neutral, *and* unmarked sonames like `libm.so.6`, which
+        are 32-bit by virtue of carrying no `()(64bit)` marker.  The
+        sonames are what actually reach the 32-bit libc; the plain names
+        are deliberately answerable by whatever is already installed.
+        """
         return [
-            binary("glibc", arch="x86_64", provides=["libc.so.6()(64bit)"]),
-            binary("glibc", arch="i686", provides=["libc.so.6"],
-                   requires=["glibc-headers"]),
+            binary("glibc", arch="x86_64",
+                   provides=["libc.so.6()(64bit)", "libm.so.6()(64bit)"]),
+            binary("glibc", arch="i686",
+                   provides=["libc.so.6", "libm.so.6"],
+                   requires=["glibc-common"]),
             binary("glibc-devel", arch="x86_64",
-                   requires=["glibc"], provides=["glibc-devel(x86-64)"]),
+                   requires=["glibc", "kernel-headers", "libm.so.6()(64bit)"],
+                   provides=["glibc-devel(x86-64)"]),
             binary("glibc-devel", arch="i686",
-                   requires=["glibc"], provides=["glibc-devel(x86-32)"]),
-            binary("glibc-headers", arch="noarch"),
+                   requires=["glibc", "kernel-headers", "libm.so.6"],
+                   provides=["glibc-devel(x86-32)"]),
+            # Arch-neutral in name but shipped per arch, and skewed in
+            # version -- which is the case that made rpm refuse the
+            # transaction outright.
+            binary("kernel-headers", arch="x86_64", version="7.1.3"),
+            binary("kernel-headers", arch="i686", version="6.17.0"),
+            binary("glibc-common", arch="x86_64"),
             binary("gcc", arch="x86_64"),
         ]
 
@@ -540,67 +560,106 @@ class TestForeignArch(unittest.TestCase):
         self.assertEqual(
             universe["binary_index"]["glibc-devel"]["arch"], "x86_64")
 
-    def test_foreign_provides_stay_out_of_the_shared_map(self):
-        """The invariant the whole separation exists to protect.
+    def test_a_foreign_capability_resolves_to_the_build_that_has_it(self):
+        """Registered, and pointed at the arch-qualified name.
 
-        An i686 build provides `libc.so.6` with no (64bit) marker.  In the
-        shared map that would answer a 64-bit question with a 32-bit
-        package -- see test_a_losing_builds_capabilities_do_not_leak.
-        Indexing the foreign builds must not undo that.
+        The old rule kept these out of the shared map entirely, which was
+        protecting the right thing for the wrong reason: the hazard is a
+        32-bit capability attributed to the *64-bit package*, not the
+        capability existing.  Naming the i686 build says something true.
         """
         universe = build_universe(self.multilib(), [], target_cpu="x86_64")
-        self.assertNotIn("libc.so.6", universe["provides"])
-        self.assertNotIn("glibc-devel(x86-32)", universe["provides"])
-        self.assertIn("libc.so.6", universe["foreign_provides"]["i686"])
+        self.assertEqual(
+            universe["provides"]["glibc-devel(x86-32)"], ["glibc-devel.i686"])
+        self.assertEqual(universe["provides"]["libc.so.6"], ["glibc.i686"])
+        # And the 64-bit side is untouched.
+        self.assertEqual(
+            universe["provides"]["libc.so.6()(64bit)"], ["glibc"])
+        self.assertEqual(universe["provides"]["glibc-devel"], ["glibc-devel"])
 
-    def test_the_closure_stays_in_arch(self):
-        """glibc-devel.i686 must pull glibc.i686, not glibc.x86_64.
+    def test_a_contested_capability_keeps_the_collapsed_answer(self):
+        """Only empty slots get filled, which is the safety argument.
 
-        The collapsed map answers `glibc` with the 64-bit build, since it
-        is the only one that survived -- which would leave a buildroot with
-        no 32-bit libc and a gcc that dies partway through its multilib
-        stage, long after the solve looked clean.
+        Both arches ship /bin/awk, unmarked.  A 64-bit package requiring it
+        means the 64-bit gawk, and registering the i686 build alongside
+        would turn a settled lookup into an ambiguity -- 21,556 of them
+        across Fedora 43, measured.
+        """
+        universe = build_universe([
+            binary("gawk", arch="x86_64", provides=["/bin/awk"]),
+            binary("gawk", arch="i686", provides=["/bin/awk"]),
+        ], [], target_cpu="x86_64")
+        self.assertEqual(universe["provides"]["/bin/awk"], ["gawk"])
+
+    def test_a_package_only_this_arch_ships_is_not_duplicated(self):
+        """lrmi exists as i686 only, so it already won the collapse.
+
+        A second, qualified entry would make `lrmi(x86-32)` ambiguous
+        between `lrmi` and `lrmi.i686` -- the same rpm, twice.  Six
+        packages in Fedora 43 are shaped like this.
+        """
+        universe = build_universe(
+            [binary("lrmi", arch="i686", provides=["lrmi(x86-32)"])],
+            [], target_cpu="x86_64")
+        self.assertEqual(universe["provides"]["lrmi(x86-32)"], ["lrmi"])
+        self.assertNotIn("lrmi.i686", universe["foreign_index"])
+
+    def test_the_closure_follows_the_capability_names(self):
+        """Arch-specificity is in the capability, not in a layered map.
+
+        glibc-devel.i686 requires the unmarked soname `libm.so.6`, which
+        only the 32-bit build provides, so glibc.i686 comes in.  It also
+        requires plain `kernel-headers`, which is deliberately arch-neutral
+        -- and answering *that* with the i686 build is a real bug, not a
+        nicety: rpm refuses to install an older kernel-headers.i686
+        alongside the newer x86_64 one the base already has.
         """
         universe = build_universe(self.multilib(), [], target_cpu="x86_64")
-        closure, problems = foreign_closure(["glibc-devel.i686"], universe)
+        closure, problems = runtime_closure(
+            ["glibc-devel.i686"], universe["requires"], universe["provides"])
 
         self.assertEqual(problems, [])
-        self.assertIn("glibc.i686", closure)
-        self.assertNotIn("glibc", closure)
-        # A capability the arch does not provide still falls through.
-        self.assertIn("glibc-headers", closure)
+        self.assertIn("glibc.i686", closure)     # via libm.so.6
+        self.assertIn("kernel-headers", closure)  # arch-neutral, base's copy
+        self.assertNotIn("kernel-headers.i686", closure)
 
-    def test_an_override_pulls_the_whole_slice(self):
-        """End to end: what --override buys is the sub-closure, not one rpm.
+    def test_gcc_needs_no_override_at_all(self):
+        """The whole point: a spec asks for 32-bit and gets it.
 
-        runtime_closure adds whatever the override named and then finds no
-        `requires` entry for it -- foreign requirements are deliberately
-        not in that map -- so without expand_foreign it lands as a leaf.
+        `(glibc32 or glibc-devel(x86-32))` used to be reported as a choice
+        with no candidates, because neither branch had a provider in a
+        collapsed universe.  Now the second branch resolves, the first is
+        still nothing -- Fedora 43 ships no glibc32 -- and an alternative
+        nothing provides is not an alternative.
         """
         universe = build_universe(self.multilib(), [], target_cpu="x86_64")
-        overrides = {
-            "(glibc32 or glibc-devel(x86-32))": "glibc-devel.i686",
-        }
-        closure, _ = runtime_closure(
-            ["gcc"], universe["requires"], universe["provides"], overrides,
+        closure, problems = runtime_closure(
+            ["gcc"], universe["requires"], universe["provides"],
             extra=[("(glibc32 or glibc-devel(x86-32))", "gcc")],
         )
-        self.assertIn("glibc-devel.i686", closure)
-        self.assertNotIn("glibc.i686", closure)  # the leaf, before repair
-
-        grown, problems = expand_foreign(closure, universe, "gcc", overrides)
         self.assertEqual(problems, [])
-        self.assertIn("glibc.i686", grown)
-        self.assertIn("glibc-headers", grown)
+        self.assertIn("glibc-devel.i686", closure)
 
-    def test_nothing_happens_without_an_override(self):
+        self.assertIn("glibc.i686", closure)
+
+    def test_a_genuine_choice_is_still_refused(self):
+        """Two live branches is a real question, and stays one."""
+        universe = build_universe(self.multilib() + [
+            binary("alpha", provides=["thing"]),
+            binary("beta", provides=["thing-too"]),
+            binary("asks", requires=["(thing or thing-too)"]),
+        ], [], target_cpu="x86_64")
+        _, problems = runtime_closure(
+            ["asks"], universe["requires"], universe["provides"])
+        self.assertEqual([kind for kind, _, _ in problems], ["choice"])
+
+    def test_a_package_that_asks_for_nothing_32_bit_gets_nothing(self):
         """The second arch appears only where a spec asked for one."""
         universe = build_universe(self.multilib(), [], target_cpu="x86_64")
-        closure, _ = runtime_closure(
+        closure, problems = runtime_closure(
             ["gcc"], universe["requires"], universe["provides"])
-        grown, problems = expand_foreign(closure, universe, "gcc")
-        self.assertEqual(grown, closure)
         self.assertEqual(problems, [])
+        self.assertEqual([c for c in closure if c.endswith(".i686")], [])
 
 
 class TestRepoTable(unittest.TestCase):

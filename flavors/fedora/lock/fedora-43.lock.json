@@ -2480,6 +2480,15 @@
       "source": "glibc"
     },
     {
+      "arch": "i686",
+      "evr": "2.42-16.fc43",
+      "location": "Packages/g/glibc-gconv-extra-2.42-16.fc43.i686.rpm",
+      "name": "glibc-gconv-extra.i686",
+      "repo": "binary-updates",
+      "sha256": "90228ffa3e3669588d58cb2c6c9857b3bcade54dc502664049ab2ae13c0df08e",
+      "source": "glibc"
+    },
+    {
       "arch": "x86_64",
       "evr": "2.42-16.fc43",
       "location": "Packages/g/glibc-langpack-el-2.42-16.fc43.x86_64.rpm",
@@ -3530,15 +3539,6 @@
       "name": "kernel-headers",
       "repo": "binary-updates",
       "sha256": "5339a7cf919f91f1a7b2ca05ad31ad08e676a3245bec7f1f36e0d0af5bda49ab",
-      "source": "kernel-headers"
-    },
-    {
-      "arch": "i686",
-      "evr": "6.17.0-63.fc43",
-      "location": "Packages/k/kernel-headers-6.17.0-63.fc43.i686.rpm",
-      "name": "kernel-headers.i686",
-      "repo": "binary-releases",
-      "sha256": "9481120e4bb9382ec7be7542861c8c1745958f2132cc002699fb0c2a765014e5",
       "source": "kernel-headers"
     },
     {
@@ -5609,15 +5609,6 @@
       "name": "libpkgconf",
       "repo": "binary-releases",
       "sha256": "cfcd48adc62fab0575792b9b3e974dbe04f1896d9584e016d8730ee7d4816365",
-      "source": "pkgconf"
-    },
-    {
-      "arch": "i686",
-      "evr": "2.3.0-3.fc43",
-      "location": "Packages/l/libpkgconf-2.3.0-3.fc43.i686.rpm",
-      "name": "libpkgconf.i686",
-      "repo": "binary-releases",
-      "sha256": "6f4eac46491085066b7a2902891d8297e3b3d178a56ef03b8aa34d1730c97576",
       "source": "pkgconf"
     },
     {
@@ -10937,24 +10928,6 @@
       "name": "pkgconf-pkg-config",
       "repo": "binary-releases",
       "sha256": "4ae294440b9d8e8ae7477ee1ae0ff6e0f7faec4ec307fdef082004795aedae78",
-      "source": "pkgconf"
-    },
-    {
-      "arch": "i686",
-      "evr": "2.3.0-3.fc43",
-      "location": "Packages/p/pkgconf-pkg-config-2.3.0-3.fc43.i686.rpm",
-      "name": "pkgconf-pkg-config.i686",
-      "repo": "binary-releases",
-      "sha256": "e80df3280b90e1426eabaa268939f59b86568937474e087ed58679774dbc3972",
-      "source": "pkgconf"
-    },
-    {
-      "arch": "i686",
-      "evr": "2.3.0-3.fc43",
-      "location": "Packages/p/pkgconf-2.3.0-3.fc43.i686.rpm",
-      "name": "pkgconf.i686",
-      "repo": "binary-releases",
-      "sha256": "f18037c42b918fe9e899ecce87a1c6ced8f865e51a33299bb72f4a6d7059c4ca",
       "source": "pkgconf"
     },
     {
@@ -117522,6 +117495,15 @@
         {
           "arch": "i686",
           "evr": "2.42-16.fc43",
+          "location": "Packages/g/glibc-gconv-extra-2.42-16.fc43.i686.rpm",
+          "name": "glibc-gconv-extra.i686",
+          "repo": "binary-updates",
+          "sha256": "90228ffa3e3669588d58cb2c6c9857b3bcade54dc502664049ab2ae13c0df08e",
+          "source": "glibc"
+        },
+        {
+          "arch": "i686",
+          "evr": "2.42-16.fc43",
           "location": "Packages/g/glibc-2.42-16.fc43.i686.rpm",
           "name": "glibc.i686",
           "repo": "binary-updates",
@@ -117832,15 +117814,6 @@
           "name": "kernel-headers",
           "repo": "binary-updates",
           "sha256": "5339a7cf919f91f1a7b2ca05ad31ad08e676a3245bec7f1f36e0d0af5bda49ab",
-          "source": "kernel-headers"
-        },
-        {
-          "arch": "i686",
-          "evr": "6.17.0-63.fc43",
-          "location": "Packages/k/kernel-headers-6.17.0-63.fc43.i686.rpm",
-          "name": "kernel-headers.i686",
-          "repo": "binary-releases",
-          "sha256": "9481120e4bb9382ec7be7542861c8c1745958f2132cc002699fb0c2a765014e5",
           "source": "kernel-headers"
         },
         {
@@ -118229,15 +118202,6 @@
           "repo": "binary-updates",
           "sha256": "275d632834918ad5787bd2b9a3cbe21fa5bb686bec74b915adfcdc35ee52afc1",
           "source": "libpfm"
-        },
-        {
-          "arch": "i686",
-          "evr": "2.3.0-3.fc43",
-          "location": "Packages/l/libpkgconf-2.3.0-3.fc43.i686.rpm",
-          "name": "libpkgconf.i686",
-          "repo": "binary-releases",
-          "sha256": "6f4eac46491085066b7a2902891d8297e3b3d178a56ef03b8aa34d1730c97576",
-          "source": "pkgconf"
         },
         {
           "arch": "x86_64",
@@ -120695,24 +120659,6 @@
           "repo": "binary-releases",
           "sha256": "b4d44642eeac3fb6dad21c367c63c5f88a41c76f2446bf7cce6a5f3b8c95a89e",
           "source": "pixman"
-        },
-        {
-          "arch": "i686",
-          "evr": "2.3.0-3.fc43",
-          "location": "Packages/p/pkgconf-pkg-config-2.3.0-3.fc43.i686.rpm",
-          "name": "pkgconf-pkg-config.i686",
-          "repo": "binary-releases",
-          "sha256": "e80df3280b90e1426eabaa268939f59b86568937474e087ed58679774dbc3972",
-          "source": "pkgconf"
-        },
-        {
-          "arch": "i686",
-          "evr": "2.3.0-3.fc43",
-          "location": "Packages/p/pkgconf-2.3.0-3.fc43.i686.rpm",
-          "name": "pkgconf.i686",
-          "repo": "binary-releases",
-          "sha256": "f18037c42b918fe9e899ecce87a1c6ced8f865e51a33299bb72f4a6d7059c4ca",
-          "source": "pkgconf"
         },
         {
           "arch": "x86_64",
@@ -371516,7 +371462,6 @@
       "xz"
     ],
     "overrides": [
-      "(glibc32 or glibc-devel(x86-32))=glibc-devel.i686",
       "/usr/bin/gdb-add-index=gdb-minimal",
       "/usr/bin/sha512sum=coreutils",
       "/usr/bin/systemd-sysusers=systemd-standalone-sysusers",
@@ -402521,15 +402466,15 @@
     "dynamic_buildrequires": 1,
     "dynamic_unmet": 1,
     "dynamic_unprobed": 0,
-    "fraction_built": 0.1532,
-    "from_seed": 1912,
+    "fraction_built": 0.1534,
+    "from_seed": 1909,
     "image_sets": {
       "image-tools": 158,
       "live": 187
     },
     "pins_by_repo": {
-      "binary-releases": 20343,
-      "binary-updates": 19944,
+      "binary-releases": 20335,
+      "binary-updates": 19946,
       "source-releases": 64,
       "source-updates": 62
     },
@@ -402537,7 +402482,7 @@
     "source_packages_built": 126,
     "staged_targets": 351,
     "superseded": 29123,
-    "total_build_deps": 2258
+    "total_build_deps": 2255
   },
   "target_cpu": "x86_64"
 }
