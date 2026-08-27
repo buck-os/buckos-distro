@@ -801,12 +801,54 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None,
         problems.extend(closure_problems)
         build_deps[src] = closure
 
+    # The *shared* buildroot: @buildsys-build closed over its Requires, and
+    # nothing else.  This is the tree every package starts from; what each
+    # one additionally needs is overlaid per build, from deps_seed.
+    #
+    # Every package used to build in `seed_closure` below -- the union of
+    # every package's BuildRequires -- and that is wrong in a way only
+    # visible once the build set grows past a handful.  A union is not a
+    # buildroot: it is every tool any package asked for, handed to all of
+    # them.  autoconf-era build systems feature-detect, so an undeclared
+    # tool present in the tree silently changes what gets built.
+    #
+    # libmnl is the case that found it.  Its spec BuildRequires gcc, gnupg2
+    # and make; the union handed it 311 packages it never asked for,
+    # including doxygen; its build then generated man pages that its
+    # %files does not list, and rpm failed on the unpackaged files.  Note
+    # the shape is the exact mirror of a *missing* tool -- libcap finding
+    # no Go and silently omitting a program -- and both are one fault:
+    # the buildroot did not match what the spec expects.
+    #
+    # Fixed per release rather than derived from the build set, which is
+    # the point: @buildsys-build is what Fedora guarantees is present, so a
+    # package's environment does not change because some unrelated package
+    # joined the build.
+    #
+    # From `implicit` rather than from BUILDSYS_BUILD directly, so the base
+    # is the group the *flavor* guarantees: CentOS ships a different one,
+    # and hardcoding Fedora's would build every CentOS package in a tree
+    # CentOS never promised.
+    base_direct = []
+    for capability in implicit:
+        try:
+            base_direct.append(resolve_capability(
+                capability, universe["provides"], "@buildsys-build", overrides
+            ))
+        except (AmbiguousProvider, UnresolvedCapability) as exc:
+            problems.append(("unresolved", str(exc), "@buildsys-build"))
+    base_closure, base_problems = runtime_closure(
+        base_direct, universe["requires"], universe["provides"], overrides
+    )
+    problems.extend(base_problems)
+
+
     if strict and problems:
         for kind, detail, who in problems:
             print("solve error [{}] {}: {}".format(kind, who, detail), file=sys.stderr)
         sys.exit("solve failed with {} unresolved item(s)".format(len(problems)))
 
-    return build_deps, resolutions, problems, dynamic
+    return build_deps, resolutions, problems, dynamic, base_closure
 
 
 def solve_package_set(universe, roots, overrides=None, scope="package-set"):
@@ -912,7 +954,7 @@ def _count_pins_by_repo(lock):
 
 def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
                   dynamic, plan, depth, image_sets, seed_packages,
-                  replacements, args):
+                  replacements, base_closure, args):
     """Produce the lockfile. Every entry is pinned by checksum."""
 
     def pin_binary(name):
@@ -986,8 +1028,14 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
     # excluded from the seed, so nothing could be built -- including
     # zlib-ng.  Fedora's own bootstrap has exactly this shape; stage 1
     # compiles against the previous release's binaries.
+    #
+    # Every prebuilt rpm the build references, which is the base, plus what
+    # each package overlays on top of it, plus whatever --seed-package
+    # named.  A pin table -- what may need downloading -- rather than a
+    # description of any one tree; no build sees all of this at once.
     seed_closure = sorted(
-        {d for deps in build_deps.values() for d in deps} | set(seed_packages)
+        {d for deps in build_deps.values() for d in deps}
+        | set(seed_packages) | set(base_closure)
     )
 
     lock = {
@@ -1059,6 +1107,10 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             superseded=len(replacements),
         ),
         "buildroot_seed": [pin_binary(d) for d in seed_closure],
+        # Which of those form the shared tree.  Names rather than pins:
+        # the pin lives in buildroot_seed above, and repeating it would be
+        # two records of one fact.
+        "base_seed": sorted(base_closure),
         # Runtime closures, one per --image.  Kept apart from
         # buildroot_seed because they answer a different question and are
         # consumed by a different rule; an image that happened to equal the
@@ -1239,7 +1291,7 @@ def main(argv=None):
 
     universe = build_universe(binary_pkgs, source_pkgs,
                               target_cpu=args.target_cpu)
-    build_deps, resolutions, problems, dynamic = solve(
+    build_deps, resolutions, problems, dynamic, base_closure = solve(
         universe, build_set, overrides, strict=args.strict,
         probe=load_probe(args.probe, build_set),
         implicit=args.implicit_group,
@@ -1275,7 +1327,8 @@ def main(argv=None):
 
     lock = emit_lockfile(
         universe, build_set, build_deps, resolutions, problems,
-        dynamic, plan, depth, image_sets, seed_packages, replacements, args,
+        dynamic, plan, depth, image_sets, seed_packages, replacements,
+        base_closure, args,
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)

@@ -46,6 +46,7 @@ from _isolation import resolve_isolation, run_isolated
 from _rpm import (
     extract_rpm,
     overlay_tree,
+    stage_rpms,
     reproducible_env,
     require_tool,
     run,
@@ -108,6 +109,80 @@ def compose_buildroot(seed_root, dep_roots, dest):
             continue
         overlay_tree(layer, dest)
     return dest
+
+
+
+def install_deps(sysroot, dep_rpms, args, work, env):
+    """Install the resolved BuildRequires into the composed sysroot.
+
+    compose_buildroot has already overlaid their *files*; this is the rpm
+    transaction that makes the sysroot agree with itself.  Three things
+    only a transaction supplies:
+
+      * the database.  rpmbuild resolves BuildRequires against it, not
+        against the filesystem, so an overlay alone fails on a package
+        whose files are demonstrably present:
+
+            error: Failed build dependencies:
+                autoconf is needed by xz-1:5.8.1-4.fc43.x86_64
+
+      * %post.  golang-bin registers /usr/bin/go through
+        update-alternatives, and /usr/bin/go ships as a symlink into
+        /etc/alternatives.  Without the scriptlet it dangles, libcap
+        autodetects no Go, silently omits its captree program and fails in
+        %files on a file nothing said it was skipping.
+
+      * ownership and modes, as the package declares them rather than as
+        the overlay copied them.
+
+    --replacepkgs --replacefiles, because superseding is the normal case
+    here rather than an error.  A bootstrap stage rebuilds something the
+    base already carries at the same NEVRA, so rpm sees a reinstall of a
+    package it knows and a file conflict against the copy the overlay just
+    wrote -- the tree describing itself.  Replacing is the intent: this
+    build's zlib-ng-compat is the locally built one, not the seed's.
+
+    --nodeps, because this is a partial view by construction.  These
+    packages' own dependencies are in the base, already installed and
+    already in the database; the closure was decided by the solver and
+    this is installation, not resolution.
+
+    Triggers stay *on*, unlike everywhere else in this repo, and the
+    reason is ldconfig.  glibc ships a file trigger that rebuilds
+    /etc/ld.so.cache whenever a library lands, and a package installing
+    into a non-default directory relies on it: llvm20-libs puts
+    libLLVM.so.20.1 under /usr/lib64/llvm20/lib64 and drops a conf file
+    naming that path.  With --notriggers the cache is never refreshed, and
+    bpftool -- which libcap-ng runs during %build -- dies with
+
+        bpftool: error while loading shared libraries: libLLVM.so.20.1:
+                 cannot open shared object file
+
+    on a library that is sitting in the sysroot.  The base buildroot gets
+    away without triggers because everything in it lives on the default
+    search path; an overlay is exactly where that stops being true.
+
+    The sandbox's mount points are excluded for the same reason
+    tools/buildroot_assemble.py excludes them: /proc, /dev, /sys and /tmp
+    are live mounts inside the chroot, and the package that owns them
+    cannot chown a mount point -- "cpio: chown failed - Device or resource
+    busy".  They are in the base already, so nothing is lost.
+    """
+    staging = os.path.join(work, "deprpms")
+    stage_rpms([os.path.abspath(path) for path in dep_rpms], staging)
+
+    script = (
+        "set -e\n"
+        'exec rpm --install --nosignature --nodeps '
+        '--replacepkgs --replacefiles '
+        '--excludepath /dev --excludepath /proc '
+        '--excludepath /sys --excludepath /tmp '
+        '"$1"/*.rpm\n'
+    )
+    run_isolated(
+        ["/bin/sh", "-c", script, "sh", staging],
+        args.isolation, work=work, chdir=work, sysroot=sysroot, env=env,
+    )
 
 
 def sysroot_env(sysroot, env):
@@ -469,6 +544,10 @@ def main():
                     choices=["host", "binary-seed", "bootstrapped"])
     ap.add_argument("--isolation", default="none",
                     choices=["none", "bwrap", "unshare", "auto"])
+    ap.add_argument("--dep-rpm", action="append", default=[],
+                    help="the .rpm a --dep-installroot was unpacked from, "
+                         "registered in the sysroot's database so rpmbuild's "
+                         "BuildRequires check can see it (repeatable)")
     ap.add_argument("--dep-installroot", action="append", default=[],
                     help="dependency installroot to overlay (repeatable)")
 
@@ -577,6 +656,10 @@ def main():
         )
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
+
+    if sysroot and args.dep_rpm:
+        install_deps(sysroot, args.dep_rpm, args, work, env)
+
     if sysroot and args.isolation == "none":
         env.update(sysroot_env(sysroot, env))
     elif args.isolation != "none":

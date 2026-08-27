@@ -214,7 +214,7 @@ class TestDynamicBuildRequires(unittest.TestCase):
         )
 
     def test_repodata_alone_records_the_heuristic_and_no_capabilities(self):
-        _, _, _, dynamic = solve(self.universe("cargo", "rust-packaging"),
+        _, _, _, dynamic, _base = solve(self.universe("cargo", "rust-packaging"),
                                  {"widget"})
         self.assertEqual(dynamic["widget"], {
             "source": "repodata",
@@ -232,7 +232,7 @@ class TestDynamicBuildRequires(unittest.TestCase):
             "generated": True,
             "unmet": True,
         }
-        deps, _, problems, dynamic = solve(
+        deps, _, problems, dynamic, _base = solve(
             universe, {"widget"}, probe={"widget": report})
 
         self.assertIn("openssl-devel", deps["widget"])

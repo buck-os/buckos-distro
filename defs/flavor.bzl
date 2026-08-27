@@ -62,6 +62,7 @@ def _rpm_package(
         version = "",
         release = "",
         build_deps = None,
+        dep_rpms = None,
         subpackages = None,
         use = None,
         use_bcond = None,
@@ -91,6 +92,7 @@ def _rpm_package(
     """
     source_name = source_name or name
     build_deps = build_deps or []
+    dep_rpms = dep_rpms or []
     subpackages = subpackages or [source_name]
     defines = defines or []
 
@@ -122,6 +124,7 @@ def _rpm_package(
         topdir = ":" + name + "-topdir",
         package_name = source_name,
         build_deps = build_deps,
+        dep_rpms = dep_rpms,
         defines = defines,
         with_bconds = with_bconds,
         without_bconds = without_bconds,
@@ -137,6 +140,7 @@ def _rpm_package(
         version = version,
         release = release,
         build_deps = build_deps,
+        dep_rpms = dep_rpms,
         defines = defines,
         with_bconds = with_bconds,
         without_bconds = without_bconds,

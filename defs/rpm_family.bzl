@@ -14,6 +14,7 @@ load("//defs:flavor.bzl", "package", "subpackage_rpm_target", "subpackage_target
 load("//defs:releases.bzl", "release_suffix")
 load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_buildroot")
+load("//defs/rules/srpm.bzl", "prebuilt_rpm")
 load("//defs/rules/image.bzl", "iso_image", "squashfs")
 load("//defs/rules/rootfs.bzl", "rootfs")
 
@@ -329,11 +330,20 @@ def rpm_buildroots(flavor, release, suffix, data = None):
     # list, at the exact versions that release shipped.  The host
     # buildroot above uses whatever the machine happens to have, which is a
     # different distro's toolchain wearing the target release's dist tag.
+    #
+    # BASE_SEED, not every rpm in the pin table.  The table is the union of
+    # what every package needs; the buildroot is @buildsys-build closed over
+    # its Requires, and each package overlays its own extras on top (see
+    # _rpm_one_package).  Handing every package the union is how libmnl got
+    # a doxygen its spec never asked for and emitted files its %files does
+    # not list -- tools/solve.py's base_seed comment has the whole argument.
     seed_rpms = []
     if data != None:
+        base = {name: True for name in data.BASE_SEED}
         seed_rpms = [
             ":" + entry["target"] + suffix
             for entry in data.SEED_RPMS
+            if entry["name"] in base
         ]
 
     seeded_buildroot(
@@ -384,6 +394,19 @@ def rpm_packages(flavor, data, suffix):
     by_source = {entry["name"]: entry for entry in data.SOURCE_RPMS}
     buildroot = rpm_buildroot_target(flavor, suffix)
 
+    # The prebuilt trees recipes overlay.  Defined here rather than from
+    # the fan-out so it cannot be called for one release and forgotten for
+    # another -- every path that defines packages needs them.
+    rpm_seed_installroots(data, suffix)
+
+    # binary package name -> its pinned download, for the overlay half.
+    base_names = {name: True for name in data.BASE_SEED}
+    seed_rpm = {
+        entry["name"]: entry
+        for entry in data.SEED_RPMS
+        if entry["name"] not in base_names
+    }
+
     # Which recipe produces a given binary package.  Built from the
     # subpackage lists, which are the binary names rpm will emit.
     provider = {}
@@ -417,6 +440,7 @@ def rpm_packages(flavor, data, suffix):
             recipe["name"],
             _variant_map(default_variant, recipe["name"], {}, ""),
             provider,
+            seed_rpm,
         )
 
     for entry in data.STAGED:
@@ -437,6 +461,7 @@ def rpm_packages(flavor, data, suffix):
                 stage_target,
             ),
             provider,
+            seed_rpm,
         )
 
     # The stable names.  Everything downstream -- an image set, another
@@ -523,6 +548,52 @@ def _variant_map(default_variant, exclude, cycle_deps, from_stage, stage_target 
             out[source] = variant
     return out
 
+def seed_installroot_target(binary, suffix):
+    """Target name for a prebuilt binary package unpacked as an installroot.
+
+    Distinct from the `rpm-*` http_file that downloads it: that is a file,
+    and what a build overlays is a tree.  Named off the binary package
+    rather than the NEVRA because that is what a recipe's seed_deps says,
+    and the version is already pinned by the download it wraps.
+    """
+    return "seedroot-" + binary + suffix
+
+def rpm_seed_installroots(data, suffix):
+    """One installroot per prebuilt package some recipe overlays.
+
+    Defined once per release and shared by every recipe that names it --
+    two packages needing the same prebuilt dependency unpack it once, which
+    is what keeps base-plus-overlay cheaper than a buildroot per package.
+
+    Only the ones actually overlaid.  The base is already in the shared
+    tree, and an installroot for it would be a second copy of a package the
+    buildroot has.
+    """
+    if data == None:
+        return
+
+    base = {name: True for name in data.BASE_SEED}
+    by_name = {}
+    for entry in data.SEED_RPMS:
+        if entry["name"] not in base:
+            by_name[entry["name"]] = entry
+
+    # One for every pinned package outside the base, not only the ones a
+    # recipe's seed_deps names.  A cycle stage also reaches for prebuilts
+    # that the solver classified as built -- zlib-ng-compat-devel for
+    # lzo-stage1 -- and those appear in no seed_deps list, so filtering by
+    # that would leave the fallback in _rpm_one_package pointing at a
+    # target nobody defined.  An unreferenced target costs nothing; a
+    # missing one is an analysis error a long way from its cause.
+    for binary in sorted(by_name):
+        entry = by_name[binary]
+        prebuilt_rpm(
+            name = seed_installroot_target(binary, suffix),
+            rpm = ":" + entry["target"] + suffix,
+            package_name = binary,
+            visibility = ["PUBLIC"],
+        )
+
 def _rpm_one_package(
         flavor,
         data,
@@ -532,7 +603,8 @@ def _rpm_one_package(
         recipe,
         target_name,
         variant,
-        provider):
+        provider,
+        seed_rpm):
     """One package() call, with build_deps resolved to subpackage labels."""
     source = by_source[recipe["source_name"]]
     version, _, release = recipe["evr"].rpartition("-")
@@ -542,6 +614,11 @@ def _rpm_one_package(
     _, _, version = version.rpartition(":")
 
     build_deps = []
+    # The .rpm behind each installroot, so the sysroot's database can be
+    # told what the overlay put on disk.  Assembled here rather than
+    # derived later: only this loop knows which target produced which
+    # dependency, and an installroot does not carry the file it came from.
+    dep_rpms = []
     for binary in recipe["build_deps"]:
         producer = provider.get(binary)
         if producer == None:
@@ -549,12 +626,52 @@ def _rpm_one_package(
             continue
         chosen = variant.get(producer["name"])
         if chosen == None:
-            # Excluded by _variant_map: self-reference, or a cycle dep this
-            # stage deliberately takes from the seed.
+            # Excluded by _variant_map: a cycle dependency this stage takes
+            # from the seed rather than from a sibling stage, or the
+            # package's own earlier self.
+            #
+            # "From the seed" used to need no wiring, because the shared
+            # buildroot was the union of every package's closure and so
+            # already contained the prebuilt copy.  With the buildroot
+            # narrowed to @buildsys-build it does not, and the stage fails
+            # on a dependency the solver correctly classified as built:
+            #
+            #   error: Failed build dependencies:
+            #       zlib-devel is needed by lzo-2.10-15.fc43.x86_64
+            #
+            # -- zlib-devel being provided by zlib-ng-compat-devel, which
+            # this repo builds, which is exactly why stage 1 may not use it.
+            # So the prebuilt is overlaid explicitly here.
+            fallback = seed_rpm.get(binary)
+            if fallback != None:
+                build_deps.append(
+                    ":" + seed_installroot_target(binary, suffix),
+                )
+                dep_rpms.append(":" + fallback["target"] + suffix)
             continue
         build_deps.append(":" + subpackage_target(
             chosen + suffix, producer["source_name"], binary,
         ))
+        dep_rpms.append(":" + subpackage_rpm_target(
+            chosen + suffix, producer["source_name"], binary,
+        ))
+
+    # And the prebuilt half.  The shared buildroot carries @buildsys-build
+    # and nothing else, so whatever else this package's BuildRequires
+    # closed over is overlaid here, as an installroot per binary package.
+    #
+    # Same mechanism the source-built deps above use -- srpm_build takes
+    # them all through dep_installroot_args -- so a dependency being
+    # compiled here or fetched is invisible to the replay, which is the
+    # property that lets the build set grow one package at a time.
+    for binary in recipe.get("seed_deps", []):
+        entry = seed_rpm.get(binary)
+        if entry == None:
+            # In the base, or absent from the pin table -- the first needs
+            # no overlay and the second the solver already reported.
+            continue
+        build_deps.append(":" + seed_installroot_target(binary, suffix))
+        dep_rpms.append(":" + entry["target"] + suffix)
 
     package(
         name = target_name + suffix,
@@ -565,6 +682,7 @@ def _rpm_one_package(
         version = version,
         release = release,
         build_deps = sorted(build_deps),
+        dep_rpms = sorted(dep_rpms),
         subpackages = recipe["subpackages"],
         supplier = _flavor_config(flavor)["supplier"],
         visibility = ["PUBLIC"],

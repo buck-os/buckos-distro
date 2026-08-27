@@ -2,6 +2,72 @@
   "buildroot": "-c buckos.fedora.buildroot=binary-seed",
   "flavor": "fedora",
   "packages": {
+    "acl": {
+      "buildrequires": [
+        "gawk",
+        "gcc",
+        "gettext",
+        "gnupg2",
+        "libattr-devel",
+        "make",
+        "perl(FileHandle)"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "acl.spec",
+      "static": [
+        "gawk",
+        "gcc",
+        "gettext",
+        "gnupg2",
+        "libattr-devel",
+        "make",
+        "perl(FileHandle)"
+      ],
+      "unmet": true
+    },
+    "attr": {
+      "buildrequires": [
+        "gcc",
+        "gettext",
+        "gnupg2",
+        "make",
+        "perl(FileHandle)"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "attr.spec",
+      "static": [
+        "gcc",
+        "gettext",
+        "gnupg2",
+        "make",
+        "perl(FileHandle)"
+      ],
+      "unmet": false
+    },
+    "expat": {
+      "buildrequires": [
+        "autoconf",
+        "gcc-c++",
+        "gnupg2",
+        "libtool",
+        "make",
+        "xmlto"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "expat.spec",
+      "static": [
+        "autoconf",
+        "gcc-c++",
+        "gnupg2",
+        "libtool",
+        "make",
+        "xmlto"
+      ],
+      "unmet": false
+    },
     "gzip": {
       "buildrequires": [
         "autoconf",
@@ -21,6 +87,208 @@
         "less",
         "make",
         "texinfo"
+      ],
+      "unmet": false
+    },
+    "json-c": {
+      "buildrequires": [
+        "cmake",
+        "doxygen",
+        "gcc",
+        "hardlink",
+        "mingw32-filesystem",
+        "mingw32-gcc",
+        "mingw64-filesystem",
+        "mingw64-gcc",
+        "ninja-build",
+        "valgrind"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "json-c.spec",
+      "static": [
+        "cmake",
+        "doxygen",
+        "gcc",
+        "hardlink",
+        "mingw32-filesystem",
+        "mingw32-gcc",
+        "mingw64-filesystem",
+        "mingw64-gcc",
+        "ninja-build",
+        "valgrind"
+      ],
+      "unmet": false
+    },
+    "libcap": {
+      "buildrequires": [
+        "gcc",
+        "glibc-static",
+        "gnupg2",
+        "golang >= 1.22",
+        "make",
+        "pam-devel"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "libcap.spec",
+      "static": [
+        "gcc",
+        "glibc-static",
+        "gnupg2",
+        "golang >= 1.22",
+        "make",
+        "pam-devel"
+      ],
+      "unmet": false
+    },
+    "libcap-ng": {
+      "buildrequires": [
+        "audit-libs-devel",
+        "autoconf",
+        "automake",
+        "bpftool",
+        "clang",
+        "gcc",
+        "kernel-headers >= 2.6.11",
+        "libattr-devel",
+        "libbpf-devel",
+        "libtool",
+        "make",
+        "python-unversioned-command",
+        "python3-devel",
+        "swig"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "libcap-ng.spec",
+      "static": [
+        "audit-libs-devel",
+        "autoconf",
+        "automake",
+        "bpftool",
+        "clang",
+        "gcc",
+        "kernel-headers >= 2.6.11",
+        "libattr-devel",
+        "libbpf-devel",
+        "libtool",
+        "make",
+        "python-unversioned-command",
+        "python3-devel",
+        "swig"
+      ],
+      "unmet": true
+    },
+    "libffi": {
+      "buildrequires": [
+        "dejagnu",
+        "gcc",
+        "gcc-c++",
+        "make"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "libffi.spec",
+      "static": [
+        "dejagnu",
+        "gcc",
+        "gcc-c++",
+        "make"
+      ],
+      "unmet": false
+    },
+    "libtasn1": {
+      "buildrequires": [
+        "autoconf",
+        "automake",
+        "bison",
+        "gcc",
+        "gnupg2",
+        "gtk-doc",
+        "help2man",
+        "libtool",
+        "make",
+        "pkgconfig",
+        "valgrind-devel"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "libtasn1.spec",
+      "static": [
+        "autoconf",
+        "automake",
+        "bison",
+        "gcc",
+        "gnupg2",
+        "gtk-doc",
+        "help2man",
+        "libtool",
+        "make",
+        "pkgconfig",
+        "valgrind-devel"
+      ],
+      "unmet": false
+    },
+    "libunistring": {
+      "buildrequires": [
+        "gcc",
+        "make"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "libunistring.spec",
+      "static": [
+        "gcc",
+        "make"
+      ],
+      "unmet": false
+    },
+    "lz4": {
+      "buildrequires": [
+        "gcc",
+        "make",
+        "meson >= 0.43"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "lz4.spec",
+      "static": [
+        "gcc",
+        "make",
+        "meson >= 0.43"
+      ],
+      "unmet": false
+    },
+    "lzo": {
+      "buildrequires": [
+        "gcc",
+        "make",
+        "zlib-devel"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "lzo.spec",
+      "static": [
+        "gcc",
+        "make",
+        "zlib-devel"
+      ],
+      "unmet": true
+    },
+    "popt": {
+      "buildrequires": [
+        "gcc",
+        "gettext",
+        "make"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "popt.spec",
+      "static": [
+        "gcc",
+        "gettext",
+        "make"
       ],
       "unmet": false
     },
