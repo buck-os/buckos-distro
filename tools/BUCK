@@ -312,6 +312,17 @@ python_test(
     deps = [":depgraph"],
 )
 
+# Covers solve_argv only.  A refresh rebuilds solve's command line from
+# what the lockfile recorded, so an input the lockfile stores and that
+# function forgets is an input that stops applying the first time anyone
+# refreshes -- silently, for the ones that only change the answer.
+python_test(
+    name = "relock_test",
+    srcs = ["relock_test.py"],
+    base_module = "",
+    deps = [":relock_lib"],
+)
+
 python_test(
     name = "solve_test",
     srcs = ["solve_test.py"],
