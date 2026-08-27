@@ -441,6 +441,21 @@ def source_name_from_sourcerpm(sourcerpm):
     return parts[0] if len(parts) == 3 else base
 
 
+# The rank _arch_rank gives a build of neither the target arch nor noarch.
+_FOREIGN_RANK = 2
+
+
+def arch_qualified(name, arch):
+    """How a build that lost the arch collapse is named.
+
+    `glibc-devel.i686`, which is how rpm, dnf and every Fedora bug report
+    spell it -- so an override written by a human reads the way they
+    already think about it, and a reviewer seeing one in a lockfile knows
+    immediately that a second arch is involved.
+    """
+    return "{}.{}".format(name, arch)
+
+
 def _arch_rank(arch, target_cpu):
     """How much this arch is wanted, lower being better.
 
@@ -511,6 +526,69 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64"):
             source_of[name] = src
             subpackages.setdefault(src, []).append(name)
 
+    # ── The builds the collapse discarded, addressable by arch ─────────
+    #
+    # Kept apart from everything above, and that separation is the whole
+    # reason this is safe.  The collapse exists because an i686 build's
+    # Provides are 32-bit capabilities wearing the same names -- `libc.so.6`
+    # without the `(64bit)` marker -- so merging them into `provides` maps a
+    # capability onto a package that does not supply it.  Nothing here
+    # touches `provides`, `requires` or `subpackages`.
+    #
+    # What it buys is a name a human can point an override at.  gcc's spec
+    # asks for `(glibc32 or glibc-devel(x86-32))` on every 64-bit arch, and
+    # neither branch is satisfiable in a collapsed x86_64 universe: glibc32
+    # does not exist in Fedora 43, and glibc-devel(x86-32) is provided only
+    # by glibc-devel.i686, which lost the collapse.  Fedora builds gcc with
+    # exactly that package present.  So an override can now say
+    #
+    #     --override '(glibc32 or glibc-devel(x86-32))=glibc-devel.i686'
+    #
+    # and foreign_closure below closes it over its own Requires, in its own
+    # arch, so the buildroot gets the 32-bit runtime it implies rather than
+    # one lone -devel package.
+    #
+    # Deliberately not general multilib.  Nothing reaches these entries
+    # unless a human named one, so the ordinary solve is unchanged and the
+    # second arch appears only where a spec genuinely asked for it.
+    foreign_index = {}
+    for pkg in binary_pkgs:
+        if _arch_rank(pkg["arch"], target_cpu) != _FOREIGN_RANK:
+            continue
+        key = arch_qualified(pkg["name"], pkg["arch"])
+        incumbent = foreign_index.get(key)
+        if incumbent is None or package_is_newer(pkg, incumbent):
+            foreign_index[key] = pkg
+
+    foreign_provides = {}
+    foreign_requires = {}
+    foreign_source_of = {}
+    for key, pkg in foreign_index.items():
+        foreign_requires[key] = [
+            c for c in pkg["requires"] if not is_pseudo_capability(c)
+        ]
+        caps = foreign_provides.setdefault(pkg["arch"], {})
+        for cap in pkg["provides"]:
+            if is_pseudo_capability(cap):
+                continue
+            caps.setdefault(cap, []).append(key)
+        caps.setdefault(pkg["name"], []).append(key)
+        src = source_name_from_sourcerpm(pkg["sourcerpm"])
+        if src:
+            # Recorded here rather than in source_of, which feeds
+            # `subpackages` and through it the build graph: glibc.i686 is
+            # not a subpackage glibc's recipe emits, and saying so would
+            # have the generator try to build it.
+            foreign_source_of[key] = src
+        # setdefault, so a real package named like a qualified key -- there
+        # is none today -- keeps its own entry.
+        binary_index.setdefault(key, pkg)
+
+    foreign_provides = {
+        arch: {cap: sorted(set(names)) for cap, names in caps.items()}
+        for arch, caps in foreign_provides.items()
+    }
+
     source_index = {}
     for pkg in source_pkgs:
         incumbent = source_index.get(pkg["name"])
@@ -528,6 +606,10 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64"):
         "subpackages": subpackages,
         "binary_index": binary_index,
         "source_index": source_index,
+        "foreign_index": foreign_index,
+        "foreign_provides": foreign_provides,
+        "foreign_requires": foreign_requires,
+        "foreign_source_of": foreign_source_of,
     }
 
 
@@ -799,6 +881,12 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None,
             extra=conditional,
         )
         problems.extend(closure_problems)
+
+        # Only does anything when an override named a second-arch package,
+        # which today is gcc and its 32-bit multilib and nothing else.
+        closure, foreign_problems = expand_foreign(
+            closure, universe, src, overrides)
+        problems.extend(foreign_problems)
         build_deps[src] = closure
 
     # The *shared* buildroot: @buildsys-build closed over its Requires, and
@@ -849,6 +937,68 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None,
         sys.exit("solve failed with {} unresolved item(s)".format(len(problems)))
 
     return build_deps, resolutions, problems, dynamic, base_closure
+
+
+def foreign_closure(roots, universe, overrides=None):
+    """Close arch-qualified roots over their Requires, inside their arch.
+
+    runtime_closure does the work, over maps with the foreign arch layered
+    on top.  Writing a second walk here was the first attempt and it was
+    wrong twice over: it dropped the overrides, so ambiguities the solve
+    had already settled came back as fresh problems, and it had no answer
+    for a boolean -- glibc.i686 needs
+    `(glibc-gconv-extra(x86-32) = ... if redhat-rpm-config)`, which is
+    exactly the machinery runtime_closure already has.
+
+    The layering is what makes it arch-correct.  A dependency of an i686
+    package means the i686 build of it: glibc-devel.i686 requires
+    `glibc = 2.42-16.fc43`, and the collapsed map answers that with
+    glibc.x86_64, which is the only glibc that survived.  That yields a
+    buildroot with no 32-bit libc and a gcc that dies partway through its
+    multilib stage.  With the foreign map on top the same capability
+    resolves to glibc.i686, and anything the arch does not provide -- the
+    noarch glibc-headers-x86 -- still falls through to the ordinary map.
+
+    Merging is safe *here* and would not be globally, which is the reason
+    build_universe keeps these apart.  The hazard is that i686 Provides
+    wear 64-bit names -- `libc.so.6` with no `(64bit)` marker -- so in the
+    shared map they would answer 64-bit questions with 32-bit packages.
+    This map is built per call, for a closure whose roots are all in that
+    one arch, and is discarded with it.
+
+    The residual, stated because it is real: a noarch or x86_64 package
+    pulled into the slice resolves *its* dependencies 32-bit-first too.
+    The slice is rooted in i686 packages and stays small -- 18 packages for
+    gcc's -- so this has nothing to distort, but it is a property of the
+    approach rather than a guarantee.
+    """
+    arches = {universe["foreign_index"][r]["arch"]
+              for r in roots if r in universe["foreign_index"]}
+    provides = dict(universe["provides"])
+    for arch in sorted(arches):
+        provides.update(universe["foreign_provides"].get(arch, {}))
+    requires = dict(universe["requires"])
+    requires.update(universe["foreign_requires"])
+    return runtime_closure(roots, requires, provides, overrides)
+
+
+def expand_foreign(closure, universe, who, overrides=None):
+    """Grow a closure by the sub-closure of any foreign package in it.
+
+    An override is the only way a qualified name enters a closure, and it
+    arrives as a bare string: runtime_closure adds whatever
+    resolve_capability returned and then finds no `requires` entry for it,
+    because a foreign package's requirements are deliberately not in that
+    map.  So it lands as a leaf -- one -devel package with none of the
+    runtime it needs.  This is where that is repaired.
+    """
+    qualified = sorted(set(closure) & set(universe["foreign_index"]))
+    if not qualified:
+        return closure, []
+    grown, problems = foreign_closure(qualified, universe, overrides)
+    problems = [(kind, detail, "{} ({})".format(who, culprit))
+                for kind, detail, culprit in problems]
+    return sorted(set(closure) | set(grown)), problems
 
 
 def solve_package_set(universe, roots, overrides=None, scope="package-set"):
@@ -971,7 +1121,12 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             "arch": pkg["arch"],
             "location": pkg["location"],
             "sha256": pkg["checksum"] if pkg["checksum_type"] == "sha256" else None,
-            "source": universe["source_of"].get(name),
+            # foreign_source_of as the fallback: a second-arch pin is keyed
+            # `glibc-devel.i686`, which source_of does not carry -- that map
+            # feeds `subpackages`, and glibc's recipe does not emit an i686
+            # build.  The attribution is still real and worth recording.
+            "source": (universe["source_of"].get(name)
+                       or universe.get("foreign_source_of", {}).get(name)),
             # Which repo's base URL `location` hangs off. Per package, not
             # per release: once updates/ is layered over releases/ a closure
             # legitimately spans both, and a single base would be wrong for

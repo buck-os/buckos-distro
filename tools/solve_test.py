@@ -23,6 +23,8 @@ from solve import (
     check_public_base,
     collect_repos,
     derive_repo_name,
+    expand_foreign,
+    foreign_closure,
     load_probe,
     merge_packages,
     parse_override,
@@ -31,6 +33,7 @@ from solve import (
     solve_image_sets,
     solve_package_set,
 )
+from depgraph import runtime_closure
 
 
 class TestOverrideParsing(unittest.TestCase):
@@ -506,6 +509,98 @@ class TestArchSelection(unittest.TestCase):
             binary("fonts", arch="noarch", release="1.fc43"),
         ], [], target_cpu="x86_64")
         self.assertEqual(universe["binary_index"]["fonts"]["arch"], "noarch")
+
+
+class TestForeignArch(unittest.TestCase):
+    """Reaching a build the collapse discarded, by naming its arch.
+
+    gcc is the only caller today: its spec asks for
+    `(glibc32 or glibc-devel(x86-32))` on every 64-bit arch, and in a
+    collapsed x86_64 universe neither branch has a provider.
+    """
+
+    def multilib(self):
+        return [
+            binary("glibc", arch="x86_64", provides=["libc.so.6()(64bit)"]),
+            binary("glibc", arch="i686", provides=["libc.so.6"],
+                   requires=["glibc-headers"]),
+            binary("glibc-devel", arch="x86_64",
+                   requires=["glibc"], provides=["glibc-devel(x86-64)"]),
+            binary("glibc-devel", arch="i686",
+                   requires=["glibc"], provides=["glibc-devel(x86-32)"]),
+            binary("glibc-headers", arch="noarch"),
+            binary("gcc", arch="x86_64"),
+        ]
+
+    def test_a_discarded_build_is_addressable_by_arch(self):
+        universe = build_universe(self.multilib(), [], target_cpu="x86_64")
+        self.assertEqual(
+            universe["foreign_index"]["glibc-devel.i686"]["arch"], "i686")
+        # And the collapsed view is untouched.
+        self.assertEqual(
+            universe["binary_index"]["glibc-devel"]["arch"], "x86_64")
+
+    def test_foreign_provides_stay_out_of_the_shared_map(self):
+        """The invariant the whole separation exists to protect.
+
+        An i686 build provides `libc.so.6` with no (64bit) marker.  In the
+        shared map that would answer a 64-bit question with a 32-bit
+        package -- see test_a_losing_builds_capabilities_do_not_leak.
+        Indexing the foreign builds must not undo that.
+        """
+        universe = build_universe(self.multilib(), [], target_cpu="x86_64")
+        self.assertNotIn("libc.so.6", universe["provides"])
+        self.assertNotIn("glibc-devel(x86-32)", universe["provides"])
+        self.assertIn("libc.so.6", universe["foreign_provides"]["i686"])
+
+    def test_the_closure_stays_in_arch(self):
+        """glibc-devel.i686 must pull glibc.i686, not glibc.x86_64.
+
+        The collapsed map answers `glibc` with the 64-bit build, since it
+        is the only one that survived -- which would leave a buildroot with
+        no 32-bit libc and a gcc that dies partway through its multilib
+        stage, long after the solve looked clean.
+        """
+        universe = build_universe(self.multilib(), [], target_cpu="x86_64")
+        closure, problems = foreign_closure(["glibc-devel.i686"], universe)
+
+        self.assertEqual(problems, [])
+        self.assertIn("glibc.i686", closure)
+        self.assertNotIn("glibc", closure)
+        # A capability the arch does not provide still falls through.
+        self.assertIn("glibc-headers", closure)
+
+    def test_an_override_pulls_the_whole_slice(self):
+        """End to end: what --override buys is the sub-closure, not one rpm.
+
+        runtime_closure adds whatever the override named and then finds no
+        `requires` entry for it -- foreign requirements are deliberately
+        not in that map -- so without expand_foreign it lands as a leaf.
+        """
+        universe = build_universe(self.multilib(), [], target_cpu="x86_64")
+        overrides = {
+            "(glibc32 or glibc-devel(x86-32))": "glibc-devel.i686",
+        }
+        closure, _ = runtime_closure(
+            ["gcc"], universe["requires"], universe["provides"], overrides,
+            extra=[("(glibc32 or glibc-devel(x86-32))", "gcc")],
+        )
+        self.assertIn("glibc-devel.i686", closure)
+        self.assertNotIn("glibc.i686", closure)  # the leaf, before repair
+
+        grown, problems = expand_foreign(closure, universe, "gcc", overrides)
+        self.assertEqual(problems, [])
+        self.assertIn("glibc.i686", grown)
+        self.assertIn("glibc-headers", grown)
+
+    def test_nothing_happens_without_an_override(self):
+        """The second arch appears only where a spec asked for one."""
+        universe = build_universe(self.multilib(), [], target_cpu="x86_64")
+        closure, _ = runtime_closure(
+            ["gcc"], universe["requires"], universe["provides"])
+        grown, problems = expand_foreign(closure, universe, "gcc")
+        self.assertEqual(grown, closure)
+        self.assertEqual(problems, [])
 
 
 class TestRepoTable(unittest.TestCase):
