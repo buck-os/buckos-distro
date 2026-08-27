@@ -331,7 +331,8 @@ class TestMergePackages(unittest.TestCase):
     """
 
     def merge(self, *groups):
-        return merge_packages(list(groups))
+        packages, replacements, _superseded = merge_packages(list(groups))
+        return packages, replacements
 
     def test_a_newer_build_in_a_later_repo_wins(self):
         packages, replaced = self.merge(

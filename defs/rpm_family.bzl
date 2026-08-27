@@ -265,6 +265,9 @@ def rpm_downloads(flavor, data, suffix):
     for entry in data.SEED_RPMS:
         _rpm_download(flavor, data, entry, suffix, defined)
 
+    for entry in getattr(data, "VARIANT_SEED_RPMS", []):
+        _rpm_download(flavor, data, entry, suffix, defined)
+
     for name in sorted(data.IMAGE_SETS):
         for entry in data.IMAGE_SETS[name]:
             _rpm_download(flavor, data, entry, suffix, defined)
@@ -409,8 +412,16 @@ def rpm_packages(flavor, data, suffix):
 
     # Which recipe produces a given binary package.  Built from the
     # subpackage lists, which are the binary names rpm will emit.
+    # Version variants are excluded: a variant builds the same binary names
+    # as the package it varies, so letting it into this map would reroute
+    # every consumer instead of the ones that asked.  Consumers that want it
+    # name it in dep_variants, which _rpm_one_package consults first.
     provider = {}
+    variant_recipe = {}
     for recipe in data.RECIPES:
+        if recipe.get("variant_of"):
+            variant_recipe[recipe["name"]] = recipe
+            continue
         for sub in recipe["subpackages"]:
             provider[sub] = recipe
 
@@ -426,6 +437,10 @@ def rpm_packages(flavor, data, suffix):
 
     # The default answer to "which variant of this source do I depend on":
     # its shipping stage if it is staged, else the package itself.
+    # Variants included here even though they are kept out of `provider`:
+    # this map answers "which build of <recipe> do I depend on", and a
+    # variant that lands in a cycle is staged like anything else.  Only the
+    # binary-to-recipe lookup has to exclude them.
     default_variant = {}
     for recipe in data.RECIPES:
         default_variant[recipe["name"]] = ships.get(recipe["name"], recipe["name"])
@@ -441,6 +456,7 @@ def rpm_packages(flavor, data, suffix):
             _variant_map(default_variant, recipe["name"], {}, ""),
             provider,
             seed_rpm,
+            variant_recipe,
         )
 
     for entry in data.STAGED:
@@ -462,6 +478,7 @@ def rpm_packages(flavor, data, suffix):
             ),
             provider,
             seed_rpm,
+            variant_recipe,
         )
 
     # The stable names.  Everything downstream -- an image set, another
@@ -586,15 +603,19 @@ def _variant_map(default_variant, exclude, cycle_deps, from_stage, stage_target 
             out[source] = variant
     return out
 
-def seed_installroot_target(binary, suffix):
+def seed_installroot_target(entry, suffix):
     """Target name for a prebuilt binary package unpacked as an installroot.
 
     Distinct from the `rpm-*` http_file that downloads it: that is a file,
-    and what a build overlays is a tree.  Named off the binary package
-    rather than the NEVRA because that is what a recipe's seed_deps says,
-    and the version is already pinned by the download it wraps.
+    and what a build overlays is a tree.
+
+    Keyed on that download's target rather than on the binary package name,
+    which it used to be.  The name is not unique once a version variant is
+    in the graph: acl builds twice in Fedora 43, so the pin table carries
+    libacl-devel at both 2.4.0 and 2.3.2, and one installroot per name gave
+    whichever the loop saw last to everybody.
     """
-    return "seedroot-" + binary + suffix
+    return "seedroot-" + entry["target"] + suffix
 
 def rpm_seed_installroots(data, suffix):
     """One installroot per prebuilt package some recipe overlays.
@@ -611,10 +632,12 @@ def rpm_seed_installroots(data, suffix):
         return
 
     base = {name: True for name in data.BASE_SEED}
-    by_name = {}
+    # Keyed by download target, not by name: two builds of one package can
+    # both be pinned, and each needs its own tree.
+    by_target = {}
     for entry in data.SEED_RPMS:
         if entry["name"] not in base:
-            by_name[entry["name"]] = entry
+            by_target[entry["target"]] = entry
 
     # One for every pinned package outside the base, not only the ones a
     # recipe's seed_deps names.  A cycle stage also reaches for prebuilts
@@ -623,12 +646,18 @@ def rpm_seed_installroots(data, suffix):
     # that would leave the fallback in _rpm_one_package pointing at a
     # target nobody defined.  An unreferenced target costs nothing; a
     # missing one is an analysis error a long way from its cause.
-    for binary in sorted(by_name):
-        entry = by_name[binary]
+    # Variant pins get an installroot unconditionally: they exist only
+    # because something routed to them, and the base filter above is by
+    # name, which is exactly the test they would fail.
+    for entry in getattr(data, "VARIANT_SEED_RPMS", []):
+        by_target[entry["target"]] = entry
+
+    for target in sorted(by_target):
+        entry = by_target[target]
         prebuilt_rpm(
-            name = seed_installroot_target(binary, suffix),
+            name = seed_installroot_target(entry, suffix),
             rpm = ":" + entry["target"] + suffix,
-            package_name = binary,
+            package_name = entry["name"],
             visibility = ["PUBLIC"],
         )
 
@@ -642,9 +671,12 @@ def _rpm_one_package(
         target_name,
         variant,
         provider,
-        seed_rpm):
+        seed_rpm,
+        variant_recipe = {}):
     """One package() call, with build_deps resolved to subpackage labels."""
-    source = by_source[recipe["source_name"]]
+    # Keyed on the recipe, not the spec: a version variant shares its
+    # spec name with the package it varies and must not share its srpm.
+    source = by_source[recipe["name"]]
     version, _, release = recipe["evr"].rpartition("-")
 
     # Drop any epoch: rpm writes "1:5.8.1" in metadata but %{version} is
@@ -657,7 +689,56 @@ def _rpm_one_package(
     # derived later: only this loop knows which target produced which
     # dependency, and an installroot does not carry the file it came from.
     dep_rpms = []
+    dep_variants = recipe.get("dep_variants", {})
+    # Pin-table entries for the routed binaries, by download target, so a
+    # cycle stage that falls back to a prebuilt gets the variant's build.
+    seed_by_target = {}
+    for entry in data.SEED_RPMS:
+        seed_by_target[entry["target"]] = entry
+    for entry in getattr(data, "VARIANT_SEED_RPMS", []):
+        seed_by_target[entry["target"]] = entry
+    variant_seed = {}
+    for binary, target in recipe.get("variant_seed", {}).items():
+        found = seed_by_target.get(target)
+        if found != None:
+            variant_seed[binary] = found
     for binary in recipe["build_deps"]:
+        # A version variant wins over the default producer, and only for
+        # the packages that named it.  acl builds twice in Fedora 43: 2.4.0
+        # for everyone, because rsync needs a symbol it added, and 2.3.2 for
+        # tar, whose 1.35 source cannot compile against 2.4.0's header.
+        # Routed by the solver rather than guessed here.
+        routed = dep_variants.get(binary)
+        if routed != None:
+            spec = variant_recipe.get(routed)
+            if spec == None:
+                fail("{} routes {} to variant {}, which no recipe defines".format(
+                    recipe["name"], binary, routed))
+            # Through the stage map like any other built dep.  A variant can
+            # land in a cycle -- acl-compat does, via zstd and zlib-ng back
+            # to tar -- and a stage that must take this from the seed gets
+            # None here, exactly as it would for a non-variant.
+            chosen = variant.get(routed)
+            if chosen == None:
+                # The stage takes it prebuilt -- and it must be the
+                # variant's build, not the newest.  tar-stage1 is exactly
+                # this: it is in a cycle, so it gets acl from the pin table,
+                # and the pin table's newest libacl-devel is the 2.4.0 whose
+                # header tar cannot compile against.
+                fallback = variant_seed.get(binary) or seed_rpm.get(binary)
+                if fallback != None:
+                    build_deps.append(
+                        ":" + seed_installroot_target(fallback, suffix),
+                    )
+                    dep_rpms.append(":" + fallback["target"] + suffix)
+                continue
+            build_deps.append(":" + subpackage_target(
+                chosen + suffix, spec["source_name"], binary,
+            ))
+            dep_rpms.append(":" + subpackage_rpm_target(
+                chosen + suffix, spec["source_name"], binary,
+            ))
+            continue
         producer = provider.get(binary)
         if producer == None:
             # Not built by this repo, so it is in the seed already.
@@ -680,10 +761,10 @@ def _rpm_one_package(
             # -- zlib-devel being provided by zlib-ng-compat-devel, which
             # this repo builds, which is exactly why stage 1 may not use it.
             # So the prebuilt is overlaid explicitly here.
-            fallback = seed_rpm.get(binary)
+            fallback = variant_seed.get(binary) or seed_rpm.get(binary)
             if fallback != None:
                 build_deps.append(
-                    ":" + seed_installroot_target(binary, suffix),
+                    ":" + seed_installroot_target(fallback, suffix),
                 )
                 dep_rpms.append(":" + fallback["target"] + suffix)
             continue
@@ -708,7 +789,7 @@ def _rpm_one_package(
             # In the base, or absent from the pin table -- the first needs
             # no overlay and the second the solver already reported.
             continue
-        build_deps.append(":" + seed_installroot_target(binary, suffix))
+        build_deps.append(":" + seed_installroot_target(entry, suffix))
         dep_rpms.append(":" + entry["target"] + suffix)
 
     package(

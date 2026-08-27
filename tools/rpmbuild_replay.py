@@ -45,6 +45,7 @@ import sys
 from _isolation import remove_tree, resolve_isolation, run_isolated
 from _rpm import (
     extract_rpm,
+    make_dirs_writable,
     overlay_tree,
     stage_rpms,
     reproducible_env,
@@ -142,6 +143,20 @@ def install_deps(sysroot, dep_rpms, args, work, env):
     wrote -- the tree describing itself.  Replacing is the intent: this
     build's zlib-ng-compat is the locally built one, not the seed's.
 
+    --oldpackage, because the overlay is authoritative in both directions.
+    Superseding with something *newer* is the ordinary bootstrap case, and
+    rpm allows it; superseding with something older it refuses, and that is
+    exactly what a version variant does.  tar builds against acl 2.3.2 while
+    the shared base carries the 2.4.0 everything else needs, so without this
+    the transaction stops at
+
+        package libacl-2.4.0-1.fc43.x86_64 (which is newer than
+        libacl-2.3.2-4.fc43.x86_64) is already installed
+
+    The solver decided which build this package compiles against; rpm's
+    downgrade guard is protecting a running system from an accident, and
+    this is neither.
+
     --nodeps, because this is a partial view by construction.  These
     packages' own dependencies are in the base, already installed and
     already in the database; the closure was decided by the solver and
@@ -189,7 +204,7 @@ def install_deps(sysroot, dep_rpms, args, work, env):
     script = (
         "set -e\n"
         'exec rpm --install --nosignature --nodeps '
-        '--replacepkgs --replacefiles '
+        '--replacepkgs --replacefiles --oldpackage '
         '--excludepath /dev --excludepath /proc '
         '--excludepath /sys --excludepath /tmp '
         '"$1"/*.rpm\n'
@@ -789,6 +804,19 @@ def main():
         if rpm_path.endswith(".src.rpm"):
             continue
         extract_rpm(rpm_path, out_installroot)
+
+    # Buck2 hashes every byte of an action's output to key its cache, and
+    # rpm ships files it cannot open: `setup` owns /etc/gshadow at mode
+    # 0000, which is correct on a real system and fatal here --
+    #
+    #   Internal error (stage: calculate_output_values_failed):
+    #     open_file(.../installroot/etc/gshadow): Permission denied
+    #
+    # -- an error raised *after* the action succeeded, naming a path the
+    # rule never mentions.  _rpm.make_dirs_writable forces owner bits for
+    # exactly this, and the buildroot assembler already calls it; an
+    # installroot is the same kind of tree and needs the same treatment.
+    make_dirs_writable(out_installroot)
 
     if args.out_manifest:
         with open(args.out_manifest, "w") as fh:

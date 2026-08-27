@@ -20492,6 +20492,7 @@
   "cycles": [
     [
       "acl",
+      "acl-compat",
       "attr",
       "audit",
       "authselect",
@@ -27648,7 +27649,8 @@
         "location": "Packages/n/NetworkManager-1.54.3-3.fc43.src.rpm",
         "name": "NetworkManager",
         "repo": "source-updates",
-        "sha256": "64c5307849f0bd3b75e306f73e15f313b6865f88ad41a46cf7d66aace034cc2a"
+        "sha256": "64c5307849f0bd3b75e306f73e15f313b6865f88ad41a46cf7d66aace034cc2a",
+        "source_name": "NetworkManager"
       },
       "subpackages": [
         "NetworkManager",
@@ -27665,7 +27667,8 @@
         "NetworkManager-tui",
         "NetworkManager-wifi",
         "NetworkManager-wwan"
-      ]
+      ],
+      "variant_of": null
     },
     "acl": {
       "build_requires_resolved": {
@@ -29937,13 +29940,2413 @@
         "location": "Packages/a/acl-2.4.0-1.fc43.src.rpm",
         "name": "acl",
         "repo": "source-updates",
-        "sha256": "469fed79759e07b84f154d763fdcf7cea42f80220718c31fe2dadf91992e5eb9"
+        "sha256": "469fed79759e07b84f154d763fdcf7cea42f80220718c31fe2dadf91992e5eb9",
+        "source_name": "acl"
       },
       "subpackages": [
         "acl",
         "libacl",
         "libacl-devel"
-      ]
+      ],
+      "variant_of": null
+    },
+    "acl-compat": {
+      "build_requires_resolved": {
+        "bash": "bash",
+        "binutils": "binutils",
+        "bzip2": "bzip2",
+        "coreutils": "coreutils",
+        "cpio": "cpio",
+        "diffutils": "diffutils",
+        "fedora-release-common": "fedora-release-common",
+        "findutils": "findutils",
+        "gawk": "gawk",
+        "gcc": "gcc",
+        "gcc-c++": "gcc-c++",
+        "gettext": "gettext",
+        "gnupg2": "gnupg2",
+        "grep": "grep",
+        "gzip": "gzip",
+        "info": "info",
+        "libattr-devel": "libattr-devel",
+        "libtool": "libtool",
+        "make": "make",
+        "patch": "patch",
+        "perl(FileHandle)": "perl-FileHandle",
+        "redhat-rpm-config": "redhat-rpm-config",
+        "rpm-build": "rpm-build",
+        "sed": "sed",
+        "shadow-utils": "shadow-utils",
+        "tar": "tar",
+        "unzip": "unzip",
+        "util-linux": "util-linux",
+        "which": "which",
+        "xz": "xz"
+      },
+      "deps_built": [
+        {
+          "arch": "x86_64",
+          "evr": "1.33-3.fc43",
+          "location": "Packages/a/alternatives-1.33-3.fc43.x86_64.rpm",
+          "name": "alternatives",
+          "repo": "binary-updates",
+          "sha256": "cef71f413b915453384711db020d657edcbc0b37187f577fb4e24e27532a3436",
+          "source": "chkconfig"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.2.1-1.fc43",
+          "location": "Packages/a/audit-libs-4.2.1-1.fc43.x86_64.rpm",
+          "name": "audit-libs",
+          "repo": "binary-updates",
+          "sha256": "2e37311608b35ebeede8bb981c6a69ba413d000716f2db3ec733cfe974bfe674",
+          "source": "audit"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "5.3.0-2.fc43",
+          "location": "Packages/b/bash-5.3.0-2.fc43.x86_64.rpm",
+          "name": "bash",
+          "repo": "binary-releases",
+          "sha256": "3bc67c3e77f983738721bec3816d43864d01835f00e12a734951e273d58f4919",
+          "source": "bash"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.0.8-21.fc43",
+          "location": "Packages/b/bzip2-1.0.8-21.fc43.x86_64.rpm",
+          "name": "bzip2",
+          "repo": "binary-releases",
+          "sha256": "a70d4f192ba23e9f1dd42118ae59b51b3126eb7632f81bf540398139b239e34b",
+          "source": "bzip2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.0.8-21.fc43",
+          "location": "Packages/b/bzip2-libs-1.0.8-21.fc43.x86_64.rpm",
+          "name": "bzip2-libs",
+          "repo": "binary-releases",
+          "sha256": "9e265caa72afcbbbe062c173928d1857cfd320a9bfba5027770103078a506fc5",
+          "source": "bzip2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2025.2.80_v9.0.304-1.2.fc43",
+          "location": "Packages/c/ca-certificates-2025.2.80_v9.0.304-1.2.fc43.noarch.rpm",
+          "name": "ca-certificates",
+          "repo": "binary-updates",
+          "sha256": "e12996b440355b6e3e912bf8582370d1cec489fe3535d32e2709326d9866f9b9",
+          "source": "ca-certificates"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "9.7-10.fc43",
+          "location": "Packages/c/coreutils-9.7-10.fc43.x86_64.rpm",
+          "name": "coreutils",
+          "repo": "binary-updates",
+          "sha256": "2b8402267a99124d065b9e12471942def288716136cfc1574ad1d5a20478ae48",
+          "source": "coreutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "9.7-10.fc43",
+          "location": "Packages/c/coreutils-common-9.7-10.fc43.x86_64.rpm",
+          "name": "coreutils-common",
+          "repo": "binary-updates",
+          "sha256": "8f885b9c9379c00bd1b9f335a04f49edec8b9682895427661a7093a6dfd9f2f8",
+          "source": "coreutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.15-6.fc43",
+          "location": "Packages/c/cpio-2.15-6.fc43.x86_64.rpm",
+          "name": "cpio",
+          "repo": "binary-releases",
+          "sha256": "57fccf70dd9d4d15e3e3c292e93043b389ea85d0daeae77ee21aa70825b0dead",
+          "source": "cpio"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "15.3.1-1.fc43",
+          "location": "Packages/c/cpp-15.3.1-1.fc43.x86_64.rpm",
+          "name": "cpp",
+          "repo": "binary-updates",
+          "sha256": "dda7e77b4003f5dd9bf1d68497aa4db35c9052b6aa4fc47e7c0ad908c6e0dd4f",
+          "source": "gcc"
+        },
+        {
+          "arch": "noarch",
+          "evr": "20251125-1.git63291f8.fc43",
+          "location": "Packages/c/crypto-policies-20251125-1.git63291f8.fc43.noarch.rpm",
+          "name": "crypto-policies",
+          "repo": "binary-updates",
+          "sha256": "032a02a0e20f1ea0ebaaf811426f9c6906f4bf85e3b3456d64bc06e36d2bf3b3",
+          "source": "crypto-policies"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "8.15.0-8.fc43",
+          "location": "Packages/c/curl-8.15.0-8.fc43.x86_64.rpm",
+          "name": "curl",
+          "repo": "binary-updates",
+          "sha256": "c36c1e05187cef2668357b24f7e399de60f48d2ed689b2d7b4908bae86fb5b67",
+          "source": "curl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.1.28-33.fc43",
+          "location": "Packages/c/cyrus-sasl-lib-2.1.28-33.fc43.x86_64.rpm",
+          "name": "cyrus-sasl-lib",
+          "repo": "binary-releases",
+          "sha256": "9d8db24e85241d430e69d5f4086e1319cf457f872624a47ab54a16e5421496b0",
+          "source": "cyrus-sasl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.12-3.fc43",
+          "location": "Packages/d/diffutils-3.12-3.fc43.x86_64.rpm",
+          "name": "diffutils",
+          "repo": "binary-releases",
+          "sha256": "dd29e6caacf285026ea52f23216e300be8c15f6b3ef2e15096e047fbdfbdbfd8",
+          "source": "diffutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.196-1.fc43",
+          "location": "Packages/e/elfutils-0.196-1.fc43.x86_64.rpm",
+          "name": "elfutils",
+          "repo": "binary-updates",
+          "sha256": "4ef5d94dd85ce4124af2e035adf8df06c79d19e15febef3f767e693a1d8cb110",
+          "source": "elfutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.196-1.fc43",
+          "location": "Packages/e/elfutils-debuginfod-client-0.196-1.fc43.x86_64.rpm",
+          "name": "elfutils-debuginfod-client",
+          "repo": "binary-updates",
+          "sha256": "6c0448ab58176c5041572d4958f24cdb46c1c0ee7007b2f24a577286a9647973",
+          "source": "elfutils"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.196-1.fc43",
+          "location": "Packages/e/elfutils-default-yama-scope-0.196-1.fc43.noarch.rpm",
+          "name": "elfutils-default-yama-scope",
+          "repo": "binary-updates",
+          "sha256": "dda98d5b5c7565bd1f6f14aad598d8dcbaa049a7212e26430bb5744da5b0f073",
+          "source": "elfutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.196-1.fc43",
+          "location": "Packages/e/elfutils-libelf-0.196-1.fc43.x86_64.rpm",
+          "name": "elfutils-libelf",
+          "repo": "binary-updates",
+          "sha256": "df5f8b91774d2ff040793096006904c46ee7dd532b7b6faabc0d428507a957b4",
+          "source": "elfutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.196-1.fc43",
+          "location": "Packages/e/elfutils-libs-0.196-1.fc43.x86_64.rpm",
+          "name": "elfutils-libs",
+          "repo": "binary-updates",
+          "sha256": "761f65b3ca6fd3256ea9cd125236f089638ebfb7a82fcbbb80d315a93e38d767",
+          "source": "elfutils"
+        },
+        {
+          "arch": "noarch",
+          "evr": "43-2",
+          "location": "Packages/f/fedora-gpg-keys-43-2.noarch.rpm",
+          "name": "fedora-gpg-keys",
+          "repo": "binary-updates",
+          "sha256": "618a66577f7581a7ca34f52394767b00d02b3620fda7d22727c76a1ee4b2ffe2",
+          "source": "fedora-repos"
+        },
+        {
+          "arch": "noarch",
+          "evr": "43-27",
+          "location": "Packages/f/fedora-release-43-27.noarch.rpm",
+          "name": "fedora-release",
+          "repo": "binary-updates",
+          "sha256": "073a3343f000400e685c2ed5d089915aae5097fa914bf4b1a985f554d14a0c27",
+          "source": "fedora-release"
+        },
+        {
+          "arch": "noarch",
+          "evr": "43-27",
+          "location": "Packages/f/fedora-release-common-43-27.noarch.rpm",
+          "name": "fedora-release-common",
+          "repo": "binary-updates",
+          "sha256": "44c323b3ce960391c9c6b55e1fe4fe35dfd7e843d1c1adbfb1866c543ba3cc33",
+          "source": "fedora-release"
+        },
+        {
+          "arch": "noarch",
+          "evr": "43-27",
+          "location": "Packages/f/fedora-release-identity-basic-43-27.noarch.rpm",
+          "name": "fedora-release-identity-basic",
+          "repo": "binary-updates",
+          "sha256": "ff40ab155af643862eefa867c88b4e7b0f2d33bf2b5c98a55ed7ce0595b9e48e",
+          "source": "fedora-release"
+        },
+        {
+          "arch": "noarch",
+          "evr": "43-2",
+          "location": "Packages/f/fedora-repos-43-2.noarch.rpm",
+          "name": "fedora-repos",
+          "repo": "binary-updates",
+          "sha256": "fc631d34ec7519ea70d39ac8b6c1caedcbe9e14207c16db78d23da9302f831cc",
+          "source": "fedora-repos"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.18-50.fc43",
+          "location": "Packages/f/filesystem-3.18-50.fc43.x86_64.rpm",
+          "name": "filesystem",
+          "repo": "binary-releases",
+          "sha256": "1d6978716676cc87a2f89fcb27bbb5972e7c8309d260a247181bf031a6a760a7",
+          "source": "filesystem"
+        },
+        {
+          "arch": "noarch",
+          "evr": "3.18-50.fc43",
+          "location": "Packages/f/filesystem-srpm-macros-3.18-50.fc43.noarch.rpm",
+          "name": "filesystem-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "4c376c080a49a8eae076242180a2c5ab55fea163a866f3de3b558da9f6a86e95",
+          "source": "filesystem"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:4.10.0-6.fc43",
+          "location": "Packages/f/findutils-4.10.0-6.fc43.x86_64.rpm",
+          "name": "findutils",
+          "repo": "binary-releases",
+          "sha256": "b672fbb874d6fa3bbdf7b3a3b99c64bb8294ad505cd879b9b9203024bf2d5c05",
+          "source": "findutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "5.3.2-2.fc43",
+          "location": "Packages/g/gawk-5.3.2-2.fc43.x86_64.rpm",
+          "name": "gawk",
+          "repo": "binary-releases",
+          "sha256": "ca81e4433ebf3ab4c2cf9d1cd62087e67ed752ba58b686ea3c37865cbe26979b",
+          "source": "gawk"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "15.3.1-1.fc43",
+          "location": "Packages/g/gcc-15.3.1-1.fc43.x86_64.rpm",
+          "name": "gcc",
+          "repo": "binary-updates",
+          "sha256": "da3cf12f62c4037e89b5fb76d185a002aa68aa2b6431e8d4d700ea86d7fa2103",
+          "source": "gcc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "15.3.1-1.fc43",
+          "location": "Packages/g/gcc-c++-15.3.1-1.fc43.x86_64.rpm",
+          "name": "gcc-c++",
+          "repo": "binary-updates",
+          "sha256": "141293304a3935f9457eb475ddf599a71ad76b253883d119749704249f54ec8d",
+          "source": "gcc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "15.3.1-1.fc43",
+          "location": "Packages/g/gcc-plugin-annobin-15.3.1-1.fc43.x86_64.rpm",
+          "name": "gcc-plugin-annobin",
+          "repo": "binary-updates",
+          "sha256": "21b8dc161ab2223f314b00617aa6dd849d1b77b7f843e3ef30807d9c4784457d",
+          "source": "gcc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:1.23-10.fc43",
+          "location": "Packages/g/gdbm-libs-1.23-10.fc43.x86_64.rpm",
+          "name": "gdbm-libs",
+          "repo": "binary-releases",
+          "sha256": "876eeef2aab4cb29d9b27b65c8ff881abbe48452da76fc101cb3203e8ede6e52",
+          "source": "gdbm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.42-16.fc43",
+          "location": "Packages/g/glibc-2.42-16.fc43.x86_64.rpm",
+          "name": "glibc",
+          "repo": "binary-updates",
+          "sha256": "478a0ef8da3a0d2149dbdb6b515775478dfaae4f577e84f58a4e796288387e49",
+          "source": "glibc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.42-16.fc43",
+          "location": "Packages/g/glibc-common-2.42-16.fc43.x86_64.rpm",
+          "name": "glibc-common",
+          "repo": "binary-updates",
+          "sha256": "d5bfb57effb69f4b707b1d22cb0a99a2cde90123819cadc14c5e61fa7646aec4",
+          "source": "glibc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.42-16.fc43",
+          "location": "Packages/g/glibc-devel-2.42-16.fc43.x86_64.rpm",
+          "name": "glibc-devel",
+          "repo": "binary-updates",
+          "sha256": "c38b1185f8e046e60cd833f902745f43a254e3ebaffc5bf7ff0b76def98d6ca5",
+          "source": "glibc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.42-16.fc43",
+          "location": "Packages/g/glibc-gconv-extra-2.42-16.fc43.x86_64.rpm",
+          "name": "glibc-gconv-extra",
+          "repo": "binary-updates",
+          "sha256": "1d2079455bb58ffc25e0dd0a10c359edb51f40fc273163a4810f1c0f48fdb56d",
+          "source": "glibc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.42-16.fc43",
+          "location": "Packages/g/glibc-minimal-langpack-2.42-16.fc43.x86_64.rpm",
+          "name": "glibc-minimal-langpack",
+          "repo": "binary-updates",
+          "sha256": "00ca0477875b0a4c02b173e510399b00cb9592e808a0dd0e5322182710c350be",
+          "source": "glibc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:6.3.0-4.fc43",
+          "location": "Packages/g/gmp-6.3.0-4.fc43.x86_64.rpm",
+          "name": "gmp",
+          "repo": "binary-releases",
+          "sha256": "ecc121a45b8ced27da3f5a6faccaf9e789b7b6f2d2419d2f0b416ada93ea0cfd",
+          "source": "gmp"
+        },
+        {
+          "arch": "noarch",
+          "evr": "20241231-1.fc43",
+          "location": "Packages/g/gnulib-l10n-20241231-1.fc43.noarch.rpm",
+          "name": "gnulib-l10n",
+          "repo": "binary-releases",
+          "sha256": "43fa7f5069c30fe7c2a0d71f926d16483208733285ff7c3227c4fbd9ff59127b",
+          "source": "gnulib-l10n"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.8.13-1.fc43",
+          "location": "Packages/g/gnutls-3.8.13-1.fc43.x86_64.rpm",
+          "name": "gnutls",
+          "repo": "binary-updates",
+          "sha256": "869732107491080cf332ddcddf6427cf4f84acba5fb6d3b2aa9e92459087ec31",
+          "source": "gnutls"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.12-2.fc43",
+          "location": "Packages/g/grep-3.12-2.fc43.x86_64.rpm",
+          "name": "grep",
+          "repo": "binary-releases",
+          "sha256": "c66587d6b52b5624db70ae431312298cdadb024e6061aebfbc2f409d2aa6b728",
+          "source": "grep"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.13-4.fc43",
+          "location": "Packages/g/gzip-1.13-4.fc43.x86_64.rpm",
+          "name": "gzip",
+          "repo": "binary-releases",
+          "sha256": "83c6ace309f92ebde843c41a25b8b24ee6f21b68c1f2d81deebbcefd6113dce6",
+          "source": "gzip"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.18-7.fc43",
+          "location": "Packages/j/json-c-0.18-7.fc43.x86_64.rpm",
+          "name": "json-c",
+          "repo": "binary-releases",
+          "sha256": "7ea12ec1eea5e42d4ead2fab1ec300922c06d57989ee7cf5bfbdfe540f24b617",
+          "source": "json-c"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.6.3-6.fc43",
+          "location": "Packages/k/keyutils-libs-1.6.3-6.fc43.x86_64.rpm",
+          "name": "keyutils-libs",
+          "repo": "binary-releases",
+          "sha256": "8452cd1ca9f6e5bf92f6bc2b0a7a7f706493237bab2ee69127676919b5aa5bfa",
+          "source": "keyutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.22.2-4.fc43",
+          "location": "Packages/k/krb5-libs-1.22.2-4.fc43.x86_64.rpm",
+          "name": "krb5-libs",
+          "repo": "binary-updates",
+          "sha256": "7ac237bbc4e629369aa5680118f186445958d9435509c5d3cfcac6d4e50f1888",
+          "source": "krb5"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.4.0-1.fc43",
+          "location": "Packages/l/libacl-2.4.0-1.fc43.x86_64.rpm",
+          "name": "libacl",
+          "repo": "binary-updates",
+          "sha256": "942fa1f926548271b4a7879ed1f123e0af6cac7d04aa5886826374b6e1bf9d38",
+          "source": "acl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.8.4-1.fc43",
+          "location": "Packages/l/libarchive-3.8.4-1.fc43.x86_64.rpm",
+          "name": "libarchive",
+          "repo": "binary-updates",
+          "sha256": "3a4e745c98f0765c3b2ba4d5c9563defd23787cfad2d0065a7f1cd616e63beec",
+          "source": "libarchive"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.6.0-1.fc43",
+          "location": "Packages/l/libattr-2.6.0-1.fc43.x86_64.rpm",
+          "name": "libattr",
+          "repo": "binary-updates",
+          "sha256": "e152262ac9206ec6d97604a4d2372a21b2f1890f9de9a934f36f3891e7668f61",
+          "source": "attr"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.6.0-1.fc43",
+          "location": "Packages/l/libattr-devel-2.6.0-1.fc43.x86_64.rpm",
+          "name": "libattr-devel",
+          "repo": "binary-updates",
+          "sha256": "7fa9dfd821b7c95d9fdf4fa2e77cad6dec73781be2347ad35a66e16b6a6aca50",
+          "source": "attr"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41.5-1.fc43",
+          "location": "Packages/l/libblkid-2.41.5-1.fc43.x86_64.rpm",
+          "name": "libblkid",
+          "repo": "binary-updates",
+          "sha256": "97c6abab7fc138297851f95249e82a9c805c06c85f480e170170392f1ea08415",
+          "source": "util-linux"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.76-4.fc43",
+          "location": "Packages/l/libcap-2.76-4.fc43.x86_64.rpm",
+          "name": "libcap",
+          "repo": "binary-updates",
+          "sha256": "2a231aeecab0b2bb5c46a811b2607fb935c90ab6c2d2e789dec7d32ab453cbba",
+          "source": "libcap"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.9.3-1.fc43",
+          "location": "Packages/l/libcap-ng-0.9.3-1.fc43.x86_64.rpm",
+          "name": "libcap-ng",
+          "repo": "binary-updates",
+          "sha256": "8bfff87ff578210066e6c77c49dc282bff51a7a71bf08454b3815ba3597323c8",
+          "source": "libcap-ng"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.47.3-2.fc43",
+          "location": "Packages/l/libcom_err-1.47.3-2.fc43.x86_64.rpm",
+          "name": "libcom_err",
+          "repo": "binary-releases",
+          "sha256": "e7a9ee0e80f58da6beedbdaa65f67e7a5ee7fadb0f0e5a346bbb6342c4871cc2",
+          "source": "e2fsprogs"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "8.15.0-8.fc43",
+          "location": "Packages/l/libcurl-minimal-8.15.0-8.fc43.x86_64.rpm",
+          "name": "libcurl-minimal",
+          "repo": "binary-updates",
+          "sha256": "7ad67c0b6d4c618ac05fddcb2bb8af6131359db064181e5507ffef2e07932fd0",
+          "source": "curl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.7.9-2.fc43",
+          "location": "Packages/l/libeconf-0.7.9-2.fc43.x86_64.rpm",
+          "name": "libeconf",
+          "repo": "binary-releases",
+          "sha256": "b1f98216ff13fdab6815fdebf0ddfc6f5679d077492a878458cdd92fd16f02a8",
+          "source": "libeconf"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.1.12-16.fc43",
+          "location": "Packages/l/libevent-2.1.12-16.fc43.x86_64.rpm",
+          "name": "libevent",
+          "repo": "binary-releases",
+          "sha256": "d5ae05c9f4504a35c7f7156c9dc5326f656a85bf10df8b4fa5cd06b22d52172b",
+          "source": "libevent"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41.5-1.fc43",
+          "location": "Packages/l/libfdisk-2.41.5-1.fc43.x86_64.rpm",
+          "name": "libfdisk",
+          "repo": "binary-updates",
+          "sha256": "e683f03e2c864e5d4b455a36920df599b1c0a6625ad98e31245750ee21654829",
+          "source": "util-linux"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.5.2-1.fc43",
+          "location": "Packages/l/libffi-3.5.2-1.fc43.x86_64.rpm",
+          "name": "libffi",
+          "repo": "binary-updates",
+          "sha256": "6b72acc9a66a4c108024ca0935820111913acd7d40a7311577c3a2ada480b45b",
+          "source": "libffi"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "15.3.1-1.fc43",
+          "location": "Packages/l/libgcc-15.3.1-1.fc43.x86_64.rpm",
+          "name": "libgcc",
+          "repo": "binary-updates",
+          "sha256": "08b2e6131208e83dd20d34d8ff66566c696565d0d0411dd35468e6b7547e3782",
+          "source": "gcc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "15.3.1-1.fc43",
+          "location": "Packages/l/libgomp-15.3.1-1.fc43.x86_64.rpm",
+          "name": "libgomp",
+          "repo": "binary-updates",
+          "sha256": "93102feb675e4ae6dee4fc07174cb6cca6fd2a7cd97f259afc7c73d0ae82b720",
+          "source": "gcc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.3.8-2.fc43",
+          "location": "Packages/l/libidn2-2.3.8-2.fc43.x86_64.rpm",
+          "name": "libidn2",
+          "repo": "binary-releases",
+          "sha256": "162fdc035a7c92082d4d8d67fc5efdff95358faa2723c1fb69bfaac40641efea",
+          "source": "libidn2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41.5-1.fc43",
+          "location": "Packages/l/liblastlog2-2.41.5-1.fc43.x86_64.rpm",
+          "name": "liblastlog2",
+          "repo": "binary-updates",
+          "sha256": "206f1f6f66fad934c7fb3bbdac4c07e0b6f467e33d609e3a4c37ca615c9ffb83",
+          "source": "util-linux"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41.5-1.fc43",
+          "location": "Packages/l/libmount-2.41.5-1.fc43.x86_64.rpm",
+          "name": "libmount",
+          "repo": "binary-updates",
+          "sha256": "02ab93c7b4fee731b6329b6a16ec8f696317a36b490d64d55be60b80c751a62d",
+          "source": "util-linux"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.66.0-3.fc43",
+          "location": "Packages/l/libnghttp2-1.66.0-3.fc43.x86_64.rpm",
+          "name": "libnghttp2",
+          "repo": "binary-updates",
+          "sha256": "5aeaea1fc6afbe132971c29d19e39c8e5dc0dbad63279a4a70ff66278680f4f1",
+          "source": "nghttp2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.3.0-3.fc43",
+          "location": "Packages/l/libpkgconf-2.3.0-3.fc43.x86_64.rpm",
+          "name": "libpkgconf",
+          "repo": "binary-releases",
+          "sha256": "cfcd48adc62fab0575792b9b3e974dbe04f1896d9584e016d8730ee7d4816365",
+          "source": "pkgconf"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.9-5.fc43",
+          "location": "Packages/l/libselinux-3.9-5.fc43.x86_64.rpm",
+          "name": "libselinux",
+          "repo": "binary-releases",
+          "sha256": "0d7af1c6399820aaa5a38762ef77c9b9e710f0bc086bbe92a3ea91aecbbc36c2",
+          "source": "libselinux"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.9-4.fc43",
+          "location": "Packages/l/libsemanage-3.9-4.fc43.x86_64.rpm",
+          "name": "libsemanage",
+          "repo": "binary-releases",
+          "sha256": "583817400c9edcb19a464c4edcce2265699cf5c4d5f607f9e4aed2b1b53217ab",
+          "source": "libsemanage"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.9-2.fc43",
+          "location": "Packages/l/libsepol-3.9-2.fc43.x86_64.rpm",
+          "name": "libsepol",
+          "repo": "binary-releases",
+          "sha256": "3424360ca4131ddd79b80dfd4dd0fb33981f9d136f49aea13890867d705d6382",
+          "source": "libsepol"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41.5-1.fc43",
+          "location": "Packages/l/libsmartcols-2.41.5-1.fc43.x86_64.rpm",
+          "name": "libsmartcols",
+          "repo": "binary-updates",
+          "sha256": "dba256e03476be36c534f5f1aacfc39756d9243834e8d732831c44f7e909af90",
+          "source": "util-linux"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "15.3.1-1.fc43",
+          "location": "Packages/l/libstdc++-15.3.1-1.fc43.x86_64.rpm",
+          "name": "libstdc++",
+          "repo": "binary-updates",
+          "sha256": "da2054fdf4c057427045a623f96931322081c0c0c50ff51994b43e06ca219c37",
+          "source": "gcc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "15.3.1-1.fc43",
+          "location": "Packages/l/libstdc++-devel-15.3.1-1.fc43.x86_64.rpm",
+          "name": "libstdc++-devel",
+          "repo": "binary-updates",
+          "sha256": "d6cda1ca54e578c3c26c3e161a4167c7777a586be0a331492359420317259928",
+          "source": "gcc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.21.0-1.fc43",
+          "location": "Packages/l/libtasn1-4.21.0-1.fc43.x86_64.rpm",
+          "name": "libtasn1",
+          "repo": "binary-updates",
+          "sha256": "16c45c22faa5e4b760121e515eff492de864c3a654f9dcb333cdefc9608d9878",
+          "source": "libtasn1"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.5.4-8.fc43",
+          "location": "Packages/l/libtool-2.5.4-8.fc43.x86_64.rpm",
+          "name": "libtool",
+          "repo": "binary-updates",
+          "sha256": "09944a8296056f52cc8fe8163c491570f88ca369dd0ab808b38237413058ff50",
+          "source": "libtool"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.5.4-8.fc43",
+          "location": "Packages/l/libtool-ltdl-2.5.4-8.fc43.x86_64.rpm",
+          "name": "libtool-ltdl",
+          "repo": "binary-updates",
+          "sha256": "77826202d31a040158c114e43aee30fd1bd99fbe6fe8ed3859ef4aad11815f0e",
+          "source": "libtool"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.1-10.fc43",
+          "location": "Packages/l/libunistring-1.1-10.fc43.x86_64.rpm",
+          "name": "libunistring",
+          "repo": "binary-releases",
+          "sha256": "6bfbd536ef01d497d4fe700d0b518c04f54439314264a62011b634f93adca8a0",
+          "source": "libunistring"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41.5-1.fc43",
+          "location": "Packages/l/libuuid-2.41.5-1.fc43.x86_64.rpm",
+          "name": "libuuid",
+          "repo": "binary-updates",
+          "sha256": "9cd5556b14ff77b69162b0cd4b0aa77d1c6d340e68bb0e5f904071c02d16c249",
+          "source": "util-linux"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.3.2-11.fc43",
+          "location": "Packages/l/libverto-0.3.2-11.fc43.x86_64.rpm",
+          "name": "libverto",
+          "repo": "binary-releases",
+          "sha256": "168a54fc1cf667e572f8d788eb4bb6a226da85a7477cc56b13353ea2ad11e4a2",
+          "source": "libverto"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.5.2-1.fc43",
+          "location": "Packages/l/libxcrypt-4.5.2-1.fc43.x86_64.rpm",
+          "name": "libxcrypt",
+          "repo": "binary-updates",
+          "sha256": "f050c17cd86490d0ede0b22284d31fa707e92e93d538f397b406e51d7eba8f2b",
+          "source": "libxcrypt"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.5.2-1.fc43",
+          "location": "Packages/l/libxcrypt-devel-4.5.2-1.fc43.x86_64.rpm",
+          "name": "libxcrypt-devel",
+          "repo": "binary-updates",
+          "sha256": "000fa7b8513510f2c858526d2921fa59006fb75c0b6c3c1c002ba8cbbc44d2ca",
+          "source": "libxcrypt"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.12.10-5.fc43",
+          "location": "Packages/l/libxml2-2.12.10-5.fc43.x86_64.rpm",
+          "name": "libxml2",
+          "repo": "binary-releases",
+          "sha256": "9518f2c768e6d0d5c53681c66eaa24976d052c2451a5818a151700f72fbc8299",
+          "source": "libxml2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.5.7-2.fc43",
+          "location": "Packages/l/libzstd-1.5.7-2.fc43.x86_64.rpm",
+          "name": "libzstd",
+          "repo": "binary-releases",
+          "sha256": "337b8fc6ed66d00e7e423916cdc132d3ebe6b0a79543e328f2a56e88c2c99249",
+          "source": "zstd"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "5.4.8-4.fc43",
+          "location": "Packages/l/lua-libs-5.4.8-4.fc43.x86_64.rpm",
+          "name": "lua-libs",
+          "repo": "binary-updates",
+          "sha256": "e0721c64f6a8d46104ade49da73802dcd3e48fbc6638791e6abbbfe1676f17ca",
+          "source": "lua"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.10.0-3.fc43",
+          "location": "Packages/l/lz4-libs-1.10.0-3.fc43.x86_64.rpm",
+          "name": "lz4-libs",
+          "repo": "binary-releases",
+          "sha256": "06c341f3e73f7ac4d92bc08c54b97884e35c3ef2dfdaa874c878742e4f3514fd",
+          "source": "lz4"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.2.2-2.fc43",
+          "location": "Packages/m/mpfr-4.2.2-2.fc43.x86_64.rpm",
+          "name": "mpfr",
+          "repo": "binary-releases",
+          "sha256": "cd4e395b90cd6bcb7a87c010e781d9311289514664e7cb071d5283e87239dd76",
+          "source": "mpfr"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "6.5-7.20250614.fc43",
+          "location": "Packages/n/ncurses-6.5-7.20250614.fc43.x86_64.rpm",
+          "name": "ncurses",
+          "repo": "binary-releases",
+          "sha256": "d9aa581f2240c040a71c4a1850a2aac5865f18f1c52ef7bd9f925fc83464ab81",
+          "source": "ncurses"
+        },
+        {
+          "arch": "noarch",
+          "evr": "6.5-7.20250614.fc43",
+          "location": "Packages/n/ncurses-base-6.5-7.20250614.fc43.noarch.rpm",
+          "name": "ncurses-base",
+          "repo": "binary-releases",
+          "sha256": "3d91177f40ae6e713d41106585c2a5e2afd9cd8aa0da431a8852371866d3777b",
+          "source": "ncurses"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "6.5-7.20250614.fc43",
+          "location": "Packages/n/ncurses-libs-6.5-7.20250614.fc43.x86_64.rpm",
+          "name": "ncurses-libs",
+          "repo": "binary-releases",
+          "sha256": "744ca03cba966b11fa6b2b42563216c4509f63c2266a4c8756cbacbdf6f9c104",
+          "source": "ncurses"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.10.1-2.fc43",
+          "location": "Packages/n/nettle-3.10.1-2.fc43.x86_64.rpm",
+          "name": "nettle",
+          "repo": "binary-releases",
+          "sha256": "040bf4210f47f4cbaca0611382affdee38a291a8086d9de0e2345666b54fa57c",
+          "source": "nettle"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.6.13-1.fc43",
+          "location": "Packages/o/openldap-2.6.13-1.fc43.x86_64.rpm",
+          "name": "openldap",
+          "repo": "binary-updates",
+          "sha256": "f197e4aec99abf84379233dda87ba04cdf1a63261759742f9c022d982a93bea2",
+          "source": "openldap"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:3.5.7-2.fc43",
+          "location": "Packages/o/openssl-libs-3.5.7-2.fc43.x86_64.rpm",
+          "name": "openssl-libs",
+          "repo": "binary-updates",
+          "sha256": "9cbe2f14d178342f1e3d26077e82534ce8202ebfd2f193ff87f7e41d1b0874a6",
+          "source": "openssl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.26.5-1.fc43",
+          "location": "Packages/p/p11-kit-0.26.5-1.fc43.x86_64.rpm",
+          "name": "p11-kit",
+          "repo": "binary-updates",
+          "sha256": "530489f18ff703ceff6b9be73a158566d4a525a1a57c56cfbc4fbf0bebbb0403",
+          "source": "p11-kit"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.26.5-1.fc43",
+          "location": "Packages/p/p11-kit-trust-0.26.5-1.fc43.x86_64.rpm",
+          "name": "p11-kit-trust",
+          "repo": "binary-updates",
+          "sha256": "c8a686bfc5bcd182cb1ede6ea3ab0dcff0e95766507151efd43cb26cae99e636",
+          "source": "p11-kit"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.7.1-5.fc43",
+          "location": "Packages/p/pam-libs-1.7.1-5.fc43.x86_64.rpm",
+          "name": "pam-libs",
+          "repo": "binary-updates",
+          "sha256": "129f6e403def83847f729f817f0106a123c6098a71f7fbc29b18d6315a92f0b8",
+          "source": "pam"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "10.47-1.fc43",
+          "location": "Packages/p/pcre2-10.47-1.fc43.x86_64.rpm",
+          "name": "pcre2",
+          "repo": "binary-updates",
+          "sha256": "378b00aaebb8d9aaf9501197c1f1b3480237aab410430b25901166b9fdbc70f1",
+          "source": "pcre2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "10.47-1.fc43",
+          "location": "Packages/p/pcre2-syntax-10.47-1.fc43.noarch.rpm",
+          "name": "pcre2-syntax",
+          "repo": "binary-updates",
+          "sha256": "1ec76a05cde0c6aa7dd2cb4dc30c4b56bf9fa4e96def2e7190db4d8ab4647ff1",
+          "source": "pcre2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.3.0-3.fc43",
+          "location": "Packages/p/pkgconf-2.3.0-3.fc43.x86_64.rpm",
+          "name": "pkgconf",
+          "repo": "binary-releases",
+          "sha256": "9e313348d39f6e592fe4652426512cdfdcbf7bd35e180743312028ba6e46869d",
+          "source": "pkgconf"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.3.0-3.fc43",
+          "location": "Packages/p/pkgconf-m4-2.3.0-3.fc43.noarch.rpm",
+          "name": "pkgconf-m4",
+          "repo": "binary-releases",
+          "sha256": "650e3ca57119ea154ccb0476d8950e3a833ac8fcdc568ac6a0f5732c537d6891",
+          "source": "pkgconf"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.3.0-3.fc43",
+          "location": "Packages/p/pkgconf-pkg-config-2.3.0-3.fc43.x86_64.rpm",
+          "name": "pkgconf-pkg-config",
+          "repo": "binary-releases",
+          "sha256": "4ae294440b9d8e8ae7477ee1ae0ff6e0f7faec4ec307fdef082004795aedae78",
+          "source": "pkgconf"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.19-9.fc43",
+          "location": "Packages/p/popt-1.19-9.fc43.x86_64.rpm",
+          "name": "popt",
+          "repo": "binary-releases",
+          "sha256": "e21f6ef1c00e121b68eabc081775076e552535390b6b99a66a50643df9e37f90",
+          "source": "popt"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "8.3-2.fc43",
+          "location": "Packages/r/readline-8.3-2.fc43.x86_64.rpm",
+          "name": "readline",
+          "repo": "binary-releases",
+          "sha256": "b9a1ce9bde9e00dff41b1c3c9d8d0bb9c97b9e900d1efb3ecd0fc742cbf85929",
+          "source": "readline"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "6.0.2-1.fc43",
+          "location": "Packages/r/rpm-6.0.2-1.fc43.x86_64.rpm",
+          "name": "rpm",
+          "repo": "binary-updates",
+          "sha256": "7e6e5cfa029438cc4dc12cbb17e92ae7321bdc6b1fcf86cd965e0439b46e0406",
+          "source": "rpm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "6.0.2-1.fc43",
+          "location": "Packages/r/rpm-build-6.0.2-1.fc43.x86_64.rpm",
+          "name": "rpm-build",
+          "repo": "binary-updates",
+          "sha256": "5466ace6b28771075a17ed59d63530ae79ba938fed8460fc7d8119442b2ee0ad",
+          "source": "rpm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "6.0.2-1.fc43",
+          "location": "Packages/r/rpm-build-libs-6.0.2-1.fc43.x86_64.rpm",
+          "name": "rpm-build-libs",
+          "repo": "binary-updates",
+          "sha256": "722b15531191bd943417885cd07ce8f6fbf75efd8a4104d7d67d23b2441a3576",
+          "source": "rpm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "6.0.2-1.fc43",
+          "location": "Packages/r/rpm-libs-6.0.2-1.fc43.x86_64.rpm",
+          "name": "rpm-libs",
+          "repo": "binary-updates",
+          "sha256": "29d01f66ff12980bfbab3e92ffbadecdde9ccd1f6f4d6588511795093e8c8e37",
+          "source": "rpm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.10.2-4.fc43",
+          "location": "Packages/r/rpm-sequoia-1.10.2-4.fc43.x86_64.rpm",
+          "name": "rpm-sequoia",
+          "repo": "binary-updates",
+          "sha256": "2948f0ba2100636f8f8aae8cf59abb1092fbaebcbf102876cb3ec31945a96d0c",
+          "source": "rust-rpm-sequoia"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "6.0.2-1.fc43",
+          "location": "Packages/r/rpm-sign-libs-6.0.2-1.fc43.x86_64.rpm",
+          "name": "rpm-sign-libs",
+          "repo": "binary-updates",
+          "sha256": "31b86df8ae5b3898a93bf6ae3665554dc7137b1c9f433913be466e77fcbb16de",
+          "source": "rpm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.9-5.fc43",
+          "location": "Packages/s/sed-4.9-5.fc43.x86_64.rpm",
+          "name": "sed",
+          "repo": "binary-releases",
+          "sha256": "d21b29b3420401d733549b0256e6e41d85c3040e3f802303425d68534673d890",
+          "source": "sed"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.15.0-26.fc43",
+          "location": "Packages/s/setup-2.15.0-26.fc43.noarch.rpm",
+          "name": "setup",
+          "repo": "binary-releases",
+          "sha256": "bb26bf98322cc2e6df6e9bd543cd0f7a61a6e71f66cb0fde33fc3a3a6295acda",
+          "source": "setup"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2:4.18.0-3.fc43",
+          "location": "Packages/s/shadow-utils-4.18.0-3.fc43.x86_64.rpm",
+          "name": "shadow-utils",
+          "repo": "binary-releases",
+          "sha256": "155b962c5b8bf216e0e591934e7c5f6f92300adbfc2718762dda2bd2bf1aa79a",
+          "source": "shadow-utils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.50.2-3.fc43",
+          "location": "Packages/s/sqlite-libs-3.50.2-3.fc43.x86_64.rpm",
+          "name": "sqlite-libs",
+          "repo": "binary-updates",
+          "sha256": "abb93704015abf54b10c3cdda2f4678667b7365b3f16b627c3916963170721db",
+          "source": "sqlite"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "258.10-1.fc43",
+          "location": "Packages/s/systemd-libs-258.10-1.fc43.x86_64.rpm",
+          "name": "systemd-libs",
+          "repo": "binary-updates",
+          "sha256": "549e36643a638360d5be3504b1fba6ae090866100e99977f907ba22b1d89f6d2",
+          "source": "systemd"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "258.10-1.fc43",
+          "location": "Packages/s/systemd-standalone-sysusers-258.10-1.fc43.x86_64.rpm",
+          "name": "systemd-standalone-sysusers",
+          "repo": "binary-updates",
+          "sha256": "32ce6ff38b6f5ee31117e62b68f3489300b445c02d69e10b31873514d61ccd70",
+          "source": "systemd"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2:1.35-6.fc43",
+          "location": "Packages/t/tar-1.35-6.fc43.x86_64.rpm",
+          "name": "tar",
+          "repo": "binary-releases",
+          "sha256": "d4e530842729c64e37b270bb2098d8277606e6875605164a79f16265a7c8b544",
+          "source": "tar"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41.5-1.fc43",
+          "location": "Packages/u/util-linux-2.41.5-1.fc43.x86_64.rpm",
+          "name": "util-linux",
+          "repo": "binary-updates",
+          "sha256": "9b4ee82bc5c3f48dc22a162989f8c648fd843644db81a315bcffa1313a8970a6",
+          "source": "util-linux"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41.5-1.fc43",
+          "location": "Packages/u/util-linux-core-2.41.5-1.fc43.x86_64.rpm",
+          "name": "util-linux-core",
+          "repo": "binary-updates",
+          "sha256": "acf4b6796950fac704256d9b7891e504e4aa24bf5692ffe68e565d76490ccccd",
+          "source": "util-linux"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.23-3.fc43",
+          "location": "Packages/w/which-2.23-3.fc43.x86_64.rpm",
+          "name": "which",
+          "repo": "binary-releases",
+          "sha256": "92a02e7ea442eef42ad4b18d5f4612c3015e9c3dc4893852c6fa8f50f6ddcbd4",
+          "source": "which"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:5.8.1-4.fc43",
+          "location": "Packages/x/xz-5.8.1-4.fc43.x86_64.rpm",
+          "name": "xz",
+          "repo": "binary-updates",
+          "sha256": "e5e07f25f6b8a0c28f0844990ab4ab295090e75cbd66be5b155822064c741a45",
+          "source": "xz"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:5.8.1-4.fc43",
+          "location": "Packages/x/xz-libs-5.8.1-4.fc43.x86_64.rpm",
+          "name": "xz-libs",
+          "repo": "binary-updates",
+          "sha256": "247683c96f5ad433c1924d932795da7fff872b71c4e830ad1a7c211db0f3b807",
+          "source": "xz"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.3.3-2.fc43",
+          "location": "Packages/z/zlib-ng-compat-2.3.3-2.fc43.x86_64.rpm",
+          "name": "zlib-ng-compat",
+          "repo": "binary-updates",
+          "sha256": "a4d552c73a22a0ba8f735e168717c670acecc0a874e7e53a6335aba0ea9672a6",
+          "source": "zlib-ng"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.5.7-2.fc43",
+          "location": "Packages/z/zstd-1.5.7-2.fc43.x86_64.rpm",
+          "name": "zstd",
+          "repo": "binary-releases",
+          "sha256": "7ad6c36ce16a7c071a5574491775762b412203f821cd0704ecf043175e493ed3",
+          "source": "zstd"
+        }
+      ],
+      "deps_seed": [
+        {
+          "arch": "x86_64",
+          "evr": "0.6.0-3.fc43",
+          "location": "Packages/a/add-determinism-0.6.0-3.fc43.x86_64.rpm",
+          "name": "add-determinism",
+          "repo": "binary-updates",
+          "sha256": "1887d19845b615759af91c72a63bba65c9dc9ba922d4cacf3fcb08f08311cf67",
+          "source": "rust-add-determinism"
+        },
+        {
+          "arch": "noarch",
+          "evr": "12.99-1.fc43",
+          "location": "Packages/a/annobin-docs-12.99-1.fc43.noarch.rpm",
+          "name": "annobin-docs",
+          "repo": "binary-releases",
+          "sha256": "9891e5b6812fbe962c691d08e203b01d6859afbcc88576613d3368036dcc8520",
+          "source": "annobin"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "12.99-1.fc43",
+          "location": "Packages/a/annobin-plugin-gcc-12.99-1.fc43.x86_64.rpm",
+          "name": "annobin-plugin-gcc",
+          "repo": "binary-releases",
+          "sha256": "bddf50c9a2503c7f5b82994c84a562fb25142192003204ecbc0ce95b51cc2df0",
+          "source": "annobin"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1-18.1.fc43",
+          "location": "Packages/a/ansible-srpm-macros-1-18.1.fc43.noarch.rpm",
+          "name": "ansible-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "5975ec30c1bbdc17a1e29eedf166b64fc78607fee78db90e5ed42cd2896b2d36",
+          "source": "ansible-packaging"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.72-7.fc43",
+          "location": "Packages/a/autoconf-2.72-7.fc43.noarch.rpm",
+          "name": "autoconf",
+          "repo": "binary-releases",
+          "sha256": "81354ed553c989019b84a074a71a8893d91cda28b70480522c6bc214d4a842e5",
+          "source": "autoconf"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.18.1-2.fc43",
+          "location": "Packages/a/automake-1.18.1-2.fc43.noarch.rpm",
+          "name": "automake",
+          "repo": "binary-releases",
+          "sha256": "9ff95b9acaf7e065ae72cd18f59340b7a230232fb705c18d7e68fb663686dc7e",
+          "source": "automake"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.45.1-5.fc43",
+          "location": "Packages/b/binutils-2.45.1-5.fc43.x86_64.rpm",
+          "name": "binutils",
+          "repo": "binary-updates",
+          "sha256": "2969b12d59c8956487814f76d620d7f2c94b981cf6005d871b809e6218a88f75",
+          "source": "binutils"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.6.0-3.fc43",
+          "location": "Packages/b/build-reproducibility-srpm-macros-0.6.0-3.fc43.noarch.rpm",
+          "name": "build-reproducibility-srpm-macros",
+          "repo": "binary-updates",
+          "sha256": "bf3f93da0b463283c8a0c2952586c9b3c94150ae56907321a9c40c624533641c",
+          "source": "rust-add-determinism"
+        },
+        {
+          "arch": "noarch",
+          "evr": "3.31.11-1.fc43",
+          "location": "Packages/c/cmake-srpm-macros-3.31.11-1.fc43.noarch.rpm",
+          "name": "cmake-srpm-macros",
+          "repo": "binary-updates",
+          "sha256": "b2e1e031e5d7c29557b6cce39db25a435ee1e53698d376d9a111fd5670676d56",
+          "source": "cmake"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "5.2-3.fc43",
+          "location": "Packages/d/debugedit-5.2-3.fc43.x86_64.rpm",
+          "name": "debugedit",
+          "repo": "binary-releases",
+          "sha256": "45a3704aa738ad3d3e60918e2f3552fc4c2128b5a6c2bc07ab2ea73724f72240",
+          "source": "debugedit"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.16-2.fc43",
+          "location": "Packages/d/dwz-0.16-2.fc43.x86_64.rpm",
+          "name": "dwz",
+          "repo": "binary-releases",
+          "sha256": "2d744cfea651fe2d7cebea428bc05aa11b10687b1e3e7e802305e0da3a5a99e6",
+          "source": "dwz"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.22.2-1.fc43",
+          "location": "Packages/e/ed-1.22.2-1.fc43.x86_64.rpm",
+          "name": "ed",
+          "repo": "binary-releases",
+          "sha256": "58d8aabc349a4f873ccc09e7981de7b36f4b16735df53c41e9886aa2ca4f4230",
+          "source": "ed"
+        },
+        {
+          "arch": "noarch",
+          "evr": "6-4.fc43",
+          "location": "Packages/e/efi-srpm-macros-6-4.fc43.noarch.rpm",
+          "name": "efi-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "3645e38fbd0dffb689928ff56e682225a98fde6f1ac0fb7413e9367d2bcd4997",
+          "source": "efi-rpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1:30.0-5.fc43",
+          "location": "Packages/e/emacs-filesystem-30.0-5.fc43.noarch.rpm",
+          "name": "emacs-filesystem",
+          "repo": "binary-releases",
+          "sha256": "f08920141e1ac5cc5a71657299e453d04a0d8f49eb949a2516d1be4a5c664d58",
+          "source": "emacs-filesystem"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "5.46-9.fc43",
+          "location": "Packages/f/file-5.46-9.fc43.x86_64.rpm",
+          "name": "file",
+          "repo": "binary-updates",
+          "sha256": "a23eb11f5d367bb538f1a2cfb723eabc8434b0a6ec6a1c4353a7f4e9ed9b0a6d",
+          "source": "file"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "5.46-9.fc43",
+          "location": "Packages/f/file-libs-5.46-9.fc43.x86_64.rpm",
+          "name": "file-libs",
+          "repo": "binary-updates",
+          "sha256": "007e60b4d3de58d2f4657e67facc05795b5e3188ee2fb9c3e90c81c64b916863",
+          "source": "file"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1:2.0.5-23.fc43",
+          "location": "Packages/f/fonts-srpm-macros-2.0.5-23.fc43.noarch.rpm",
+          "name": "fonts-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "faff07cc16a9768b540c932d67f0fd13d695604fe002e33cdcd9a574ddbd0e0c",
+          "source": "fonts-rpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.4.0-3.fc43",
+          "location": "Packages/f/forge-srpm-macros-0.4.0-3.fc43.noarch.rpm",
+          "name": "forge-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "7e479b272bfc342e73f58186ac2f31664b4e810dee71f127799cac5a2916aea9",
+          "source": "forge-srpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.3-15.fc43",
+          "location": "Packages/f/fpc-srpm-macros-1.3-15.fc43.noarch.rpm",
+          "name": "fpc-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "a58698e716336a65788ef1a23ed9fe4446e1317b287b8208129d2c92941bc17d",
+          "source": "fpc-srpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2-1.fc43",
+          "location": "Packages/g/gap-srpm-macros-2-1.fc43.noarch.rpm",
+          "name": "gap-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "1de139e6740fdbdede216815da8a5f5c0a698da3b6c39ce4b97435e929c2c4e4",
+          "source": "gap-srpm-macros"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "17.2-2.fc43",
+          "location": "Packages/g/gdb-minimal-17.2-2.fc43.x86_64.rpm",
+          "name": "gdb-minimal",
+          "repo": "binary-updates",
+          "sha256": "0d33bc5c39fa9435196fff9389cb262862f9f45f99c0d919befc5c791e2d3f05",
+          "source": "gdb"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.25.1-2.fc43",
+          "location": "Packages/g/gettext-0.25.1-2.fc43.x86_64.rpm",
+          "name": "gettext",
+          "repo": "binary-releases",
+          "sha256": "b6214121016aa0a74bfa2b9264bd8d16314214390c41639a87dc070fdb0bcb7e",
+          "source": "gettext"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.25.1-2.fc43",
+          "location": "Packages/g/gettext-common-devel-0.25.1-2.fc43.noarch.rpm",
+          "name": "gettext-common-devel",
+          "repo": "binary-releases",
+          "sha256": "ad23b74287510a2a355c380767e8e0eb5c063980dc8a041b966eb1b623d37b38",
+          "source": "gettext"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.25.1-2.fc43",
+          "location": "Packages/g/gettext-devel-0.25.1-2.fc43.x86_64.rpm",
+          "name": "gettext-devel",
+          "repo": "binary-releases",
+          "sha256": "fcfce99418e1000c636d7b2f5273ca05b761d5015789584219c485e6fa1fdd48",
+          "source": "gettext"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.25.1-2.fc43",
+          "location": "Packages/g/gettext-envsubst-0.25.1-2.fc43.x86_64.rpm",
+          "name": "gettext-envsubst",
+          "repo": "binary-releases",
+          "sha256": "5bef9e4d207eb0c42c98af6a93f1a9e430137876bcd16af0a0a6f459cdf5c1b0",
+          "source": "gettext"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.25.1-2.fc43",
+          "location": "Packages/g/gettext-libs-0.25.1-2.fc43.x86_64.rpm",
+          "name": "gettext-libs",
+          "repo": "binary-releases",
+          "sha256": "a1dabb738fef8022549e594d2876d41921369ab920057da468e0565603ebeaf6",
+          "source": "gettext"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.25.1-2.fc43",
+          "location": "Packages/g/gettext-runtime-0.25.1-2.fc43.x86_64.rpm",
+          "name": "gettext-runtime",
+          "repo": "binary-releases",
+          "sha256": "9f3f3c1098c2e76c2ea88843a6abef9c25ed72f6d6c8bc65772df15b71f82280",
+          "source": "gettext"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.9.2-3.fc43",
+          "location": "Packages/g/ghc-srpm-macros-1.9.2-3.fc43.noarch.rpm",
+          "name": "ghc-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "9713150511786795222cdfc7739404a7fd945e6b8e1e90f1ede8219aaa624872",
+          "source": "ghc-srpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "7-1.fc43",
+          "location": "Packages/g/gnat-srpm-macros-7-1.fc43.noarch.rpm",
+          "name": "gnat-srpm-macros",
+          "repo": "binary-updates",
+          "sha256": "c8f7500f95bb05419956705b19dfcaecc32abeb9dcfb44663ba38fa93f78424e",
+          "source": "gnat-srpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.0-1.fc43",
+          "location": "Packages/g/gnome-srpm-macros-1.0-1.fc43.noarch.rpm",
+          "name": "gnome-srpm-macros",
+          "repo": "binary-updates",
+          "sha256": "a14cb218bea16c733b09ab6ef4242b331433507eb76763584552aefeb142c525",
+          "source": "gnome-srpm-macros"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.4.9-5.fc43",
+          "location": "Packages/g/gnupg2-2.4.9-5.fc43.x86_64.rpm",
+          "name": "gnupg2",
+          "repo": "binary-updates",
+          "sha256": "1a2890c505f5f9b7ba56d2401077626ca7bcecf3656e65ecf8d8213f0ac9ce55",
+          "source": "gnupg2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.4.9-5.fc43",
+          "location": "Packages/g/gnupg2-dirmngr-2.4.9-5.fc43.x86_64.rpm",
+          "name": "gnupg2-dirmngr",
+          "repo": "binary-updates",
+          "sha256": "602724a4b9eb17ef63ed336d3a69c6b6d23714c3374015566a648b4aa37b6c52",
+          "source": "gnupg2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.4.9-5.fc43",
+          "location": "Packages/g/gnupg2-gpg-agent-2.4.9-5.fc43.x86_64.rpm",
+          "name": "gnupg2-gpg-agent",
+          "repo": "binary-updates",
+          "sha256": "edb4904336695dd58adc723584c39644446cefe7b7bc39335834b18c39ab822b",
+          "source": "gnupg2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.4.9-5.fc43",
+          "location": "Packages/g/gnupg2-gpgconf-2.4.9-5.fc43.x86_64.rpm",
+          "name": "gnupg2-gpgconf",
+          "repo": "binary-updates",
+          "sha256": "f989bd1d10716bffc1e1c9923fd38a4fe26a29e4010e8d155f211d90e909f402",
+          "source": "gnupg2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.4.9-5.fc43",
+          "location": "Packages/g/gnupg2-keyboxd-2.4.9-5.fc43.x86_64.rpm",
+          "name": "gnupg2-keyboxd",
+          "repo": "binary-updates",
+          "sha256": "4bda9ed63ac509175c41c2e79c1c1dcf2a9dbb2b1424f227949684418ccd2258",
+          "source": "gnupg2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.4.9-5.fc43",
+          "location": "Packages/g/gnupg2-verify-2.4.9-5.fc43.x86_64.rpm",
+          "name": "gnupg2-verify",
+          "repo": "binary-updates",
+          "sha256": "a8be645ecd6d6916195d47128353e50813b58871753d4c5c872d43b348a0d28e",
+          "source": "gnupg2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "3.8.0-1.fc43",
+          "location": "Packages/g/go-srpm-macros-3.8.0-1.fc43.noarch.rpm",
+          "name": "go-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "e40badf4ae6288315c09927e8c9b5204cd4260dd55974b55062b1c06ca329d4c",
+          "source": "go-rpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.2-3.fc43",
+          "location": "Packages/g/gpgverify-2.2-3.fc43.noarch.rpm",
+          "name": "gpgverify",
+          "repo": "binary-releases",
+          "sha256": "7c89fcadf4644cb83a7f048c12ff699cbcdc1a18f614574e128f9798239eff55",
+          "source": "gpgverify"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.23.0-11.fc43",
+          "location": "Packages/g/groff-base-1.23.0-11.fc43.x86_64.rpm",
+          "name": "groff-base",
+          "repo": "binary-updates",
+          "sha256": "5a3d020224bac53572bce86ab0ed54d3bd0cc44beadcd6a4670da374c0eba199",
+          "source": "groff"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.6.2-6.fc43",
+          "location": "Packages/i/ima-evm-utils-libs-1.6.2-6.fc43.x86_64.rpm",
+          "name": "ima-evm-utils-libs",
+          "repo": "binary-releases",
+          "sha256": "a1e2041a9509e24813055585399207a356a1dba0838d2e6c8e03fe6d7e8fa047",
+          "source": "ima-evm-utils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "7.2-7.fc43",
+          "location": "Packages/i/info-7.2-7.fc43.x86_64.rpm",
+          "name": "info",
+          "repo": "binary-updates",
+          "sha256": "cd2ee97f19c1493e7f0d2e2055c1e9abe1c4a172c10d0a946c046641c685b79f",
+          "source": "texinfo"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.14-3.fc43",
+          "location": "Packages/j/jansson-2.14-3.fc43.x86_64.rpm",
+          "name": "jansson",
+          "repo": "binary-releases",
+          "sha256": "921b0dae9b5d23da9abb7caa726b507a61b639eaa048e94f80cca3747f2ca459",
+          "source": "jansson"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1-7.fc43",
+          "location": "Packages/j/java-srpm-macros-1-7.fc43.noarch.rpm",
+          "name": "java-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "f8625511bceabb206ac559bf0afde8bbab68ffb8c83266a22574cd14bf8d467d",
+          "source": "java-rpm-macros"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "7.1.3-100.fc43",
+          "location": "Packages/k/kernel-headers-7.1.3-100.fc43.x86_64.rpm",
+          "name": "kernel-headers",
+          "repo": "binary-updates",
+          "sha256": "5339a7cf919f91f1a7b2ca05ad31ad08e676a3245bec7f1f36e0d0af5bda49ab",
+          "source": "kernel-headers"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.0-27.fc43",
+          "location": "Packages/k/kernel-srpm-macros-1.0-27.fc43.noarch.rpm",
+          "name": "kernel-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "6d44b3955a9a54f5b3353aa797be3fa02d33f9cf19dcd3a78812612a9ba45e53",
+          "source": "kernel-srpm-macros"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.5.7-4.fc43",
+          "location": "Packages/l/libassuan-2.5.7-4.fc43.x86_64.rpm",
+          "name": "libassuan",
+          "repo": "binary-releases",
+          "sha256": "f96d7bc915e8f5bfa7cfddb3dede9218e1fee627897c72b339dfeabf985039d5",
+          "source": "libassuan"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.6-3.fc43",
+          "location": "Packages/l/libfsverity-1.6-3.fc43.x86_64.rpm",
+          "name": "libfsverity",
+          "repo": "binary-releases",
+          "sha256": "d85af1dc8f7928fe0c4ceb4632f999ea36a572a252bb4340f0e32932eadb1e2a",
+          "source": "fsverity-utils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.11.1-4.fc43",
+          "location": "Packages/l/libgcrypt-1.11.1-4.fc43.x86_64.rpm",
+          "name": "libgcrypt",
+          "repo": "binary-updates",
+          "sha256": "b6d95cd0a6da200b5b53831d3cd48283c2099d541737b0a4768ca79809af3616",
+          "source": "libgcrypt"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.55-2.fc43",
+          "location": "Packages/l/libgpg-error-1.55-2.fc43.x86_64.rpm",
+          "name": "libgpg-error",
+          "repo": "binary-releases",
+          "sha256": "f9b53bf7df9df1f40a5d4c6b51829d6ac95f1a2f30a1e841b2554f808d599360",
+          "source": "libgpg-error"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.6.7-4.fc43",
+          "location": "Packages/l/libksba-1.6.7-4.fc43.x86_64.rpm",
+          "name": "libksba",
+          "repo": "binary-releases",
+          "sha256": "fa77fecd3800200e190529bd688c92886f52a6144d64d0d9df345f521e4634cc",
+          "source": "libksba"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.3.1-8.fc43",
+          "location": "Packages/l/libmpc-1.3.1-8.fc43.x86_64.rpm",
+          "name": "libmpc",
+          "repo": "binary-releases",
+          "sha256": "0e939f8c2f76c15fdf67bd734ea7d17cff8cb413964593021cedf2cf893cc650",
+          "source": "libmpc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.13.0-20.fc43",
+          "location": "Packages/l/libpfm-4.13.0-20.fc43.x86_64.rpm",
+          "name": "libpfm",
+          "repo": "binary-updates",
+          "sha256": "275d632834918ad5787bd2b9a3cbe21fa5bb686bec74b915adfcdc35ee52afc1",
+          "source": "libpfm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.25.1-2.fc43",
+          "location": "Packages/l/libtextstyle-0.25.1-2.fc43.x86_64.rpm",
+          "name": "libtextstyle",
+          "repo": "binary-releases",
+          "sha256": "b5018d6526894149b48aa061114f1140e05cb2d5f1b2b24d5618e78b921e1de2",
+          "source": "gettext"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.0.30-1.fc43",
+          "location": "Packages/l/libusb1-1.0.30-1.fc43.x86_64.rpm",
+          "name": "libusb1",
+          "repo": "binary-updates",
+          "sha256": "b9e335f63ec2d7f4bb74993bcce1bd2c611d4d7b4b71089a807bf790ec3e4387",
+          "source": "libusb1"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1-16.fc43",
+          "location": "Packages/l/lua-srpm-macros-1-16.fc43.noarch.rpm",
+          "name": "lua-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "d1516c645af58b3c75f0a2c7e4bd74eece40eb0dccb9e3d5f7b6613bd444ac6a",
+          "source": "lua-rpm-macros"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.4.21-1.fc43",
+          "location": "Packages/m/m4-1.4.21-1.fc43.x86_64.rpm",
+          "name": "m4",
+          "repo": "binary-updates",
+          "sha256": "b9838c3a50dc0d7c7574876029cce580f305d4dc3217a7a55dfe6bf2a9c708f7",
+          "source": "m4"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:4.4.1-11.fc43",
+          "location": "Packages/m/make-4.4.1-11.fc43.x86_64.rpm",
+          "name": "make",
+          "repo": "binary-releases",
+          "sha256": "8d62ba58e275f36aac56364993768583a4b7ecaa0719ecb804d46a0df2c91bba",
+          "source": "make"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.8-3.fc43",
+          "location": "Packages/n/npth-1.8-3.fc43.x86_64.rpm",
+          "name": "npth",
+          "repo": "binary-releases",
+          "sha256": "d2f2f9d0cb7268f9ff56b239312a8a4d95f3aca0cd4b169873fe318ab38b41e1",
+          "source": "npth"
+        },
+        {
+          "arch": "noarch",
+          "evr": "11-2.fc43",
+          "location": "Packages/o/ocaml-srpm-macros-11-2.fc43.noarch.rpm",
+          "name": "ocaml-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "66f0a2a158641309393fd0fbefb1187b36413505fec90d0fe456179da4f75ccb",
+          "source": "ocaml-srpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2-20.fc43",
+          "location": "Packages/o/openblas-srpm-macros-2-20.fc43.noarch.rpm",
+          "name": "openblas-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "b371be4378f99b8999f50f4a37b955dead512b9516fb315c570772de7e74f126",
+          "source": "openblas-srpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.20-1.fc43",
+          "location": "Packages/p/package-notes-srpm-macros-0.20-1.fc43.noarch.rpm",
+          "name": "package-notes-srpm-macros",
+          "repo": "binary-updates",
+          "sha256": "a1d0719330335f83b98c9a964f57474a545b8b0e0cf9c86b5e7d8ded54c075a9",
+          "source": "package-notes"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.8-2.fc43",
+          "location": "Packages/p/patch-2.8-2.fc43.x86_64.rpm",
+          "name": "patch",
+          "repo": "binary-releases",
+          "sha256": "f01693bd1b93efa8aed8b7d7ac33f0703e075c1ea9e6a3813443a1465881bd39",
+          "source": "patch"
+        },
+        {
+          "arch": "noarch",
+          "evr": "5.74-524.fc43",
+          "location": "Packages/p/perl-AutoLoader-5.74-524.fc43.noarch.rpm",
+          "name": "perl-AutoLoader",
+          "repo": "binary-updates",
+          "sha256": "e528ec14f81f13476fba59cbcf19eb50cd8c2e9359e2aee104a4ba5cf6b1858f",
+          "source": "perl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.89-524.fc43",
+          "location": "Packages/p/perl-B-1.89-524.fc43.x86_64.rpm",
+          "name": "perl-B",
+          "repo": "binary-updates",
+          "sha256": "d94ab6a9f8e11c785c3de400d6e02c4f3682bd1bde6941518ac861bcf910776f",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.54-520.fc43",
+          "location": "Packages/p/perl-Carp-1.54-520.fc43.noarch.rpm",
+          "name": "perl-Carp",
+          "repo": "binary-releases",
+          "sha256": "86d0fcc60243334524e712aeb4156cda6bf0b53ed63bf8fe7d74bf383b964db2",
+          "source": "perl-Carp"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.68-524.fc43",
+          "location": "Packages/p/perl-Class-Struct-0.68-524.fc43.noarch.rpm",
+          "name": "perl-Class-Struct",
+          "repo": "binary-updates",
+          "sha256": "197d9d2c85cea9a41318f7e4003318bb7bd108ffb901b1c7b38ad2ed1925fb3d",
+          "source": "perl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.192-522.fc43",
+          "location": "Packages/p/perl-Data-Dumper-2.192-522.fc43.x86_64.rpm",
+          "name": "perl-Data-Dumper",
+          "repo": "binary-updates",
+          "sha256": "808479ea66f8ce835d1224b92658613b86fda6f04e9f69591a652d9c9b2c3557",
+          "source": "perl-Data-Dumper"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.20-520.fc43",
+          "location": "Packages/p/perl-Digest-1.20-520.fc43.noarch.rpm",
+          "name": "perl-Digest",
+          "repo": "binary-releases",
+          "sha256": "12f571634e3ce8c3f0d8559b9f5396f971c458334f28414b68594289d503c8d9",
+          "source": "perl-Digest"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.59-520.fc43",
+          "location": "Packages/p/perl-Digest-MD5-2.59-520.fc43.x86_64.rpm",
+          "name": "perl-Digest-MD5",
+          "repo": "binary-releases",
+          "sha256": "2db1c971ef2869807c7720030fbe224650b57b44cd49fd9d6bfd0e696c75e694",
+          "source": "perl-Digest-MD5"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.57-524.fc43",
+          "location": "Packages/p/perl-DynaLoader-1.57-524.fc43.x86_64.rpm",
+          "name": "perl-DynaLoader",
+          "repo": "binary-updates",
+          "sha256": "fe46e2a9aa2cac3df3758a25a13407fceec6da513232d4f620973caa2796d15f",
+          "source": "perl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4:3.21-520.fc43",
+          "location": "Packages/p/perl-Encode-3.21-520.fc43.x86_64.rpm",
+          "name": "perl-Encode",
+          "repo": "binary-releases",
+          "sha256": "c79569dca0dedb28a9748ea107d58dcd84701e783de53be30b56ee81592debcf",
+          "source": "perl-Encode"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.38-524.fc43",
+          "location": "Packages/p/perl-Errno-1.38-524.fc43.x86_64.rpm",
+          "name": "perl-Errno",
+          "repo": "binary-updates",
+          "sha256": "14919d7fe25e41cb91374b44a265892dc8e76cc734e1faca20f890d64a06eaf6",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "5.79-520.fc43",
+          "location": "Packages/p/perl-Exporter-5.79-520.fc43.noarch.rpm",
+          "name": "perl-Exporter",
+          "repo": "binary-releases",
+          "sha256": "cc53f6517505f5ea7954b9ac839298d1bce2714bd4a49b7b1cf905fc39a6655d",
+          "source": "perl-Exporter"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.20-524.fc43",
+          "location": "Packages/p/perl-Fcntl-1.20-524.fc43.x86_64.rpm",
+          "name": "perl-Fcntl",
+          "repo": "binary-updates",
+          "sha256": "0a971775759e843335d782602ae23746f422d60e641aa46bfd9c1d8feea4510e",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.86-524.fc43",
+          "location": "Packages/p/perl-File-Basename-2.86-524.fc43.noarch.rpm",
+          "name": "perl-File-Basename",
+          "repo": "binary-updates",
+          "sha256": "87694504162a29d94c5d1a49a2610f374bf5b0b1a02702ff4369fe90eac9387b",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.100.800-524.fc43",
+          "location": "Packages/p/perl-File-Compare-1.100.800-524.fc43.noarch.rpm",
+          "name": "perl-File-Compare",
+          "repo": "binary-updates",
+          "sha256": "f6d145056ac632a26f748646a5118b3e5f156378309dbe275a8c73bf879e878c",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.41-524.fc43",
+          "location": "Packages/p/perl-File-Copy-2.41-524.fc43.noarch.rpm",
+          "name": "perl-File-Copy",
+          "repo": "binary-updates",
+          "sha256": "72e0608fc25ecbe8044ed1fea92977b87bfe208da23144724f78538292317a93",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.44-524.fc43",
+          "location": "Packages/p/perl-File-Find-1.44-524.fc43.noarch.rpm",
+          "name": "perl-File-Find",
+          "repo": "binary-updates",
+          "sha256": "e3fadaada36b90a5262efbf98f227e3650a661de923bf102167ab03b937fadb9",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.18-520.fc43",
+          "location": "Packages/p/perl-File-Path-2.18-520.fc43.noarch.rpm",
+          "name": "perl-File-Path",
+          "repo": "binary-releases",
+          "sha256": "2e1f5f7bad27aa20cc6c6e66bd65e6f8f23a559c770f3db1ae9e3fdadecca1f3",
+          "source": "perl-File-Path"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1:0.231.100-520.fc43",
+          "location": "Packages/p/perl-File-Temp-0.231.100-520.fc43.noarch.rpm",
+          "name": "perl-File-Temp",
+          "repo": "binary-releases",
+          "sha256": "4032851b6945afbf5e67c18a0eaff83d8f5dfdd8aaa177a7fb3e113d6a79976c",
+          "source": "perl-File-Temp"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.14-524.fc43",
+          "location": "Packages/p/perl-File-stat-1.14-524.fc43.noarch.rpm",
+          "name": "perl-File-stat",
+          "repo": "binary-updates",
+          "sha256": "2d557aa026ca52a490f3b6a0cbf168e04fc4b9ce14b3b977edc522fd49f730d9",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.05-524.fc43",
+          "location": "Packages/p/perl-FileHandle-2.05-524.fc43.noarch.rpm",
+          "name": "perl-FileHandle",
+          "repo": "binary-updates",
+          "sha256": "1fcffa9a011a0a87ee97b1b315d1a81793b7e9c9ce6f660988cbaee747f84fed",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1:2.58-520.fc43",
+          "location": "Packages/p/perl-Getopt-Long-2.58-520.fc43.noarch.rpm",
+          "name": "perl-Getopt-Long",
+          "repo": "binary-releases",
+          "sha256": "9d006fb2fd884058ea885de08e44470525dd899428821ac6af986a074f357a5b",
+          "source": "perl-Getopt-Long"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.14-524.fc43",
+          "location": "Packages/p/perl-Getopt-Std-1.14-524.fc43.noarch.rpm",
+          "name": "perl-Getopt-Std",
+          "repo": "binary-updates",
+          "sha256": "8e7d1ab71cd50632f81299651c3e14a3185790d4cf72ed777b9926195545f391",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.096-1.fc43",
+          "location": "Packages/p/perl-HTTP-Tiny-0.096-1.fc43.noarch.rpm",
+          "name": "perl-HTTP-Tiny",
+          "repo": "binary-updates",
+          "sha256": "a3cda2b041ada11225e10d866ec007b135dd4460d023aa7f327d21ced86f96ce",
+          "source": "perl-HTTP-Tiny"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.55-524.fc43",
+          "location": "Packages/p/perl-IO-1.55-524.fc43.x86_64.rpm",
+          "name": "perl-IO",
+          "repo": "binary-updates",
+          "sha256": "10a6d10c70db1880d6aa173aa74c863fa71c2718ccf683719e2a30acfa254e63",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.43-521.fc43",
+          "location": "Packages/p/perl-IO-Socket-IP-0.43-521.fc43.noarch.rpm",
+          "name": "perl-IO-Socket-IP",
+          "repo": "binary-releases",
+          "sha256": "bfea0670221affc2544f0bb67dea688b2ba8abbc4cffd6471b0ffe68d4381720",
+          "source": "perl-IO-Socket-IP"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.095-2.fc43",
+          "location": "Packages/p/perl-IO-Socket-SSL-2.095-2.fc43.noarch.rpm",
+          "name": "perl-IO-Socket-SSL",
+          "repo": "binary-releases",
+          "sha256": "c1dfea56d329ec3785d8c1395d35747dfe76091d3d8f5e74c731e30ad982cbb7",
+          "source": "perl-IO-Socket-SSL"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.24-524.fc43",
+          "location": "Packages/p/perl-IPC-Open3-1.24-524.fc43.noarch.rpm",
+          "name": "perl-IPC-Open3",
+          "repo": "binary-updates",
+          "sha256": "88f6177aa572026ce35abed4a4641a7d93b65abb20e11ba9626268f12aa9e86e",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.303-24.fc43",
+          "location": "Packages/p/perl-MIME-Base32-1.303-24.fc43.noarch.rpm",
+          "name": "perl-MIME-Base32",
+          "repo": "binary-releases",
+          "sha256": "ec2745769beaa0cf8ff62ad0d6daf65dde28306b9688fc8259d5a965f1152bd9",
+          "source": "perl-MIME-Base32"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.16-520.fc43",
+          "location": "Packages/p/perl-MIME-Base64-3.16-520.fc43.x86_64.rpm",
+          "name": "perl-MIME-Base64",
+          "repo": "binary-releases",
+          "sha256": "9ea83665644af9945ebb62e44a31432e3f8cabb4d1d840832caeb24d39be7de3",
+          "source": "perl-MIME-Base64"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.94-11.fc43",
+          "location": "Packages/p/perl-Net-SSLeay-1.94-11.fc43.x86_64.rpm",
+          "name": "perl-Net-SSLeay",
+          "repo": "binary-releases",
+          "sha256": "ba1d4bfec6d5625a005b47f105873cbce9467a9bdc55246589bb2f8e2f4c2671",
+          "source": "perl-Net-SSLeay"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.23-524.fc43",
+          "location": "Packages/p/perl-POSIX-2.23-524.fc43.x86_64.rpm",
+          "name": "perl-POSIX",
+          "repo": "binary-updates",
+          "sha256": "55035b8f1928f4457f39519771c1e42e942378756bb3229259ab8d8e5d38ac4a",
+          "source": "perl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.94-520.fc43",
+          "location": "Packages/p/perl-PathTools-3.94-520.fc43.x86_64.rpm",
+          "name": "perl-PathTools",
+          "repo": "binary-releases",
+          "sha256": "a716f1e6c8f2d29059590c91a13e7843b83bda356acc80dc4cd5a0cf0d8e9273",
+          "source": "perl-PathTools"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1:1.07-520.fc43",
+          "location": "Packages/p/perl-Pod-Escapes-1.07-520.fc43.noarch.rpm",
+          "name": "perl-Pod-Escapes",
+          "repo": "binary-releases",
+          "sha256": "62351597026d6fff763eb8720a4587b7ac552bf1e8b7556be0069ea89e924e88",
+          "source": "perl-Pod-Escapes"
+        },
+        {
+          "arch": "noarch",
+          "evr": "3.28.01-521.fc43",
+          "location": "Packages/p/perl-Pod-Perldoc-3.28.01-521.fc43.noarch.rpm",
+          "name": "perl-Pod-Perldoc",
+          "repo": "binary-releases",
+          "sha256": "491d9c1bec868ae83b49b817f009540f948bd34324ced0ed3556b7356bbbd9a6",
+          "source": "perl-Pod-Perldoc"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1:3.47-3.fc43",
+          "location": "Packages/p/perl-Pod-Simple-3.47-3.fc43.noarch.rpm",
+          "name": "perl-Pod-Simple",
+          "repo": "binary-releases",
+          "sha256": "33d9173214801928594958ab65a50a2b3e7d4bbf2a8ba8b587be967aad690441",
+          "source": "perl-Pod-Simple"
+        },
+        {
+          "arch": "noarch",
+          "evr": "4:2.05-520.fc43",
+          "location": "Packages/p/perl-Pod-Usage-2.05-520.fc43.noarch.rpm",
+          "name": "perl-Pod-Usage",
+          "repo": "binary-releases",
+          "sha256": "7b0abe2cf023923e6e717ddb47deeef3612b00e20543797d1c03c1b4df84db47",
+          "source": "perl-Pod-Usage"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "5:1.70-1.fc43",
+          "location": "Packages/p/perl-Scalar-List-Utils-1.70-1.fc43.x86_64.rpm",
+          "name": "perl-Scalar-List-Utils",
+          "repo": "binary-releases",
+          "sha256": "db80bb3d0288f8bb67458ba46b8a9be340588f8fe512b2864efdbc20f95503fd",
+          "source": "perl-Scalar-List-Utils"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.02-524.fc43",
+          "location": "Packages/p/perl-SelectSaver-1.02-524.fc43.noarch.rpm",
+          "name": "perl-SelectSaver",
+          "repo": "binary-updates",
+          "sha256": "5a085a500c3bd59c9b9b7c7c6b6f17aeb9023373afd61cc04377772b1b57931b",
+          "source": "perl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4:2.043-1.fc43",
+          "location": "Packages/p/perl-Socket-2.043-1.fc43.x86_64.rpm",
+          "name": "perl-Socket",
+          "repo": "binary-updates",
+          "sha256": "791ac0f2a89015d981b09f453595fc7c03bc0c01178402af68f864549f2e5306",
+          "source": "perl-Socket"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:3.37-521.fc43",
+          "location": "Packages/p/perl-Storable-3.37-521.fc43.x86_64.rpm",
+          "name": "perl-Storable",
+          "repo": "binary-releases",
+          "sha256": "f08a63546a639243ac8a7bd36067cb5418c4771491eda81d4738122d189ccb24",
+          "source": "perl-Storable"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.09-524.fc43",
+          "location": "Packages/p/perl-Symbol-1.09-524.fc43.noarch.rpm",
+          "name": "perl-Symbol",
+          "repo": "binary-updates",
+          "sha256": "bf0f003d13b5ee2529a2170aa58ef6f4a3e39af30d4f40071681a737b80c24b7",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "5.01-521.fc43",
+          "location": "Packages/p/perl-Term-ANSIColor-5.01-521.fc43.noarch.rpm",
+          "name": "perl-Term-ANSIColor",
+          "repo": "binary-releases",
+          "sha256": "c64db2443f116e0ae36706181105d71a01416ef6d40c33d4356bce1f7acf7265",
+          "source": "perl-Term-ANSIColor"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.18-520.fc43",
+          "location": "Packages/p/perl-Term-Cap-1.18-520.fc43.noarch.rpm",
+          "name": "perl-Term-Cap",
+          "repo": "binary-releases",
+          "sha256": "0824eba9dbd381b3b43a68f446b3658158e0855cafce167ae042263aa48b8cd7",
+          "source": "perl-Term-Cap"
+        },
+        {
+          "arch": "noarch",
+          "evr": "3.31-520.fc43",
+          "location": "Packages/p/perl-Text-ParseWords-3.31-520.fc43.noarch.rpm",
+          "name": "perl-Text-ParseWords",
+          "repo": "binary-releases",
+          "sha256": "6ec28e803da09539acb8284ba699711a343cc99571c3b0a570828c8ecdf50c3a",
+          "source": "perl-Text-ParseWords"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2024.001-520.fc43",
+          "location": "Packages/p/perl-Text-Tabs+Wrap-2024.001-520.fc43.noarch.rpm",
+          "name": "perl-Text-Tabs+Wrap",
+          "repo": "binary-releases",
+          "sha256": "c7252d531f726bd658ffd2615bf1990691385226e700b165bf11e64150f11ba0",
+          "source": "perl-Text-Tabs+Wrap"
+        },
+        {
+          "arch": "noarch",
+          "evr": "3.14-520.fc43",
+          "location": "Packages/p/perl-Thread-Queue-3.14-520.fc43.noarch.rpm",
+          "name": "perl-Thread-Queue",
+          "repo": "binary-releases",
+          "sha256": "52223d61371b26a3d5b3e116964d69dab96a702f5b02b9dbe5fb306bab383060",
+          "source": "perl-Thread-Queue"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4:1.9778-520.fc43",
+          "location": "Packages/p/perl-Time-HiRes-1.9778-520.fc43.x86_64.rpm",
+          "name": "perl-Time-HiRes",
+          "repo": "binary-releases",
+          "sha256": "46b42f7355ab819e88cde252b45e82e8404a3b03b64e1b93d7b0b1b8f1e465f7",
+          "source": "perl-Time-HiRes"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2:1.350-520.fc43",
+          "location": "Packages/p/perl-Time-Local-1.350-520.fc43.noarch.rpm",
+          "name": "perl-Time-Local",
+          "repo": "binary-releases",
+          "sha256": "8303f238618222780478d5f6252d217935429b3d75befee6679833a22f476f2f",
+          "source": "perl-Time-Local"
+        },
+        {
+          "arch": "noarch",
+          "evr": "5.36-1.fc43",
+          "location": "Packages/p/perl-URI-5.36-1.fc43.noarch.rpm",
+          "name": "perl-URI",
+          "repo": "binary-updates",
+          "sha256": "16742a56380ebb9174fa212a5bf7b0ebdaafdd44ff9a07892ad671d3be1f814b",
+          "source": "perl-URI"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.32-520.fc43",
+          "location": "Packages/p/perl-Unicode-Normalize-1.32-520.fc43.x86_64.rpm",
+          "name": "perl-Unicode-Normalize",
+          "repo": "binary-releases",
+          "sha256": "b0f4e9bd9dff4ae00eef4ceedd94640961cb5cbc4485dd2ee2eefcaaa2010102",
+          "source": "perl-Unicode-Normalize"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.27-524.fc43",
+          "location": "Packages/p/perl-base-2.27-524.fc43.noarch.rpm",
+          "name": "perl-base",
+          "repo": "binary-updates",
+          "sha256": "3b756151084b2fa1897a7c26da09a8d7dd7d823f044d4f5f7bbba51306c8cec3",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.33-521.fc43",
+          "location": "Packages/p/perl-constant-1.33-521.fc43.noarch.rpm",
+          "name": "perl-constant",
+          "repo": "binary-releases",
+          "sha256": "8852b4bf81b0fb52d3439a2ea7914a33bbc67939f48bf09a9d563e8608d4259a",
+          "source": "perl-constant"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.61.000-524.fc43",
+          "location": "Packages/p/perl-if-0.61.000-524.fc43.noarch.rpm",
+          "name": "perl-if",
+          "repo": "binary-updates",
+          "sha256": "507b4df5c73ed7e16f4c8de44d2930468a172c2eb5993789e914a0603c0d9f6b",
+          "source": "perl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4:5.42.3-524.fc43",
+          "location": "Packages/p/perl-interpreter-5.42.3-524.fc43.x86_64.rpm",
+          "name": "perl-interpreter",
+          "repo": "binary-updates",
+          "sha256": "28b933e2138d19d534dc3dcf72449ee0e25d695cd259fa5d8f20a7baf71f6b91",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "3.15-521.fc43",
+          "location": "Packages/p/perl-libnet-3.15-521.fc43.noarch.rpm",
+          "name": "perl-libnet",
+          "repo": "binary-releases",
+          "sha256": "ec13ac69ba31f0162412e1bb9a0887803abaae263cf56f9bb4a0ee81007490d6",
+          "source": "perl-libnet"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4:5.42.3-524.fc43",
+          "location": "Packages/p/perl-libs-5.42.3-524.fc43.x86_64.rpm",
+          "name": "perl-libs",
+          "repo": "binary-updates",
+          "sha256": "20a699a3c3702520a805a8c8d57b7e79bb3ee9564b59ca22fcbdeaf249f86da4",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.13-524.fc43",
+          "location": "Packages/p/perl-locale-1.13-524.fc43.noarch.rpm",
+          "name": "perl-locale",
+          "repo": "binary-updates",
+          "sha256": "88447c76476b9049f250823568c99924c5854b0e36a1cdcab46903ded7fec741",
+          "source": "perl"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.29-524.fc43",
+          "location": "Packages/p/perl-mro-1.29-524.fc43.x86_64.rpm",
+          "name": "perl-mro",
+          "repo": "binary-updates",
+          "sha256": "1d7b490e5c4f92f21e39805c519c06d753c6f990944868fb412e48906238996a",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.40-524.fc43",
+          "location": "Packages/p/perl-overload-1.40-524.fc43.noarch.rpm",
+          "name": "perl-overload",
+          "repo": "binary-updates",
+          "sha256": "04b665b45320d163d63ce3553adc3613b9a306931b728bbd41176d2ebade75ab",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.02-524.fc43",
+          "location": "Packages/p/perl-overloading-0.02-524.fc43.noarch.rpm",
+          "name": "perl-overloading",
+          "repo": "binary-updates",
+          "sha256": "8e625efc7a2a418c19121b0fc5ac5e8047cd2fe15d49ce906c52f8dd3113a7ca",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1:0.244-520.fc43",
+          "location": "Packages/p/perl-parent-0.244-520.fc43.noarch.rpm",
+          "name": "perl-parent",
+          "repo": "binary-releases",
+          "sha256": "d800119dea64cba7caec5b85c828e967d965b4e01ea5f323e642077054b2f1f0",
+          "source": "perl-parent"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1:6.0.2-520.fc43",
+          "location": "Packages/p/perl-podlators-6.0.2-520.fc43.noarch.rpm",
+          "name": "perl-podlators",
+          "repo": "binary-releases",
+          "sha256": "290c23f5ba1b09dbd621c544ffd7563187a3956a76ba4e17d2d092191228d49d",
+          "source": "perl-podlators"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1-60.fc43",
+          "location": "Packages/p/perl-srpm-macros-1-60.fc43.noarch.rpm",
+          "name": "perl-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "50818e4fb85339b658f490627cf6ddc3e21016f21cdc18cd59215ea6bc60d291",
+          "source": "perl-srpm-macros"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:2.43-520.fc43",
+          "location": "Packages/p/perl-threads-2.43-520.fc43.x86_64.rpm",
+          "name": "perl-threads",
+          "repo": "binary-releases",
+          "sha256": "9af56c9ecb2a97a98d1ce4fafeda0a63bed3839c8421dcb2457bbe52a425d1ac",
+          "source": "perl-threads"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.70-520.fc43",
+          "location": "Packages/p/perl-threads-shared-1.70-520.fc43.x86_64.rpm",
+          "name": "perl-threads-shared",
+          "repo": "binary-releases",
+          "sha256": "67a71566a1a7bb4be2cea899e881d134de0d37305f1eec68afa2a4eaa0cc8ab7",
+          "source": "perl-threads-shared"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.05-524.fc43",
+          "location": "Packages/p/perl-vars-1.05-524.fc43.noarch.rpm",
+          "name": "perl-vars",
+          "repo": "binary-updates",
+          "sha256": "ae646429e7836017d030fdc38cc538337a5f9bc4ae6d2d3b8f415a246143c2c6",
+          "source": "perl"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.23.2-1.fc43",
+          "location": "Packages/p/pyproject-srpm-macros-1.23.2-1.fc43.noarch.rpm",
+          "name": "pyproject-srpm-macros",
+          "repo": "binary-updates",
+          "sha256": "617a48062a4546fa16c6fdbb5064fe53a63bd4e142234d59bffb7c200fe7ba71",
+          "source": "pyproject-rpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "3.14-5.fc43",
+          "location": "Packages/p/python-srpm-macros-3.14-5.fc43.noarch.rpm",
+          "name": "python-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "6a1ef18d66b17a8c41cd2d348399038c69355ec2d609eca8ec948080c4d77e32",
+          "source": "python-rpm-macros"
+        },
+        {
+          "arch": "noarch",
+          "evr": "5.15.18-1.fc43",
+          "location": "Packages/q/qt5-srpm-macros-5.15.18-1.fc43.noarch.rpm",
+          "name": "qt5-srpm-macros",
+          "repo": "binary-updates",
+          "sha256": "739994e3f6cda0cf72467f1e084d8973769d93bb4cea787c7f759172f84d2c8c",
+          "source": "qt5"
+        },
+        {
+          "arch": "noarch",
+          "evr": "6.10.3-1.fc43",
+          "location": "Packages/q/qt6-srpm-macros-6.10.3-1.fc43.noarch.rpm",
+          "name": "qt6-srpm-macros",
+          "repo": "binary-updates",
+          "sha256": "c49115a0e165489152a1767952cc52b4791554eda9a48dd7cd28a0755fbdf063",
+          "source": "qt6"
+        },
+        {
+          "arch": "noarch",
+          "evr": "343-14.fc43",
+          "location": "Packages/r/redhat-rpm-config-343-14.fc43.noarch.rpm",
+          "name": "redhat-rpm-config",
+          "repo": "binary-updates",
+          "sha256": "a94f56de326ad63185e29224fe673bf26650b7492d38c35e064b9dbf0dbd3342",
+          "source": "redhat-rpm-config"
+        },
+        {
+          "arch": "noarch",
+          "evr": "28.5-1.fc43",
+          "location": "Packages/r/rust-srpm-macros-28.5-1.fc43.noarch.rpm",
+          "name": "rust-srpm-macros",
+          "repo": "binary-updates",
+          "sha256": "6fb048307fe3b19e83d7604ce11929ce1a515eff6ff89720f76ca618154803a0",
+          "source": "cargo-rpm-macros"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.1.3-8.fc43",
+          "location": "Packages/t/tpm2-tss-4.1.3-8.fc43.x86_64.rpm",
+          "name": "tpm2-tss",
+          "repo": "binary-releases",
+          "sha256": "70c6d593fef407186992eaab45dddd29e5edebb2d3fead1b5649b54c68686d11",
+          "source": "tpm2-tss"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.4.2-1.fc43",
+          "location": "Packages/t/tree-sitter-srpm-macros-0.4.2-1.fc43.noarch.rpm",
+          "name": "tree-sitter-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "998a91710e2c90f9becaea0bf8ced18cc6572da84418600d1ec086e6b8537b85",
+          "source": "tree-sitter-srpm-macros"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "6.0-67.fc43",
+          "location": "Packages/u/unzip-6.0-67.fc43.x86_64.rpm",
+          "name": "unzip",
+          "repo": "binary-releases",
+          "sha256": "7c3857ecaf6f92066742d2a6f8c658b9207088b8cab51666ce1de5e5d2db8698",
+          "source": "unzip"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.8.3-3.fc43",
+          "location": "Packages/x/xxhash-libs-0.8.3-3.fc43.x86_64.rpm",
+          "name": "xxhash-libs",
+          "repo": "binary-releases",
+          "sha256": "acc80e56fa2104ab1a198a2201f0d015471e3dafefc3af1f0fb25a228c3798d0",
+          "source": "xxhash"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1-5.fc43",
+          "location": "Packages/z/zig-srpm-macros-1-5.fc43.noarch.rpm",
+          "name": "zig-srpm-macros",
+          "repo": "binary-releases",
+          "sha256": "04baf5cb0c5f15d7c046d12a260dd0511b5f76cce5c77b60e3c79c60c589a963",
+          "source": "zig-srpm-macros"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.0-44.fc43",
+          "location": "Packages/z/zip-3.0-44.fc43.x86_64.rpm",
+          "name": "zip",
+          "repo": "binary-releases",
+          "sha256": "56c7cb63667e3edcce3412bbfaf34bd0e8a956913543163a6d21e201450936f3",
+          "source": "zip"
+        }
+      ],
+      "dynamic_buildrequires": {
+        "capabilities": [],
+        "source": "repodata",
+        "suspected": [],
+        "unmet": false
+      },
+      "source": {
+        "evr": "2.3.2-4.fc43",
+        "location": "Packages/a/acl-2.3.2-4.fc43.src.rpm",
+        "name": "acl-compat",
+        "repo": "source-releases",
+        "sha256": "7a509804a9608a94ce1feca41502455ca4d0a683231c73004844e88b32ebb49d",
+        "source_name": "acl"
+      },
+      "subpackages": [
+        "acl",
+        "libacl",
+        "libacl-devel"
+      ],
+      "variant_of": "acl"
     },
     "attr": {
       "build_requires_resolved": {
@@ -32205,13 +34608,15 @@
         "location": "Packages/a/attr-2.6.0-1.fc43.src.rpm",
         "name": "attr",
         "repo": "source-updates",
-        "sha256": "352204f7d9833a6cf8d35732ba4276bd6324ab042a4ae89386d81a0b937905cf"
+        "sha256": "352204f7d9833a6cf8d35732ba4276bd6324ab042a4ae89386d81a0b937905cf",
+        "source_name": "attr"
       },
       "subpackages": [
         "attr",
         "libattr",
         "libattr-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "audit": {
       "build_requires_resolved": {
@@ -35021,7 +37426,8 @@
         "location": "Packages/a/audit-4.2.1-1.fc43.src.rpm",
         "name": "audit",
         "repo": "source-updates",
-        "sha256": "b513326edd4473011e76b6e0e9a1010dc3f6558bb580b790503b4432c2780c56"
+        "sha256": "b513326edd4473011e76b6e0e9a1010dc3f6558bb580b790503b4432c2780c56",
+        "source_name": "audit"
       },
       "subpackages": [
         "audispd-plugins",
@@ -35031,7 +37437,8 @@
         "audit-libs-devel",
         "audit-rules",
         "python3-audit"
-      ]
+      ],
+      "variant_of": null
     },
     "authselect": {
       "build_requires_resolved": {
@@ -39184,13 +41591,15 @@
         "location": "Packages/a/authselect-1.6.2-1.fc43.src.rpm",
         "name": "authselect",
         "repo": "source-releases",
-        "sha256": "68abed8d3ad6e96a6ed8a16503d7eff7f1c05a44eb84512efc3ad0d2f55cdb2d"
+        "sha256": "68abed8d3ad6e96a6ed8a16503d7eff7f1c05a44eb84512efc3ad0d2f55cdb2d",
+        "source_name": "authselect"
       },
       "subpackages": [
         "authselect",
         "authselect-devel",
         "authselect-libs"
-      ]
+      ],
+      "variant_of": null
     },
     "bash": {
       "build_requires_resolved": {
@@ -41619,13 +44028,15 @@
         "location": "Packages/b/bash-5.3.0-2.fc43.src.rpm",
         "name": "bash",
         "repo": "source-releases",
-        "sha256": "b414291e398c75a3db3526f4de835b234951786f75ff31ad1c76fb6ff3261f24"
+        "sha256": "b414291e398c75a3db3526f4de835b234951786f75ff31ad1c76fb6ff3261f24",
+        "source_name": "bash"
       },
       "subpackages": [
         "bash",
         "bash-devel",
         "bash-doc"
-      ]
+      ],
+      "variant_of": null
     },
     "bzip2": {
       "build_requires_resolved": {
@@ -43291,14 +45702,16 @@
         "location": "Packages/b/bzip2-1.0.8-21.fc43.src.rpm",
         "name": "bzip2",
         "repo": "source-releases",
-        "sha256": "eb9fbd5877d6c342bd55cbd2372bfe43deae799ebdd1ce379af3e2a7b7c9c526"
+        "sha256": "eb9fbd5877d6c342bd55cbd2372bfe43deae799ebdd1ce379af3e2a7b7c9c526",
+        "source_name": "bzip2"
       },
       "subpackages": [
         "bzip2",
         "bzip2-devel",
         "bzip2-libs",
         "bzip2-static"
-      ]
+      ],
+      "variant_of": null
     },
     "ca-certificates": {
       "build_requires_resolved": {
@@ -46606,11 +49019,13 @@
         "location": "Packages/c/ca-certificates-2025.2.80_v9.0.304-1.2.fc43.src.rpm",
         "name": "ca-certificates",
         "repo": "source-updates",
-        "sha256": "5aa7047473dac8333fad5285b4dfd53028ce45b1741f496566f4367ffa615300"
+        "sha256": "5aa7047473dac8333fad5285b4dfd53028ce45b1741f496566f4367ffa615300",
+        "source_name": "ca-certificates"
       },
       "subpackages": [
         "ca-certificates"
-      ]
+      ],
+      "variant_of": null
     },
     "chkconfig": {
       "build_requires_resolved": {
@@ -48956,13 +51371,15 @@
         "location": "Packages/c/chkconfig-1.33-3.fc43.src.rpm",
         "name": "chkconfig",
         "repo": "source-updates",
-        "sha256": "f7b808e64124933783408a4061e734085fd2eeeb208807354f93f4f05d5766e7"
+        "sha256": "f7b808e64124933783408a4061e734085fd2eeeb208807354f93f4f05d5766e7",
+        "source_name": "chkconfig"
       },
       "subpackages": [
         "alternatives",
         "chkconfig",
         "ntsysv"
-      ]
+      ],
+      "variant_of": null
     },
     "coreutils": {
       "build_requires_resolved": {
@@ -51781,13 +54198,15 @@
         "location": "Packages/c/coreutils-9.7-10.fc43.src.rpm",
         "name": "coreutils",
         "repo": "source-updates",
-        "sha256": "33886d22f3e67ff3e5979ff0f12e8f21cc1b25acc273d3ce26438b911a12c7dd"
+        "sha256": "33886d22f3e67ff3e5979ff0f12e8f21cc1b25acc273d3ce26438b911a12c7dd",
+        "source_name": "coreutils"
       },
       "subpackages": [
         "coreutils",
         "coreutils-common",
         "coreutils-single"
-      ]
+      ],
+      "variant_of": null
     },
     "cpio": {
       "build_requires_resolved": {
@@ -54206,11 +56625,13 @@
         "location": "Packages/c/cpio-2.15-6.fc43.src.rpm",
         "name": "cpio",
         "repo": "source-releases",
-        "sha256": "e5a8ba7131ea12940c18227062a6789050159c49c366801a71327775795dcdac"
+        "sha256": "e5a8ba7131ea12940c18227062a6789050159c49c366801a71327775795dcdac",
+        "source_name": "cpio"
       },
       "subpackages": [
         "cpio"
-      ]
+      ],
+      "variant_of": null
     },
     "cracklib": {
       "build_requires_resolved": {
@@ -55969,13 +58390,15 @@
         "location": "Packages/c/cracklib-2.10.3-1.fc43.src.rpm",
         "name": "cracklib",
         "repo": "source-updates",
-        "sha256": "1fb56a431f89c8f745299eb2dc93250fda43f1dd032b516ba5074dca54844785"
+        "sha256": "1fb56a431f89c8f745299eb2dc93250fda43f1dd032b516ba5074dca54844785",
+        "source_name": "cracklib"
       },
       "subpackages": [
         "cracklib",
         "cracklib-devel",
         "cracklib-dicts"
-      ]
+      ],
+      "variant_of": null
     },
     "crypto-policies": {
       "build_requires_resolved": {
@@ -59128,12 +61551,14 @@
         "location": "Packages/c/crypto-policies-20251125-1.git63291f8.fc43.src.rpm",
         "name": "crypto-policies",
         "repo": "source-updates",
-        "sha256": "3257dcc370e80ae2a2066e88b8ca73420635c5af62e1445b96d7467c9284c8c9"
+        "sha256": "3257dcc370e80ae2a2066e88b8ca73420635c5af62e1445b96d7467c9284c8c9",
+        "source_name": "crypto-policies"
       },
       "subpackages": [
         "crypto-policies",
         "crypto-policies-scripts"
-      ]
+      ],
+      "variant_of": null
     },
     "cryptsetup": {
       "build_requires_resolved": {
@@ -61945,7 +64370,8 @@
         "location": "Packages/c/cryptsetup-2.8.7-1.fc43.src.rpm",
         "name": "cryptsetup",
         "repo": "source-updates",
-        "sha256": "e6a712b83d83a08a1897b47296291f9083130ba990f61ea04498077c5bbd6137"
+        "sha256": "e6a712b83d83a08a1897b47296291f9083130ba990f61ea04498077c5bbd6137",
+        "source_name": "cryptsetup"
       },
       "subpackages": [
         "cryptsetup",
@@ -61954,7 +64380,8 @@
         "cryptsetup-ssh-token",
         "integritysetup",
         "veritysetup"
-      ]
+      ],
+      "variant_of": null
     },
     "curl": {
       "build_requires_resolved": {
@@ -65337,14 +67764,16 @@
         "location": "Packages/c/curl-8.15.0-8.fc43.src.rpm",
         "name": "curl",
         "repo": "source-updates",
-        "sha256": "9303767f67b77396e44737d3adfa04d69c1858bfe2b78a2baef8ebd21630595b"
+        "sha256": "9303767f67b77396e44737d3adfa04d69c1858bfe2b78a2baef8ebd21630595b",
+        "source_name": "curl"
       },
       "subpackages": [
         "curl",
         "libcurl",
         "libcurl-devel",
         "libcurl-minimal"
-      ]
+      ],
+      "variant_of": null
     },
     "cyrus-sasl": {
       "build_requires_resolved": {
@@ -68297,7 +70726,8 @@
         "location": "Packages/c/cyrus-sasl-2.1.28-33.fc43.src.rpm",
         "name": "cyrus-sasl",
         "repo": "source-releases",
-        "sha256": "3ed3526a4632f499741d6a5fb95db1391497694930ebafabe43285999822ee90"
+        "sha256": "3ed3526a4632f499741d6a5fb95db1391497694930ebafabe43285999822ee90",
+        "source_name": "cyrus-sasl"
       },
       "subpackages": [
         "cyrus-sasl",
@@ -68310,7 +70740,8 @@
         "cyrus-sasl-plain",
         "cyrus-sasl-scram",
         "cyrus-sasl-sql"
-      ]
+      ],
+      "variant_of": null
     },
     "dbus": {
       "build_requires_resolved": {
@@ -72235,7 +74666,8 @@
         "location": "Packages/d/dbus-1.16.2-1.fc43.src.rpm",
         "name": "dbus",
         "repo": "source-updates",
-        "sha256": "f57797e2dc565d44faf7b17e1d79d7f3e6a6e6adb2664a96a336d96defbc2d92"
+        "sha256": "f57797e2dc565d44faf7b17e1d79d7f3e6a6e6adb2664a96a336d96defbc2d92",
+        "source_name": "dbus"
       },
       "subpackages": [
         "dbus",
@@ -72247,7 +74679,8 @@
         "dbus-tests",
         "dbus-tools",
         "dbus-x11"
-      ]
+      ],
+      "variant_of": null
     },
     "dbus-broker": {
       "build_requires_resolved": {
@@ -74402,12 +76835,14 @@
         "location": "Packages/d/dbus-broker-37-2.fc43.src.rpm",
         "name": "dbus-broker",
         "repo": "source-releases",
-        "sha256": "c9689c6dd4953291dcf5fac4892aa93acbd919fb3bc6d1ca2052dc582ba0bc58"
+        "sha256": "c9689c6dd4953291dcf5fac4892aa93acbd919fb3bc6d1ca2052dc582ba0bc58",
+        "source_name": "dbus-broker"
       },
       "subpackages": [
         "dbus-broker",
         "dbus-broker-tests"
-      ]
+      ],
+      "variant_of": null
     },
     "diffutils": {
       "build_requires_resolved": {
@@ -76823,11 +79258,13 @@
         "location": "Packages/d/diffutils-3.12-3.fc43.src.rpm",
         "name": "diffutils",
         "repo": "source-releases",
-        "sha256": "41cf2629502b5ba207473b806847b34eb1350701d58250386cfc2591e1cf813d"
+        "sha256": "41cf2629502b5ba207473b806847b34eb1350701d58250386cfc2591e1cf813d",
+        "source_name": "diffutils"
       },
       "subpackages": [
         "diffutils"
-      ]
+      ],
+      "variant_of": null
     },
     "dnf5": {
       "build_requires_resolved": {
@@ -81774,7 +84211,8 @@
         "location": "Packages/d/dnf5-5.2.18.0-5.fc43.src.rpm",
         "name": "dnf5",
         "repo": "source-updates",
-        "sha256": "7fd0f551107498da74ad582f6f78b63b76b2a1d9f89af9d457672e8f6ad77ffa"
+        "sha256": "7fd0f551107498da74ad582f6f78b63b76b2a1d9f89af9d457672e8f6ad77ffa",
+        "source_name": "dnf5"
       },
       "subpackages": [
         "dnf5",
@@ -81800,7 +84238,8 @@
         "python3-libdnf5-python-plugins-loader",
         "ruby-libdnf5",
         "ruby-libdnf5-cli"
-      ]
+      ],
+      "variant_of": null
     },
     "dosfstools": {
       "build_requires_resolved": {
@@ -83475,11 +85914,13 @@
         "location": "Packages/d/dosfstools-4.2-16.fc43.src.rpm",
         "name": "dosfstools",
         "repo": "source-releases",
-        "sha256": "9d17a39bcd0f8c6be5cffbe5c7bae045a0ed7fc212f0632f2b3585cb769fcc80"
+        "sha256": "9d17a39bcd0f8c6be5cffbe5c7bae045a0ed7fc212f0632f2b3585cb769fcc80",
+        "source_name": "dosfstools"
       },
       "subpackages": [
         "dosfstools"
-      ]
+      ],
+      "variant_of": null
     },
     "dracut": {
       "build_requires_resolved": {
@@ -86541,7 +88982,8 @@
         "location": "Packages/d/dracut-107-8.fc43.src.rpm",
         "name": "dracut",
         "repo": "source-releases",
-        "sha256": "619dede8394ea9e9054760ae369d707f8f0682bc350c505f16d772ad8197922e"
+        "sha256": "619dede8394ea9e9054760ae369d707f8f0682bc350c505f16d772ad8197922e",
+        "source_name": "dracut"
       },
       "subpackages": [
         "dracut",
@@ -86552,7 +88994,8 @@
         "dracut-network",
         "dracut-squash",
         "dracut-tools"
-      ]
+      ],
+      "variant_of": null
     },
     "e2fsprogs": {
       "build_requires_resolved": {
@@ -89146,7 +91589,8 @@
         "location": "Packages/e/e2fsprogs-1.47.3-2.fc43.src.rpm",
         "name": "e2fsprogs",
         "repo": "source-releases",
-        "sha256": "0dab40fdbddea98539357f59b0a2e85d0e69845748d205c252cf384d517787b7"
+        "sha256": "0dab40fdbddea98539357f59b0a2e85d0e69845748d205c252cf384d517787b7",
+        "source_name": "e2fsprogs"
       },
       "subpackages": [
         "e2fsprogs",
@@ -89158,7 +91602,8 @@
         "libcom_err-devel",
         "libss",
         "libss-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "elfutils": {
       "build_requires_resolved": {
@@ -92400,7 +94845,8 @@
         "location": "Packages/e/elfutils-0.196-1.fc43.src.rpm",
         "name": "elfutils",
         "repo": "source-updates",
-        "sha256": "45514aa806161432a5a8089043fbf878da6d54281a9cf5140a7567b7701175c3"
+        "sha256": "45514aa806161432a5a8089043fbf878da6d54281a9cf5140a7567b7701175c3",
+        "source_name": "elfutils"
       },
       "subpackages": [
         "elfutils",
@@ -92412,7 +94858,8 @@
         "elfutils-libelf",
         "elfutils-libelf-devel",
         "elfutils-libs"
-      ]
+      ],
+      "variant_of": null
     },
     "expat": {
       "build_requires_resolved": {
@@ -94855,13 +97302,15 @@
         "location": "Packages/e/expat-2.8.1-1.fc43.src.rpm",
         "name": "expat",
         "repo": "source-updates",
-        "sha256": "15b692b69ee277fd0c35981cc195e11fe9d67607f16b3296a4bb64d42b4d371a"
+        "sha256": "15b692b69ee277fd0c35981cc195e11fe9d67607f16b3296a4bb64d42b4d371a",
+        "source_name": "expat"
       },
       "subpackages": [
         "expat",
         "expat-devel",
         "expat-static"
-      ]
+      ],
+      "variant_of": null
     },
     "fedora-release": {
       "build_requires_resolved": {
@@ -96536,7 +98985,8 @@
         "location": "Packages/f/fedora-release-43-27.src.rpm",
         "name": "fedora-release",
         "repo": "source-updates",
-        "sha256": "28bc9b593b80d1ae78169406837ce658feccefca9934a42bc821cecd72866a80"
+        "sha256": "28bc9b593b80d1ae78169406837ce658feccefca9934a42bc821cecd72866a80",
+        "source_name": "fedora-release"
       },
       "subpackages": [
         "fedora-release",
@@ -96607,7 +99057,8 @@
         "fedora-release-workstation",
         "fedora-release-wsl",
         "fedora-release-xfce"
-      ]
+      ],
+      "variant_of": null
     },
     "fedora-repos": {
       "build_requires_resolved": {
@@ -98274,7 +100725,8 @@
         "location": "Packages/f/fedora-repos-43-2.src.rpm",
         "name": "fedora-repos",
         "repo": "source-updates",
-        "sha256": "0c23b265eb116ae1345b2d7c0221d0de9d25e2312106790e9b324ea9846e706b"
+        "sha256": "0c23b265eb116ae1345b2d7c0221d0de9d25e2312106790e9b324ea9846e706b",
+        "source_name": "fedora-repos"
       },
       "subpackages": [
         "fedora-gpg-keys",
@@ -98283,7 +100735,8 @@
         "fedora-repos-eln",
         "fedora-repos-ostree",
         "fedora-repos-rawhide"
-      ]
+      ],
+      "variant_of": null
     },
     "filesystem": {
       "build_requires_resolved": {
@@ -99967,13 +102420,15 @@
         "location": "Packages/f/filesystem-3.18-50.fc43.src.rpm",
         "name": "filesystem",
         "repo": "source-releases",
-        "sha256": "e30d80ac81b19d4733fab55ed58bad29e9d4f137907964dec40418a1e27aa632"
+        "sha256": "e30d80ac81b19d4733fab55ed58bad29e9d4f137907964dec40418a1e27aa632",
+        "source_name": "filesystem"
       },
       "subpackages": [
         "filesystem",
         "filesystem-content",
         "filesystem-srpm-macros"
-      ]
+      ],
+      "variant_of": null
     },
     "findutils": {
       "build_requires_resolved": {
@@ -102581,11 +105036,13 @@
         "location": "Packages/f/findutils-4.10.0-6.fc43.src.rpm",
         "name": "findutils",
         "repo": "source-releases",
-        "sha256": "412c0a5f6c930d487c200af3563a45a0f8471f68b4f2064f4c14d6900535c7ef"
+        "sha256": "412c0a5f6c930d487c200af3563a45a0f8471f68b4f2064f4c14d6900535c7ef",
+        "source_name": "findutils"
       },
       "subpackages": [
         "findutils"
-      ]
+      ],
+      "variant_of": null
     },
     "fmt": {
       "build_requires_resolved": {
@@ -104396,12 +106853,14 @@
         "location": "Packages/f/fmt-11.2.0-3.fc43.src.rpm",
         "name": "fmt",
         "repo": "source-releases",
-        "sha256": "fb2168f7708c1a2f856a371214fe091ec8fc2a23989da76e481e42878db2aaaa"
+        "sha256": "fb2168f7708c1a2f856a371214fe091ec8fc2a23989da76e481e42878db2aaaa",
+        "source_name": "fmt"
       },
       "subpackages": [
         "fmt",
         "fmt-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "fuse": {
       "build_requires_resolved": {
@@ -107062,13 +109521,15 @@
         "location": "Packages/f/fuse-2.9.9-24.fc43.src.rpm",
         "name": "fuse",
         "repo": "source-releases",
-        "sha256": "678921eb5e5bc609ff54bdc0293e7c17b47c49db892f1eca19f86e88651857d4"
+        "sha256": "678921eb5e5bc609ff54bdc0293e7c17b47c49db892f1eca19f86e88651857d4",
+        "source_name": "fuse"
       },
       "subpackages": [
         "fuse",
         "fuse-devel",
         "fuse-libs"
-      ]
+      ],
+      "variant_of": null
     },
     "fuse3": {
       "build_requires_resolved": {
@@ -109125,14 +111586,16 @@
         "location": "Packages/f/fuse3-3.16.2-6.fc43.src.rpm",
         "name": "fuse3",
         "repo": "source-updates",
-        "sha256": "229d9c2b856cdd6fce31973dba0766e82ec5e5dfd72fa1f494352e9c3bacfa56"
+        "sha256": "229d9c2b856cdd6fce31973dba0766e82ec5e5dfd72fa1f494352e9c3bacfa56",
+        "source_name": "fuse3"
       },
       "subpackages": [
         "fuse-common",
         "fuse3",
         "fuse3-devel",
         "fuse3-libs"
-      ]
+      ],
+      "variant_of": null
     },
     "gawk": {
       "build_requires_resolved": {
@@ -115586,14 +118049,16 @@
         "location": "Packages/g/gawk-5.3.2-2.fc43.src.rpm",
         "name": "gawk",
         "repo": "source-releases",
-        "sha256": "b916ff563341c93451943a6bc470e4ea1c9ccc2fa25d81be48235a32b61be075"
+        "sha256": "b916ff563341c93451943a6bc470e4ea1c9ccc2fa25d81be48235a32b61be075",
+        "source_name": "gawk"
       },
       "subpackages": [
         "gawk",
         "gawk-all-langpacks",
         "gawk-devel",
         "gawk-doc"
-      ]
+      ],
+      "variant_of": null
     },
     "gcc": {
       "build_requires_resolved": {
@@ -124236,7 +126701,8 @@
         "location": "Packages/g/gcc-15.3.1-1.fc43.src.rpm",
         "name": "gcc",
         "repo": "source-updates",
-        "sha256": "1b27c63e06527989e0027a6d44858be01cd676b88793323b94b4051fb336bd0d"
+        "sha256": "1b27c63e06527989e0027a6d44858be01cd676b88793323b94b4051fb336bd0d",
+        "source_name": "gcc"
       },
       "subpackages": [
         "cpp",
@@ -124300,7 +126766,8 @@
         "libtsan-static",
         "libubsan",
         "libubsan-static"
-      ]
+      ],
+      "variant_of": null
     },
     "gdbm": {
       "build_requires_resolved": {
@@ -126706,13 +129173,15 @@
         "location": "Packages/g/gdbm-1.23-10.fc43.src.rpm",
         "name": "gdbm",
         "repo": "source-releases",
-        "sha256": "8c569f0540b978d25981517612acca20b64a3d0950a1f056f8b0f872170aeea1"
+        "sha256": "8c569f0540b978d25981517612acca20b64a3d0950a1f056f8b0f872170aeea1",
+        "source_name": "gdbm"
       },
       "subpackages": [
         "gdbm",
         "gdbm-devel",
         "gdbm-libs"
-      ]
+      ],
+      "variant_of": null
     },
     "glib2": {
       "build_requires_resolved": {
@@ -130487,7 +132956,8 @@
         "location": "Packages/g/glib2-2.86.5-1.fc43.src.rpm",
         "name": "glib2",
         "repo": "source-updates",
-        "sha256": "85ad9816fb5ac5791231d54591872003989bd5ecf627aef16e42937c4c92887b"
+        "sha256": "85ad9816fb5ac5791231d54591872003989bd5ecf627aef16e42937c4c92887b",
+        "source_name": "glib2"
       },
       "subpackages": [
         "glib2",
@@ -130495,7 +132965,8 @@
         "glib2-doc",
         "glib2-static",
         "glib2-tests"
-      ]
+      ],
+      "variant_of": null
     },
     "glibc": {
       "build_requires_resolved": {
@@ -133862,7 +136333,8 @@
         "location": "Packages/g/glibc-2.42-16.fc43.src.rpm",
         "name": "glibc",
         "repo": "source-updates",
-        "sha256": "080bcbe0f28a1c02e2278144eee6b473818ba9573229beee4b302be5b8fd1d62"
+        "sha256": "080bcbe0f28a1c02e2278144eee6b473818ba9573229beee4b302be5b8fd1d62",
+        "source_name": "glibc"
       },
       "subpackages": [
         "compat-libpthread-nonshared",
@@ -134095,7 +136567,8 @@
         "sysroot-ppc64le-fc43-glibc",
         "sysroot-s390x-fc43-glibc",
         "sysroot-x86_64-fc43-glibc"
-      ]
+      ],
+      "variant_of": null
     },
     "gmp": {
       "build_requires_resolved": {
@@ -136800,14 +139273,16 @@
         "location": "Packages/g/gmp-6.3.0-4.fc43.src.rpm",
         "name": "gmp",
         "repo": "source-releases",
-        "sha256": "06b0f30ef222ea236f69bd5da0ea5b59c7d4b8f0569fb6a096820f5a90ac8b2c"
+        "sha256": "06b0f30ef222ea236f69bd5da0ea5b59c7d4b8f0569fb6a096820f5a90ac8b2c",
+        "source_name": "gmp"
       },
       "subpackages": [
         "gmp",
         "gmp-c++",
         "gmp-devel",
         "gmp-static"
-      ]
+      ],
+      "variant_of": null
     },
     "gnulib-l10n": {
       "build_requires_resolved": {
@@ -139178,11 +141653,13 @@
         "location": "Packages/g/gnulib-l10n-20241231-1.fc43.src.rpm",
         "name": "gnulib-l10n",
         "repo": "source-releases",
-        "sha256": "51ef20b1cb6a736a95a797e32cb6bb9b68393a448d50ba57274371435b20fcaa"
+        "sha256": "51ef20b1cb6a736a95a797e32cb6bb9b68393a448d50ba57274371435b20fcaa",
+        "source_name": "gnulib-l10n"
       },
       "subpackages": [
         "gnulib-l10n"
-      ]
+      ],
+      "variant_of": null
     },
     "gnutls": {
       "build_requires_resolved": {
@@ -142951,7 +145428,8 @@
         "location": "Packages/g/gnutls-3.8.13-1.fc43.src.rpm",
         "name": "gnutls",
         "repo": "source-updates",
-        "sha256": "bf84ac2c37c1c556fcd549b3a6ac2b0c4614afec4b1a6cac47d8587e965aaded"
+        "sha256": "bf84ac2c37c1c556fcd549b3a6ac2b0c4614afec4b1a6cac47d8587e965aaded",
+        "source_name": "gnutls"
       },
       "subpackages": [
         "gnutls",
@@ -142962,7 +145440,8 @@
         "gnutls-utils",
         "mingw32-gnutls",
         "mingw64-gnutls"
-      ]
+      ],
+      "variant_of": null
     },
     "grep": {
       "build_requires_resolved": {
@@ -145410,11 +147889,13 @@
         "location": "Packages/g/grep-3.12-2.fc43.src.rpm",
         "name": "grep",
         "repo": "source-releases",
-        "sha256": "543f449cecb71494dbdd58a6c55973396437bd341c85ed553f8a3f85e0044e0a"
+        "sha256": "543f449cecb71494dbdd58a6c55973396437bd341c85ed553f8a3f85e0044e0a",
+        "source_name": "grep"
       },
       "subpackages": [
         "grep"
-      ]
+      ],
+      "variant_of": null
     },
     "gzip": {
       "build_requires_resolved": {
@@ -147830,11 +150311,13 @@
         "location": "Packages/g/gzip-1.13-4.fc43.src.rpm",
         "name": "gzip",
         "repo": "source-releases",
-        "sha256": "e82b155905862d8f1503ac0268368156dcfa79976f9911f76e3af266fbb4a771"
+        "sha256": "e82b155905862d8f1503ac0268368156dcfa79976f9911f76e3af266fbb4a771",
+        "source_name": "gzip"
       },
       "subpackages": [
         "gzip"
-      ]
+      ],
+      "variant_of": null
     },
     "iproute": {
       "build_requires_resolved": {
@@ -149734,14 +152217,16 @@
         "location": "Packages/i/iproute-6.14.0-2.fc43.src.rpm",
         "name": "iproute",
         "repo": "source-releases",
-        "sha256": "26c0ba5e11dcb7b46229a8fae9a1c840f109739b855133c2f70114becd6156b9"
+        "sha256": "26c0ba5e11dcb7b46229a8fae9a1c840f109739b855133c2f70114becd6156b9",
+        "source_name": "iproute"
       },
       "subpackages": [
         "iproute",
         "iproute-devel",
         "iproute-doc",
         "iproute-tc"
-      ]
+      ],
+      "variant_of": null
     },
     "iputils": {
       "build_requires_resolved": {
@@ -152378,11 +154863,13 @@
         "location": "Packages/i/iputils-20250605-1.fc43.src.rpm",
         "name": "iputils",
         "repo": "source-releases",
-        "sha256": "73cbf7ea7dfa0484251766631670570fee87b3d0211f0691a16915c4817bdf28"
+        "sha256": "73cbf7ea7dfa0484251766631670570fee87b3d0211f0691a16915c4817bdf28",
+        "source_name": "iputils"
       },
       "subpackages": [
         "iputils"
-      ]
+      ],
+      "variant_of": null
     },
     "jq": {
       "build_requires_resolved": {
@@ -154115,12 +156602,14 @@
         "location": "Packages/j/jq-1.8.1-3.fc43.src.rpm",
         "name": "jq",
         "repo": "source-updates",
-        "sha256": "defec2cc4b6b1540ece48167bb8765e3b460f3520829a639b519e8319ba61cc8"
+        "sha256": "defec2cc4b6b1540ece48167bb8765e3b460f3520829a639b519e8319ba61cc8",
+        "source_name": "jq"
       },
       "subpackages": [
         "jq",
         "jq-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "json-c": {
       "build_requires_resolved": {
@@ -157684,7 +160173,8 @@
         "location": "Packages/j/json-c-0.18-7.fc43.src.rpm",
         "name": "json-c",
         "repo": "source-releases",
-        "sha256": "4a33fbff82eec525206d1385f9958edbc3890a2291f73f1f382a6faeeac4174b"
+        "sha256": "4a33fbff82eec525206d1385f9958edbc3890a2291f73f1f382a6faeeac4174b",
+        "source_name": "json-c"
       },
       "subpackages": [
         "json-c",
@@ -157692,7 +160182,8 @@
         "json-c-doc",
         "mingw32-json-c",
         "mingw64-json-c"
-      ]
+      ],
+      "variant_of": null
     },
     "kbd": {
       "build_requires_resolved": {
@@ -160193,13 +162684,15 @@
         "location": "Packages/k/kbd-2.8.0-3.fc43.src.rpm",
         "name": "kbd",
         "repo": "source-releases",
-        "sha256": "9ea637bb285836effe1088adbccf44b9273fc865eafa16b55f9aea4dc2cf18d0"
+        "sha256": "9ea637bb285836effe1088adbccf44b9273fc865eafa16b55f9aea4dc2cf18d0",
+        "source_name": "kbd"
       },
       "subpackages": [
         "kbd",
         "kbd-legacy",
         "kbd-misc"
-      ]
+      ],
+      "variant_of": null
     },
     "kernel": {
       "build_requires_resolved": {
@@ -165580,7 +168073,8 @@
         "location": "Packages/k/kernel-7.1.10-100.fc43.src.rpm",
         "name": "kernel",
         "repo": "source-updates",
-        "sha256": "d8e11a4c2e7f661fa7be47abe2b33be6169f9340852fb5fb88e89b1e69887cee"
+        "sha256": "d8e11a4c2e7f661fa7be47abe2b33be6169f9340852fb5fb88e89b1e69887cee",
+        "source_name": "kernel"
       },
       "subpackages": [
         "kernel",
@@ -165616,7 +168110,8 @@
         "python3-perf",
         "rtla",
         "rv"
-      ]
+      ],
+      "variant_of": null
     },
     "keyutils": {
       "build_requires_resolved": {
@@ -167283,13 +169778,15 @@
         "location": "Packages/k/keyutils-1.6.3-6.fc43.src.rpm",
         "name": "keyutils",
         "repo": "source-releases",
-        "sha256": "5dbe3ca58e5f1553940ea7ac204189094669f2c367e74919c20bb803221b02e3"
+        "sha256": "5dbe3ca58e5f1553940ea7ac204189094669f2c367e74919c20bb803221b02e3",
+        "source_name": "keyutils"
       },
       "subpackages": [
         "keyutils",
         "keyutils-libs",
         "keyutils-libs-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "kmod": {
       "build_requires_resolved": {
@@ -169926,13 +172423,15 @@
         "location": "Packages/k/kmod-34.2-2.fc43.src.rpm",
         "name": "kmod",
         "repo": "source-releases",
-        "sha256": "6120bf5541673ee3a081776f89029f93ac111495dbca8c590ab0bd8e021da3c4"
+        "sha256": "6120bf5541673ee3a081776f89029f93ac111495dbca8c590ab0bd8e021da3c4",
+        "source_name": "kmod"
       },
       "subpackages": [
         "kmod",
         "kmod-devel",
         "kmod-libs"
-      ]
+      ],
+      "variant_of": null
     },
     "krb5": {
       "build_requires_resolved": {
@@ -173173,7 +175672,8 @@
         "location": "Packages/k/krb5-1.22.2-4.fc43.src.rpm",
         "name": "krb5",
         "repo": "source-updates",
-        "sha256": "b58230f8eb7d57c7cf3470d9b51c96c74e6fd9b0f8c9dcd6d4db111e6071be45"
+        "sha256": "b58230f8eb7d57c7cf3470d9b51c96c74e6fd9b0f8c9dcd6d4db111e6071be45",
+        "source_name": "krb5"
       },
       "subpackages": [
         "krb5-devel",
@@ -173185,7 +175685,8 @@
         "krb5-workstation",
         "krb5-xrealmauthz",
         "libkadm5"
-      ]
+      ],
+      "variant_of": null
     },
     "less": {
       "build_requires_resolved": {
@@ -175702,12 +178203,14 @@
         "location": "Packages/l/less-704-4.fc43.src.rpm",
         "name": "less",
         "repo": "source-updates",
-        "sha256": "9f6466a24aaa2a466facf6e19bd47b2d20cf7ca009fb881afff9464ac2db57ee"
+        "sha256": "9f6466a24aaa2a466facf6e19bd47b2d20cf7ca009fb881afff9464ac2db57ee",
+        "source_name": "less"
       },
       "subpackages": [
         "less",
         "less-color"
-      ]
+      ],
+      "variant_of": null
     },
     "libarchive": {
       "build_requires_resolved": {
@@ -178223,7 +180726,8 @@
         "location": "Packages/l/libarchive-3.8.4-1.fc43.src.rpm",
         "name": "libarchive",
         "repo": "source-updates",
-        "sha256": "5ff53d391e954cc662cc0fba640f273f649f22234a45b2b439fccb48ae128253"
+        "sha256": "5ff53d391e954cc662cc0fba640f273f649f22234a45b2b439fccb48ae128253",
+        "source_name": "libarchive"
       },
       "subpackages": [
         "bsdcat",
@@ -178232,7 +180736,8 @@
         "bsdunzip",
         "libarchive",
         "libarchive-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "libbpf": {
       "build_requires_resolved": {
@@ -179953,13 +182458,15 @@
         "location": "Packages/l/libbpf-1.6.1-4.fc43.src.rpm",
         "name": "libbpf",
         "repo": "source-updates",
-        "sha256": "53489c9197533101a718ef0918ca4de56700e12d20085949ff3d61f688e68060"
+        "sha256": "53489c9197533101a718ef0918ca4de56700e12d20085949ff3d61f688e68060",
+        "source_name": "libbpf"
       },
       "subpackages": [
         "libbpf",
         "libbpf-devel",
         "libbpf-static"
-      ]
+      ],
+      "variant_of": null
     },
     "libcap": {
       "build_requires_resolved": {
@@ -181691,14 +184198,16 @@
         "location": "Packages/l/libcap-2.76-4.fc43.src.rpm",
         "name": "libcap",
         "repo": "source-updates",
-        "sha256": "ed6e0f1e56e197bb0df6f5f4bde9dc8d8c33dff58368d3322bad5b4b349bf52c"
+        "sha256": "ed6e0f1e56e197bb0df6f5f4bde9dc8d8c33dff58368d3322bad5b4b349bf52c",
+        "source_name": "libcap"
       },
       "subpackages": [
         "captree",
         "libcap",
         "libcap-devel",
         "libcap-static"
-      ]
+      ],
+      "variant_of": null
     },
     "libcap-ng": {
       "build_requires_resolved": {
@@ -184374,14 +186883,16 @@
         "location": "Packages/l/libcap-ng-0.9.3-1.fc43.src.rpm",
         "name": "libcap-ng",
         "repo": "source-updates",
-        "sha256": "deecd8f78793e88c1bbc85f795b71c9a49aee68d425e1ce5816a2160329d2f5a"
+        "sha256": "deecd8f78793e88c1bbc85f795b71c9a49aee68d425e1ce5816a2160329d2f5a",
+        "source_name": "libcap-ng"
       },
       "subpackages": [
         "libcap-ng",
         "libcap-ng-devel",
         "libcap-ng-python3",
         "libcap-ng-utils"
-      ]
+      ],
+      "variant_of": null
     },
     "libeconf": {
       "build_requires_resolved": {
@@ -186182,13 +188693,15 @@
         "location": "Packages/l/libeconf-0.7.9-2.fc43.src.rpm",
         "name": "libeconf",
         "repo": "source-releases",
-        "sha256": "9b49c2b4c51ee8727c328580a56a25ad4405073fc6e3bd75b7ce654e3608c163"
+        "sha256": "9b49c2b4c51ee8727c328580a56a25ad4405073fc6e3bd75b7ce654e3608c163",
+        "source_name": "libeconf"
       },
       "subpackages": [
         "libeconf",
         "libeconf-devel",
         "libeconf-utils"
-      ]
+      ],
+      "variant_of": null
     },
     "libevent": {
       "build_requires_resolved": {
@@ -189694,13 +192207,15 @@
         "location": "Packages/l/libevent-2.1.12-16.fc43.src.rpm",
         "name": "libevent",
         "repo": "source-releases",
-        "sha256": "7e38625dc37e9007179427b67f293a61e25b00ca0bf6e17f15628e181abd333d"
+        "sha256": "7e38625dc37e9007179427b67f293a61e25b00ca0bf6e17f15628e181abd333d",
+        "source_name": "libevent"
       },
       "subpackages": [
         "libevent",
         "libevent-devel",
         "libevent-doc"
-      ]
+      ],
+      "variant_of": null
     },
     "libffi": {
       "build_requires_resolved": {
@@ -191393,12 +193908,14 @@
         "location": "Packages/l/libffi-3.5.2-1.fc43.src.rpm",
         "name": "libffi",
         "repo": "source-updates",
-        "sha256": "748c13fa8790afac2e1ad4cbc78a6ca95a591025c7ea1b3dd8058bc965350459"
+        "sha256": "748c13fa8790afac2e1ad4cbc78a6ca95a591025c7ea1b3dd8058bc965350459",
+        "source_name": "libffi"
       },
       "subpackages": [
         "libffi",
         "libffi-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "libidn2": {
       "build_requires_resolved": {
@@ -193724,13 +196241,15 @@
         "location": "Packages/l/libidn2-2.3.8-2.fc43.src.rpm",
         "name": "libidn2",
         "repo": "source-releases",
-        "sha256": "0682a3fa28191f36a5ba78da67bb507c6789ded344a26e6cffee1ecee4b913ba"
+        "sha256": "0682a3fa28191f36a5ba78da67bb507c6789ded344a26e6cffee1ecee4b913ba",
+        "source_name": "libidn2"
       },
       "subpackages": [
         "idn2",
         "libidn2",
         "libidn2-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "libkcapi": {
       "build_requires_resolved": {
@@ -200743,7 +203262,8 @@
         "location": "Packages/l/libkcapi-1.5.0-6.fc43.src.rpm",
         "name": "libkcapi",
         "repo": "source-releases",
-        "sha256": "cf580bc102b1e1097e4dba803ca97a365f002aa52a1cfb522b8d18a252d37216"
+        "sha256": "cf580bc102b1e1097e4dba803ca97a365f002aa52a1cfb522b8d18a252d37216",
+        "source_name": "libkcapi"
       },
       "subpackages": [
         "libkcapi",
@@ -200755,7 +203275,8 @@
         "libkcapi-static",
         "libkcapi-tests",
         "libkcapi-tools"
-      ]
+      ],
+      "variant_of": null
     },
     "libmnl": {
       "build_requires_resolved": {
@@ -202421,13 +204942,15 @@
         "location": "Packages/l/libmnl-1.0.5-8.fc43.src.rpm",
         "name": "libmnl",
         "repo": "source-releases",
-        "sha256": "06a7fdc16560dbbb23e1938d3993e8ce4b2849ded5bbb387f5f3ee617aaf5628"
+        "sha256": "06a7fdc16560dbbb23e1938d3993e8ce4b2849ded5bbb387f5f3ee617aaf5628",
+        "source_name": "libmnl"
       },
       "subpackages": [
         "libmnl",
         "libmnl-devel",
         "libmnl-static"
-      ]
+      ],
+      "variant_of": null
     },
     "libmodulemd": {
       "build_requires_resolved": {
@@ -205309,13 +207832,15 @@
         "location": "Packages/l/libmodulemd-2.15.3-1.fc43.src.rpm",
         "name": "libmodulemd",
         "repo": "source-updates",
-        "sha256": "c7903d33ab47c7b2c352b7e18d26d17dbea53e2024fe0e77f0925379b6956991"
+        "sha256": "c7903d33ab47c7b2c352b7e18d26d17dbea53e2024fe0e77f0925379b6956991",
+        "source_name": "libmodulemd"
       },
       "subpackages": [
         "libmodulemd",
         "libmodulemd-devel",
         "python3-libmodulemd"
-      ]
+      ],
+      "variant_of": null
     },
     "libndp": {
       "build_requires_resolved": {
@@ -206980,12 +209505,14 @@
         "location": "Packages/l/libndp-1.9-4.fc43.src.rpm",
         "name": "libndp",
         "repo": "source-releases",
-        "sha256": "f31839d31f6bcc12dc4fe758d38e99c67e0beb79afc0a28b691e814d5e1c8a09"
+        "sha256": "f31839d31f6bcc12dc4fe758d38e99c67e0beb79afc0a28b691e814d5e1c8a09",
+        "source_name": "libndp"
       },
       "subpackages": [
         "libndp",
         "libndp-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "libnsl2": {
       "build_requires_resolved": {
@@ -209384,12 +211911,14 @@
         "location": "Packages/l/libnsl2-2.0.1-4.fc43.src.rpm",
         "name": "libnsl2",
         "repo": "source-releases",
-        "sha256": "30194618aa7f284b327808460c35f516403a652cc5ed15a075fad89e6c7f72bb"
+        "sha256": "30194618aa7f284b327808460c35f516403a652cc5ed15a075fad89e6c7f72bb",
+        "source_name": "libnsl2"
       },
       "subpackages": [
         "libnsl2",
         "libnsl2-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "libpsl": {
       "build_requires_resolved": {
@@ -212080,14 +214609,16 @@
         "location": "Packages/l/libpsl-0.21.5-6.fc43.src.rpm",
         "name": "libpsl",
         "repo": "source-releases",
-        "sha256": "7836863247dbd9272352a05ef92a785ec49cc9e85dbca54293e797cb22f5ca42"
+        "sha256": "7836863247dbd9272352a05ef92a785ec49cc9e85dbca54293e797cb22f5ca42",
+        "source_name": "libpsl"
       },
       "subpackages": [
         "libpsl",
         "libpsl-devel",
         "psl",
         "psl-make-dafsa"
-      ]
+      ],
+      "variant_of": null
     },
     "libpwquality": {
       "build_requires_resolved": {
@@ -213946,13 +216477,15 @@
         "location": "Packages/l/libpwquality-1.4.5-14.fc43.src.rpm",
         "name": "libpwquality",
         "repo": "source-releases",
-        "sha256": "2c8fdc6187a0d89c25068f019bcc2ef2eaf59319e5f576ec09150f89f641c300"
+        "sha256": "2c8fdc6187a0d89c25068f019bcc2ef2eaf59319e5f576ec09150f89f641c300",
+        "source_name": "libpwquality"
       },
       "subpackages": [
         "libpwquality",
         "libpwquality-devel",
         "python3-pwquality"
-      ]
+      ],
+      "variant_of": null
     },
     "librepo": {
       "build_requires_resolved": {
@@ -217901,13 +220434,15 @@
         "location": "Packages/l/librepo-1.20.0-4.fc43.src.rpm",
         "name": "librepo",
         "repo": "source-releases",
-        "sha256": "0d82dd14824c8a317112a60cb3f60b345444ccada9e7dbb1f2a221a4452577ff"
+        "sha256": "0d82dd14824c8a317112a60cb3f60b345444ccada9e7dbb1f2a221a4452577ff",
+        "source_name": "librepo"
       },
       "subpackages": [
         "librepo",
         "librepo-devel",
         "python3-librepo"
-      ]
+      ],
+      "variant_of": null
     },
     "libseccomp": {
       "build_requires_resolved": {
@@ -219592,13 +222127,15 @@
         "location": "Packages/l/libseccomp-2.6.1-2.fc43.src.rpm",
         "name": "libseccomp",
         "repo": "source-updates",
-        "sha256": "bbe9f78ce4d3b3ec41d4055467b75074e04ab5f6b4ec2c3938aeb76bb0211051"
+        "sha256": "bbe9f78ce4d3b3ec41d4055467b75074e04ab5f6b4ec2c3938aeb76bb0211051",
+        "source_name": "libseccomp"
       },
       "subpackages": [
         "libseccomp",
         "libseccomp-devel",
         "libseccomp-static"
-      ]
+      ],
+      "variant_of": null
     },
     "libselinux": {
       "build_requires_resolved": {
@@ -221715,7 +224252,8 @@
         "location": "Packages/l/libselinux-3.9-5.fc43.src.rpm",
         "name": "libselinux",
         "repo": "source-releases",
-        "sha256": "bf3c0d34273770b6b2fea4213073bc934b84a50d13ea39e1de6bf076e8edceb6"
+        "sha256": "bf3c0d34273770b6b2fea4213073bc934b84a50d13ea39e1de6bf076e8edceb6",
+        "source_name": "libselinux"
       },
       "subpackages": [
         "libselinux",
@@ -221724,7 +224262,8 @@
         "libselinux-static",
         "libselinux-utils",
         "python3-libselinux"
-      ]
+      ],
+      "variant_of": null
     },
     "libsemanage": {
       "build_requires_resolved": {
@@ -223625,14 +226164,16 @@
         "location": "Packages/l/libsemanage-3.9-4.fc43.src.rpm",
         "name": "libsemanage",
         "repo": "source-releases",
-        "sha256": "8274b23bba4c5d18acf207fc61d7ffce1a4c5c03dd74523ea679d17d7e11aec3"
+        "sha256": "8274b23bba4c5d18acf207fc61d7ffce1a4c5c03dd74523ea679d17d7e11aec3",
+        "source_name": "libsemanage"
       },
       "subpackages": [
         "libsemanage",
         "libsemanage-devel",
         "libsemanage-static",
         "python3-libsemanage"
-      ]
+      ],
+      "variant_of": null
     },
     "libsepol": {
       "build_requires_resolved": {
@@ -225317,14 +227858,16 @@
         "location": "Packages/l/libsepol-3.9-2.fc43.src.rpm",
         "name": "libsepol",
         "repo": "source-releases",
-        "sha256": "f7ec142657cb74cdfb8fd9f5a3de87bd9329f1cda1259a684c07dae8fd233107"
+        "sha256": "f7ec142657cb74cdfb8fd9f5a3de87bd9329f1cda1259a684c07dae8fd233107",
+        "source_name": "libsepol"
       },
       "subpackages": [
         "libsepol",
         "libsepol-devel",
         "libsepol-static",
         "libsepol-utils"
-      ]
+      ],
+      "variant_of": null
     },
     "libsolv": {
       "build_requires_resolved": {
@@ -228155,7 +230698,8 @@
         "location": "Packages/l/libsolv-0.7.39-1.fc43.src.rpm",
         "name": "libsolv",
         "repo": "source-updates",
-        "sha256": "9ade9f7d08aca9b7d3c3f6e385045bf2f3e157684a90d52458b780e451d0e41f"
+        "sha256": "9ade9f7d08aca9b7d3c3f6e385045bf2f3e157684a90d52458b780e451d0e41f",
+        "source_name": "libsolv"
       },
       "subpackages": [
         "libsolv",
@@ -228166,7 +230710,8 @@
         "perl-solv",
         "python3-solv",
         "ruby-solv"
-      ]
+      ],
+      "variant_of": null
     },
     "libtasn1": {
       "build_requires_resolved": {
@@ -230776,13 +233321,15 @@
         "location": "Packages/l/libtasn1-4.21.0-1.fc43.src.rpm",
         "name": "libtasn1",
         "repo": "source-updates",
-        "sha256": "9ec2c6e37df5ba4202b96b0210e0aab7bdea3cc13aa79be3dc5619d0efa62fab"
+        "sha256": "9ec2c6e37df5ba4202b96b0210e0aab7bdea3cc13aa79be3dc5619d0efa62fab",
+        "source_name": "libtasn1"
       },
       "subpackages": [
         "libtasn1",
         "libtasn1-devel",
         "libtasn1-tools"
-      ]
+      ],
+      "variant_of": null
     },
     "libtirpc": {
       "build_requires_resolved": {
@@ -233253,12 +235800,14 @@
         "location": "Packages/l/libtirpc-1.3.7-1.fc43.src.rpm",
         "name": "libtirpc",
         "repo": "source-updates",
-        "sha256": "e9b48af3610cc7fec52bba65ac53d432e71f2f23ec8f3d65add9c0ba13738f1b"
+        "sha256": "e9b48af3610cc7fec52bba65ac53d432e71f2f23ec8f3d65add9c0ba13738f1b",
+        "source_name": "libtirpc"
       },
       "subpackages": [
         "libtirpc",
         "libtirpc-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "libtool": {
       "build_requires_resolved": {
@@ -235712,13 +238261,15 @@
         "location": "Packages/l/libtool-2.5.4-8.fc43.src.rpm",
         "name": "libtool",
         "repo": "source-updates",
-        "sha256": "77750cea5e0c39e9850cc5a4304ef5dc193bec160958841a3939f8982df3c78e"
+        "sha256": "77750cea5e0c39e9850cc5a4304ef5dc193bec160958841a3939f8982df3c78e",
+        "source_name": "libtool"
       },
       "subpackages": [
         "libtool",
         "libtool-ltdl",
         "libtool-ltdl-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "libunistring": {
       "build_requires_resolved": {
@@ -237383,12 +239934,14 @@
         "location": "Packages/l/libunistring-1.1-10.fc43.src.rpm",
         "name": "libunistring",
         "repo": "source-releases",
-        "sha256": "ab8aa5388a6881eda40e933351d88e6458bab6d4c9d1f6f5deffc69b829fd110"
+        "sha256": "ab8aa5388a6881eda40e933351d88e6458bab6d4c9d1f6f5deffc69b829fd110",
+        "source_name": "libunistring"
       },
       "subpackages": [
         "libunistring",
         "libunistring-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "libverto": {
       "build_requires_resolved": {
@@ -240095,7 +242648,8 @@
         "location": "Packages/l/libverto-0.3.2-11.fc43.src.rpm",
         "name": "libverto",
         "repo": "source-releases",
-        "sha256": "29b125a16a69ae445c4d0857497e402051c0786ab41d4ed428f3bc73b1cafa3c"
+        "sha256": "29b125a16a69ae445c4d0857497e402051c0786ab41d4ed428f3bc73b1cafa3c",
+        "source_name": "libverto"
       },
       "subpackages": [
         "libverto",
@@ -240106,7 +242660,8 @@
         "libverto-libev-devel",
         "libverto-libevent",
         "libverto-libevent-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "libxcrypt": {
       "build_requires_resolved": {
@@ -242765,14 +245320,16 @@
         "location": "Packages/l/libxcrypt-4.5.2-1.fc43.src.rpm",
         "name": "libxcrypt",
         "repo": "source-updates",
-        "sha256": "93c9f4ea0764f280dd74ef48b423b6ff5a47bc6925c9657628bda51e310b0379"
+        "sha256": "93c9f4ea0764f280dd74ef48b423b6ff5a47bc6925c9657628bda51e310b0379",
+        "source_name": "libxcrypt"
       },
       "subpackages": [
         "libxcrypt",
         "libxcrypt-compat",
         "libxcrypt-devel",
         "libxcrypt-static"
-      ]
+      ],
+      "variant_of": null
     },
     "libxml2": {
       "build_requires_resolved": {
@@ -244585,14 +247142,16 @@
         "location": "Packages/l/libxml2-2.12.10-5.fc43.src.rpm",
         "name": "libxml2",
         "repo": "source-releases",
-        "sha256": "24c0eb2b738fda59c11e6ed87468993a231a370a3074200d8c05a7cfd8f1f877"
+        "sha256": "24c0eb2b738fda59c11e6ed87468993a231a370a3074200d8c05a7cfd8f1f877",
+        "source_name": "libxml2"
       },
       "subpackages": [
         "libxml2",
         "libxml2-devel",
         "libxml2-static",
         "python3-libxml2"
-      ]
+      ],
+      "variant_of": null
     },
     "libyaml": {
       "build_requires_resolved": {
@@ -248245,14 +250804,16 @@
         "location": "Packages/l/libyaml-0.2.5-17.fc43.src.rpm",
         "name": "libyaml",
         "repo": "source-releases",
-        "sha256": "51768159092e77c7457f4f9761be99f6b5bef0385aa0082b86d31367126f3815"
+        "sha256": "51768159092e77c7457f4f9761be99f6b5bef0385aa0082b86d31367126f3815",
+        "source_name": "libyaml"
       },
       "subpackages": [
         "libyaml",
         "libyaml-devel",
         "mingw32-libyaml",
         "mingw64-libyaml"
-      ]
+      ],
+      "variant_of": null
     },
     "lua": {
       "build_requires_resolved": {
@@ -250660,14 +253221,16 @@
         "location": "Packages/l/lua-5.4.8-4.fc43.src.rpm",
         "name": "lua",
         "repo": "source-updates",
-        "sha256": "083cc0554690812b9bd4cf7d0cbe52afa51a2ce31a2c6aa07866b0141160a26e"
+        "sha256": "083cc0554690812b9bd4cf7d0cbe52afa51a2ce31a2c6aa07866b0141160a26e",
+        "source_name": "lua"
       },
       "subpackages": [
         "lua",
         "lua-devel",
         "lua-libs",
         "lua-static"
-      ]
+      ],
+      "variant_of": null
     },
     "lvm2": {
       "build_requires_resolved": {
@@ -252853,7 +255416,8 @@
         "location": "Packages/l/lvm2-2.03.34-2.fc43.src.rpm",
         "name": "lvm2",
         "repo": "source-releases",
-        "sha256": "3b692abd2733fd58ee4d4427edb25587164ffadcf7640bbee2fea47736b3c701"
+        "sha256": "3b692abd2733fd58ee4d4427edb25587164ffadcf7640bbee2fea47736b3c701",
+        "source_name": "lvm2"
       },
       "subpackages": [
         "device-mapper",
@@ -252868,7 +255432,8 @@
         "lvm2-libs",
         "lvm2-lockd",
         "lvm2-testsuite"
-      ]
+      ],
+      "variant_of": null
     },
     "lz4": {
       "build_requires_resolved": {
@@ -254624,14 +257189,16 @@
         "location": "Packages/l/lz4-1.10.0-3.fc43.src.rpm",
         "name": "lz4",
         "repo": "source-releases",
-        "sha256": "789425a29a7e7cb5b37b6006eabbe06250b07c15644ed456d3337c98a175aefa"
+        "sha256": "789425a29a7e7cb5b37b6006eabbe06250b07c15644ed456d3337c98a175aefa",
+        "source_name": "lz4"
       },
       "subpackages": [
         "lz4",
         "lz4-devel",
         "lz4-libs",
         "lz4-static"
-      ]
+      ],
+      "variant_of": null
     },
     "lzo": {
       "build_requires_resolved": {
@@ -256315,13 +258882,15 @@
         "location": "Packages/l/lzo-2.10-15.fc43.src.rpm",
         "name": "lzo",
         "repo": "source-releases",
-        "sha256": "ed3925ada09629ccea6f316f770b937d8016bf7a34ca5a54a344cdfac10e7fa9"
+        "sha256": "ed3925ada09629ccea6f316f770b937d8016bf7a34ca5a54a344cdfac10e7fa9",
+        "source_name": "lzo"
       },
       "subpackages": [
         "lzo",
         "lzo-devel",
         "lzo-minilzo"
-      ]
+      ],
+      "variant_of": null
     },
     "mpfr": {
       "build_requires_resolved": {
@@ -258609,13 +261178,15 @@
         "location": "Packages/m/mpfr-4.2.2-2.fc43.src.rpm",
         "name": "mpfr",
         "repo": "source-releases",
-        "sha256": "8787830b6c620478e2ce58ec8fe179443000e233dd716b0fa4b4fc5ccc958b9a"
+        "sha256": "8787830b6c620478e2ce58ec8fe179443000e233dd716b0fa4b4fc5ccc958b9a",
+        "source_name": "mpfr"
       },
       "subpackages": [
         "mpfr",
         "mpfr-devel",
         "mpfr-doc"
-      ]
+      ],
+      "variant_of": null
     },
     "ncurses": {
       "build_requires_resolved": {
@@ -260337,7 +262908,8 @@
         "location": "Packages/n/ncurses-6.5-7.20250614.fc43.src.rpm",
         "name": "ncurses",
         "repo": "source-releases",
-        "sha256": "80baf60200497983697a1e372647e55bf860a1e7fa54b9fc61a01d884fe4fbd3"
+        "sha256": "80baf60200497983697a1e372647e55bf860a1e7fa54b9fc61a01d884fe4fbd3",
+        "source_name": "ncurses"
       },
       "subpackages": [
         "ncurses",
@@ -260348,7 +262920,8 @@
         "ncurses-libs",
         "ncurses-static",
         "ncurses-term"
-      ]
+      ],
+      "variant_of": null
     },
     "nettle": {
       "build_requires_resolved": {
@@ -262957,12 +265530,14 @@
         "location": "Packages/n/nettle-3.10.1-2.fc43.src.rpm",
         "name": "nettle",
         "repo": "source-releases",
-        "sha256": "1794e3776f627d9edabf0f9b730d601e6393acccea4579630e2c537d884d8721"
+        "sha256": "1794e3776f627d9edabf0f9b730d601e6393acccea4579630e2c537d884d8721",
+        "source_name": "nettle"
       },
       "subpackages": [
         "nettle",
         "nettle-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "nghttp2": {
       "build_requires_resolved": {
@@ -265885,7 +268460,8 @@
         "location": "Packages/n/nghttp2-1.66.0-3.fc43.src.rpm",
         "name": "nghttp2",
         "repo": "source-updates",
-        "sha256": "06134194d43716711d2bf5322b4537c56fb1e1675dc6b3c9e3a3efd4a07c6b09"
+        "sha256": "06134194d43716711d2bf5322b4537c56fb1e1675dc6b3c9e3a3efd4a07c6b09",
+        "source_name": "nghttp2"
       },
       "subpackages": [
         "libnghttp2",
@@ -265893,7 +268469,8 @@
         "mingw32-libnghttp2",
         "mingw64-libnghttp2",
         "nghttp2"
-      ]
+      ],
+      "variant_of": null
     },
     "ntfs-3g": {
       "build_requires_resolved": {
@@ -268518,14 +271095,16 @@
         "location": "Packages/n/ntfs-3g-2026.2.25-2.fc43.src.rpm",
         "name": "ntfs-3g",
         "repo": "source-updates",
-        "sha256": "46cfdc25d0b719444aaea4f632d4ed772d90f1eead8a0f6f4163ed61c41f2ab8"
+        "sha256": "46cfdc25d0b719444aaea4f632d4ed772d90f1eead8a0f6f4163ed61c41f2ab8",
+        "source_name": "ntfs-3g"
       },
       "subpackages": [
         "ntfs-3g",
         "ntfs-3g-devel",
         "ntfs-3g-libs",
         "ntfsprogs"
-      ]
+      ],
+      "variant_of": null
     },
     "oniguruma": {
       "build_requires_resolved": {
@@ -270190,12 +272769,14 @@
         "location": "Packages/o/oniguruma-6.9.10-3.fc43.src.rpm",
         "name": "oniguruma",
         "repo": "source-releases",
-        "sha256": "9103b7e56e9361a32a558830413a39260666934e3e2dfa9956156623cbdf2cf4"
+        "sha256": "9103b7e56e9361a32a558830413a39260666934e3e2dfa9956156623cbdf2cf4",
+        "source_name": "oniguruma"
       },
       "subpackages": [
         "oniguruma",
         "oniguruma-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "openldap": {
       "build_requires_resolved": {
@@ -273181,7 +275762,8 @@
         "location": "Packages/o/openldap-2.6.13-1.fc43.src.rpm",
         "name": "openldap",
         "repo": "source-updates",
-        "sha256": "4215f74104cd7d7e55bafbb182fcccca4f7c58617485058147d5f8b6e1a0861e"
+        "sha256": "4215f74104cd7d7e55bafbb182fcccca4f7c58617485058147d5f8b6e1a0861e",
+        "source_name": "openldap"
       },
       "subpackages": [
         "openldap",
@@ -273189,7 +275771,8 @@
         "openldap-compat",
         "openldap-devel",
         "openldap-servers"
-      ]
+      ],
+      "variant_of": null
     },
     "openssh": {
       "build_requires_resolved": {
@@ -277470,7 +280053,8 @@
         "location": "Packages/o/openssh-10.0p1-12.fc43.src.rpm",
         "name": "openssh",
         "repo": "source-updates",
-        "sha256": "f6074a4825c19796d2cda649c627f31d25d3af7b632855c3a1d989407849b325"
+        "sha256": "f6074a4825c19796d2cda649c627f31d25d3af7b632855c3a1d989407849b325",
+        "source_name": "openssh"
       },
       "subpackages": [
         "openssh",
@@ -277480,7 +280064,8 @@
         "openssh-keysign",
         "openssh-server",
         "openssh-sk-dummy"
-      ]
+      ],
+      "variant_of": null
     },
     "openssl": {
       "build_requires_resolved": {
@@ -280097,7 +282682,8 @@
         "location": "Packages/o/openssl-3.5.7-2.fc43.src.rpm",
         "name": "openssl",
         "repo": "source-updates",
-        "sha256": "45abf04e93944c62d2118691f68dfb22a34b40a1e3456d8aab717072cf48ce1e"
+        "sha256": "45abf04e93944c62d2118691f68dfb22a34b40a1e3456d8aab717072cf48ce1e",
+        "source_name": "openssl"
       },
       "subpackages": [
         "openssl",
@@ -280105,7 +282691,8 @@
         "openssl-devel-engine",
         "openssl-libs",
         "openssl-perl"
-      ]
+      ],
+      "variant_of": null
     },
     "p11-kit": {
       "build_requires_resolved": {
@@ -283187,7 +285774,8 @@
         "location": "Packages/p/p11-kit-0.26.5-1.fc43.src.rpm",
         "name": "p11-kit",
         "repo": "source-updates",
-        "sha256": "299cd4a874a842a508d29de9f65974ddf6d6329277b2cbf260d70c7c478568f5"
+        "sha256": "299cd4a874a842a508d29de9f65974ddf6d6329277b2cbf260d70c7c478568f5",
+        "source_name": "p11-kit"
       },
       "subpackages": [
         "mingw32-p11-kit",
@@ -283197,7 +285785,8 @@
         "p11-kit-devel",
         "p11-kit-server",
         "p11-kit-trust"
-      ]
+      ],
+      "variant_of": null
     },
     "pam": {
       "build_requires_resolved": {
@@ -290654,14 +293243,16 @@
         "location": "Packages/p/pam-1.7.1-5.fc43.src.rpm",
         "name": "pam",
         "repo": "source-updates",
-        "sha256": "98951022e78e21984ba469b30f63525849524d21c43529d6f04b27059246de00"
+        "sha256": "98951022e78e21984ba469b30f63525849524d21c43529d6f04b27059246de00",
+        "source_name": "pam"
       },
       "subpackages": [
         "pam",
         "pam-devel",
         "pam-doc",
         "pam-libs"
-      ]
+      ],
+      "variant_of": null
     },
     "parted": {
       "build_requires_resolved": {
@@ -293724,12 +296315,14 @@
         "location": "Packages/p/parted-3.6-13.fc43.src.rpm",
         "name": "parted",
         "repo": "source-releases",
-        "sha256": "042d82115458a8ba80410a86f5648892c14ea204aded95ea54d95654f5f86f9b"
+        "sha256": "042d82115458a8ba80410a86f5648892c14ea204aded95ea54d95654f5f86f9b",
+        "source_name": "parted"
       },
       "subpackages": [
         "parted",
         "parted-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "pcre2": {
       "build_requires_resolved": {
@@ -296137,7 +298730,8 @@
         "location": "Packages/p/pcre2-10.47-1.fc43.src.rpm",
         "name": "pcre2",
         "repo": "source-updates",
-        "sha256": "a222f04a868fec0da3bd6ce94d06e0dbe251d6bc969120d8a2131f53cabdb337"
+        "sha256": "a222f04a868fec0da3bd6ce94d06e0dbe251d6bc969120d8a2131f53cabdb337",
+        "source_name": "pcre2"
       },
       "subpackages": [
         "pcre2",
@@ -296147,7 +298741,8 @@
         "pcre2-tools",
         "pcre2-utf16",
         "pcre2-utf32"
-      ]
+      ],
+      "variant_of": null
     },
     "pkgconf": {
       "build_requires_resolved": {
@@ -298618,7 +301213,8 @@
         "location": "Packages/p/pkgconf-2.3.0-3.fc43.src.rpm",
         "name": "pkgconf",
         "repo": "source-releases",
-        "sha256": "7615533851bacab365650d0b34edb476ebb69e84e13604fb8603674ea5abad94"
+        "sha256": "7615533851bacab365650d0b34edb476ebb69e84e13604fb8603674ea5abad94",
+        "source_name": "pkgconf"
       },
       "subpackages": [
         "bomtool",
@@ -298627,7 +301223,8 @@
         "pkgconf",
         "pkgconf-m4",
         "pkgconf-pkg-config"
-      ]
+      ],
+      "variant_of": null
     },
     "policycoreutils": {
       "build_requires_resolved": {
@@ -300949,7 +303546,8 @@
         "location": "Packages/p/policycoreutils-3.9-7.fc43.src.rpm",
         "name": "policycoreutils",
         "repo": "source-updates",
-        "sha256": "9dc487b0a13448c83fc2c809601e1152108a0481ec219d51b67550c6be93ce0a"
+        "sha256": "9dc487b0a13448c83fc2c809601e1152108a0481ec219d51b67550c6be93ce0a",
+        "source_name": "policycoreutils"
       },
       "subpackages": [
         "policycoreutils",
@@ -300961,7 +303559,8 @@
         "policycoreutils-restorecond",
         "policycoreutils-sandbox",
         "python3-policycoreutils"
-      ]
+      ],
+      "variant_of": null
     },
     "popt": {
       "build_requires_resolved": {
@@ -302672,13 +305271,15 @@
         "location": "Packages/p/popt-1.19-9.fc43.src.rpm",
         "name": "popt",
         "repo": "source-releases",
-        "sha256": "499fe270f393a0ee9207d82421d67374e1164230994db7ca8bc5adcd9b6b605d"
+        "sha256": "499fe270f393a0ee9207d82421d67374e1164230994db7ca8bc5adcd9b6b605d",
+        "source_name": "popt"
       },
       "subpackages": [
         "popt",
         "popt-devel",
         "popt-static"
-      ]
+      ],
+      "variant_of": null
     },
     "procps-ng": {
       "build_requires_resolved": {
@@ -305872,13 +308473,15 @@
         "location": "Packages/p/procps-ng-4.0.4-7.fc43.1.src.rpm",
         "name": "procps-ng",
         "repo": "source-updates",
-        "sha256": "455fcc55c911e548c0a475199cc866d41d7fd1ee78a3b24fe6977ddc54429b09"
+        "sha256": "455fcc55c911e548c0a475199cc866d41d7fd1ee78a3b24fe6977ddc54429b09",
+        "source_name": "procps-ng"
       },
       "subpackages": [
         "procps-ng",
         "procps-ng-devel",
         "procps-ng-i18n"
-      ]
+      ],
+      "variant_of": null
     },
     "psmisc": {
       "build_requires_resolved": {
@@ -308440,11 +311043,13 @@
         "location": "Packages/p/psmisc-23.7-6.fc43.src.rpm",
         "name": "psmisc",
         "repo": "source-releases",
-        "sha256": "e203a2bd8df25d9be61fa2402e5e5353f76576755918c09027a28c5a72df06a1"
+        "sha256": "e203a2bd8df25d9be61fa2402e5e5353f76576755918c09027a28c5a72df06a1",
+        "source_name": "psmisc"
       },
       "subpackages": [
         "psmisc"
-      ]
+      ],
+      "variant_of": null
     },
     "publicsuffix-list": {
       "build_requires_resolved": {
@@ -310173,12 +312778,14 @@
         "location": "Packages/p/publicsuffix-list-20260116-1.fc43.src.rpm",
         "name": "publicsuffix-list",
         "repo": "source-updates",
-        "sha256": "bde24a8b04811a7034ecd5f3aa5329d9b00e639c8616d12e4f566517af9949cc"
+        "sha256": "bde24a8b04811a7034ecd5f3aa5329d9b00e639c8616d12e4f566517af9949cc",
+        "source_name": "publicsuffix-list"
       },
       "subpackages": [
         "publicsuffix-list",
         "publicsuffix-list-dafsa"
-      ]
+      ],
+      "variant_of": null
     },
     "readline": {
       "build_requires_resolved": {
@@ -311862,13 +314469,15 @@
         "location": "Packages/r/readline-8.3-2.fc43.src.rpm",
         "name": "readline",
         "repo": "source-releases",
-        "sha256": "3aa104eea292069820490286817131404b90db2a7ebdb8b07d8fbe53242e7428"
+        "sha256": "3aa104eea292069820490286817131404b90db2a7ebdb8b07d8fbe53242e7428",
+        "source_name": "readline"
       },
       "subpackages": [
         "readline",
         "readline-devel",
         "readline-static"
-      ]
+      ],
+      "variant_of": null
     },
     "rootfiles": {
       "build_requires_resolved": {
@@ -313543,11 +316152,13 @@
         "location": "Packages/r/rootfiles-9.0-4.fc43.src.rpm",
         "name": "rootfiles",
         "repo": "source-releases",
-        "sha256": "c63698c3f25513ba27ab48e5e2344091e76143dcaea9cb9b0d61d1e5abb5d6aa"
+        "sha256": "c63698c3f25513ba27ab48e5e2344091e76143dcaea9cb9b0d61d1e5abb5d6aa",
+        "source_name": "rootfiles"
       },
       "subpackages": [
         "rootfiles"
-      ]
+      ],
+      "variant_of": null
     },
     "rpm": {
       "build_requires_resolved": {
@@ -317500,7 +320111,8 @@
         "location": "Packages/r/rpm-6.0.2-1.fc43.src.rpm",
         "name": "rpm",
         "repo": "source-updates",
-        "sha256": "f52395e616995e8c480b99d1ba54d48cdd363bc6fd4394be9cb41b00f5da4660"
+        "sha256": "f52395e616995e8c480b99d1ba54d48cdd363bc6fd4394be9cb41b00f5da4660",
+        "source_name": "rpm"
       },
       "subpackages": [
         "python3-rpm",
@@ -317523,7 +320135,8 @@
         "rpm-plugin-unshare",
         "rpm-sign",
         "rpm-sign-libs"
-      ]
+      ],
+      "variant_of": null
     },
     "rust-rpm-sequoia": {
       "build_requires_resolved": {
@@ -323019,12 +325632,14 @@
         "location": "Packages/r/rust-rpm-sequoia-1.10.2-4.fc43.src.rpm",
         "name": "rust-rpm-sequoia",
         "repo": "source-updates",
-        "sha256": "6f64672d4aaf83b108f7f2d455398acef5e9751b994f9a8d7074219b3697cf73"
+        "sha256": "6f64672d4aaf83b108f7f2d455398acef5e9751b994f9a8d7074219b3697cf73",
+        "source_name": "rust-rpm-sequoia"
       },
       "subpackages": [
         "rpm-sequoia",
         "rpm-sequoia-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "sdbus-cpp": {
       "build_requires_resolved": {
@@ -326468,7 +329083,8 @@
         "location": "Packages/s/sdbus-cpp-2.1.0-3.fc43.src.rpm",
         "name": "sdbus-cpp",
         "repo": "source-releases",
-        "sha256": "b8b27839a65d95bec28329d89cbecb32b4946b04500efa13b4dc9f59b944115a"
+        "sha256": "b8b27839a65d95bec28329d89cbecb32b4946b04500efa13b4dc9f59b944115a",
+        "source_name": "sdbus-cpp"
       },
       "subpackages": [
         "sdbus-cpp",
@@ -326476,7 +329092,8 @@
         "sdbus-cpp-devel-doc",
         "sdbus-cpp-tests",
         "sdbus-cpp-tools"
-      ]
+      ],
+      "variant_of": null
     },
     "sed": {
       "build_requires_resolved": {
@@ -328953,11 +331570,13 @@
         "location": "Packages/s/sed-4.9-5.fc43.src.rpm",
         "name": "sed",
         "repo": "source-releases",
-        "sha256": "78c5f620b09400a30a8a7f60f92f13b064e78f5108a552f11737df3afd45c2f8"
+        "sha256": "78c5f620b09400a30a8a7f60f92f13b064e78f5108a552f11737df3afd45c2f8",
+        "source_name": "sed"
       },
       "subpackages": [
         "sed"
-      ]
+      ],
+      "variant_of": null
     },
     "selinux-policy": {
       "build_requires_resolved": {
@@ -330961,7 +333580,8 @@
         "location": "Packages/s/selinux-policy-43.10-1.fc43.src.rpm",
         "name": "selinux-policy",
         "repo": "source-updates",
-        "sha256": "b53b6b19e723509b2676b7f4ac4b9bf449c1b99ac9ec0d7546a9894bc3fbcf0a"
+        "sha256": "b53b6b19e723509b2676b7f4ac4b9bf449c1b99ac9ec0d7546a9894bc3fbcf0a",
+        "source_name": "selinux-policy"
       },
       "subpackages": [
         "selinux-policy",
@@ -330971,7 +333591,8 @@
         "selinux-policy-mls",
         "selinux-policy-sandbox",
         "selinux-policy-targeted"
-      ]
+      ],
+      "variant_of": null
     },
     "setup": {
       "build_requires_resolved": {
@@ -333207,11 +335828,13 @@
         "location": "Packages/s/setup-2.15.0-26.fc43.src.rpm",
         "name": "setup",
         "repo": "source-releases",
-        "sha256": "a4490cc8c80db309937c5608cc76ef7b128eb20edebfb78ca46b7540cf23ff27"
+        "sha256": "a4490cc8c80db309937c5608cc76ef7b128eb20edebfb78ca46b7540cf23ff27",
+        "source_name": "setup"
       },
       "subpackages": [
         "setup"
-      ]
+      ],
+      "variant_of": null
     },
     "shadow-utils": {
       "build_requires_resolved": {
@@ -336048,13 +338671,15 @@
         "location": "Packages/s/shadow-utils-4.18.0-3.fc43.src.rpm",
         "name": "shadow-utils",
         "repo": "source-releases",
-        "sha256": "26c5be3f520a566d73298d12e48c8b8485662f0b122c1d2f95e14aba3baa0f85"
+        "sha256": "26c5be3f520a566d73298d12e48c8b8485662f0b122c1d2f95e14aba3baa0f85",
+        "source_name": "shadow-utils"
       },
       "subpackages": [
         "shadow-utils",
         "shadow-utils-subid",
         "shadow-utils-subid-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "sqlite": {
       "build_requires_resolved": {
@@ -338483,7 +341108,8 @@
         "location": "Packages/s/sqlite-3.50.2-3.fc43.src.rpm",
         "name": "sqlite",
         "repo": "source-updates",
-        "sha256": "6bf6a898a56df00fb926c4e243f61d0bd0ce752fd06cd80ba7a761a786e85c75"
+        "sha256": "6bf6a898a56df00fb926c4e243f61d0bd0ce752fd06cd80ba7a761a786e85c75",
+        "source_name": "sqlite"
       },
       "subpackages": [
         "lemon",
@@ -338495,7 +341121,8 @@
         "sqlite-libs",
         "sqlite-tcl",
         "sqlite-tools"
-      ]
+      ],
+      "variant_of": null
     },
     "squashfs-tools": {
       "build_requires_resolved": {
@@ -340806,11 +343433,13 @@
         "location": "Packages/s/squashfs-tools-4.6.1-7.fc43.src.rpm",
         "name": "squashfs-tools",
         "repo": "source-releases",
-        "sha256": "f27f39761b5dddfc2b3a282cef9f1cea6b52880bea6b7bd31db47f2504354e51"
+        "sha256": "f27f39761b5dddfc2b3a282cef9f1cea6b52880bea6b7bd31db47f2504354e51",
+        "source_name": "squashfs-tools"
       },
       "subpackages": [
         "squashfs-tools"
-      ]
+      ],
+      "variant_of": null
     },
     "sudo": {
       "build_requires_resolved": {
@@ -343479,14 +346108,16 @@
         "location": "Packages/s/sudo-1.9.17-7.p2.fc43.src.rpm",
         "name": "sudo",
         "repo": "source-updates",
-        "sha256": "a5b3241f1559b88f20d8faef09d0aeeb30e99c5348dbda7f70f52ea707783075"
+        "sha256": "a5b3241f1559b88f20d8faef09d0aeeb30e99c5348dbda7f70f52ea707783075",
+        "source_name": "sudo"
       },
       "subpackages": [
         "sudo",
         "sudo-devel",
         "sudo-logsrvd",
         "sudo-python-plugin"
-      ]
+      ],
+      "variant_of": null
     },
     "systemd": {
       "build_requires_resolved": {
@@ -347780,7 +350411,8 @@
         "location": "Packages/s/systemd-258.10-1.fc43.src.rpm",
         "name": "systemd",
         "repo": "source-updates",
-        "sha256": "6cc59d7336bb65fc7d8ea994925a4d4c6e8bf4c8109fbe67eeddbf9d6df11c66"
+        "sha256": "6cc59d7336bb65fc7d8ea994925a4d4c6e8bf4c8109fbe67eeddbf9d6df11c66",
+        "source_name": "systemd"
       },
       "subpackages": [
         "systemd",
@@ -347804,7 +350436,8 @@
         "systemd-tests",
         "systemd-udev",
         "systemd-ukify"
-      ]
+      ],
+      "variant_of": null
     },
     "tar": {
       "build_requires_resolved": {
@@ -347846,12 +350479,13 @@
       "deps_built": [
         {
           "arch": "x86_64",
-          "evr": "2.4.0-1.fc43",
-          "location": "Packages/a/acl-2.4.0-1.fc43.x86_64.rpm",
+          "evr": "2.3.2-4.fc43",
+          "location": "Packages/a/acl-2.3.2-4.fc43.x86_64.rpm",
           "name": "acl",
-          "repo": "binary-updates",
-          "sha256": "3719cc2a3e52e9edf8364197e8b789cb0e1588366562bbabc95e2c6a11b2a51e",
-          "source": "acl"
+          "repo": "binary-releases",
+          "sha256": "2c1614987cf3b249511758d5be238c0e509a22b8eaf45a63d76ae07d53f8d25d",
+          "source": "acl",
+          "variant": "acl-compat"
         },
         {
           "arch": "x86_64",
@@ -348269,21 +350903,23 @@
         },
         {
           "arch": "x86_64",
-          "evr": "2.4.0-1.fc43",
-          "location": "Packages/l/libacl-2.4.0-1.fc43.x86_64.rpm",
+          "evr": "2.3.2-4.fc43",
+          "location": "Packages/l/libacl-2.3.2-4.fc43.x86_64.rpm",
           "name": "libacl",
-          "repo": "binary-updates",
-          "sha256": "942fa1f926548271b4a7879ed1f123e0af6cac7d04aa5886826374b6e1bf9d38",
-          "source": "acl"
+          "repo": "binary-releases",
+          "sha256": "090ecb93a55ca35ff683d5037df4fef8283dd840db9bd62aa3ddc9632bee5972",
+          "source": "acl",
+          "variant": "acl-compat"
         },
         {
           "arch": "x86_64",
-          "evr": "2.4.0-1.fc43",
-          "location": "Packages/l/libacl-devel-2.4.0-1.fc43.x86_64.rpm",
+          "evr": "2.3.2-4.fc43",
+          "location": "Packages/l/libacl-devel-2.3.2-4.fc43.x86_64.rpm",
           "name": "libacl-devel",
-          "repo": "binary-updates",
-          "sha256": "1959960bb0848465e939b7308aacb9c70a3cf1aeea599d0a263c777c024ed3dc",
-          "source": "acl"
+          "repo": "binary-releases",
+          "sha256": "7c330b0064a3a3ca882c8c7f66410d9c0db4157363c798018f169cfb7420147b",
+          "source": "acl",
+          "variant": "acl-compat"
         },
         {
           "arch": "x86_64",
@@ -350315,11 +352951,13 @@
         "location": "Packages/t/tar-1.35-6.fc43.src.rpm",
         "name": "tar",
         "repo": "source-releases",
-        "sha256": "dff237450a8c7132b9bf8f9123adbf1d947f87cfeaad2a9578f8af88fd9648ea"
+        "sha256": "dff237450a8c7132b9bf8f9123adbf1d947f87cfeaad2a9578f8af88fd9648ea",
+        "source_name": "tar"
       },
       "subpackages": [
         "tar"
-      ]
+      ],
+      "variant_of": null
     },
     "tzdata": {
       "build_requires_resolved": {
@@ -352933,12 +355571,14 @@
         "location": "Packages/t/tzdata-2026c-1.fc43.src.rpm",
         "name": "tzdata",
         "repo": "source-updates",
-        "sha256": "021a9df5fe82d855d00bcf8de327dbf3a02495cedfdc83be5dc3d71342fe8e16"
+        "sha256": "021a9df5fe82d855d00bcf8de327dbf3a02495cedfdc83be5dc3d71342fe8e16",
+        "source_name": "tzdata"
       },
       "subpackages": [
         "tzdata",
         "tzdata-java"
-      ]
+      ],
+      "variant_of": null
     },
     "util-linux": {
       "build_requires_resolved": {
@@ -356476,7 +359116,8 @@
         "location": "Packages/u/util-linux-2.41.5-1.fc43.src.rpm",
         "name": "util-linux",
         "repo": "source-updates",
-        "sha256": "f6aa5e090eba18d9aa891528f4f1be757a55ff0437bf731d89f956a3b4b525da"
+        "sha256": "f6aa5e090eba18d9aa891528f4f1be757a55ff0437bf731d89f956a3b4b525da",
+        "source_name": "util-linux"
       },
       "subpackages": [
         "libblkid",
@@ -356497,7 +359138,8 @@
         "util-linux-i18n",
         "util-linux-script",
         "uuidd"
-      ]
+      ],
+      "variant_of": null
     },
     "vim": {
       "build_requires_resolved": {
@@ -361456,7 +364098,8 @@
         "location": "Packages/v/vim-9.2.967-1.fc43.src.rpm",
         "name": "vim",
         "repo": "source-updates",
-        "sha256": "d9a6f57eeac5bc6cdc55174f7df2c4eef46b1b7a326d6c0ebc3e884147dc73ad"
+        "sha256": "d9a6f57eeac5bc6cdc55174f7df2c4eef46b1b7a326d6c0ebc3e884147dc73ad",
+        "source_name": "vim"
       },
       "subpackages": [
         "vim-X11",
@@ -361467,7 +364110,8 @@
         "vim-filesystem",
         "vim-minimal",
         "xxd"
-      ]
+      ],
+      "variant_of": null
     },
     "which": {
       "build_requires_resolved": {
@@ -363160,11 +365804,13 @@
         "location": "Packages/w/which-2.23-3.fc43.src.rpm",
         "name": "which",
         "repo": "source-releases",
-        "sha256": "5c60097a70aba2428c643f47e675e853446715db305fd3a118d7c9a9e233447e"
+        "sha256": "5c60097a70aba2428c643f47e675e853446715db305fd3a118d7c9a9e233447e",
+        "source_name": "which"
       },
       "subpackages": [
         "which"
-      ]
+      ],
+      "variant_of": null
     },
     "xz": {
       "build_requires_resolved": {
@@ -365546,7 +368192,8 @@
         "location": "Packages/x/xz-5.8.1-4.fc43.src.rpm",
         "name": "xz",
         "repo": "source-updates",
-        "sha256": "62fe5bb9013ed2f1df0de3f28b7bc1820b8cae03e1a52f56131b1742d5cd0f63"
+        "sha256": "62fe5bb9013ed2f1df0de3f28b7bc1820b8cae03e1a52f56131b1742d5cd0f63",
+        "source_name": "xz"
       },
       "subpackages": [
         "xz",
@@ -365554,7 +368201,8 @@
         "xz-libs",
         "xz-lzma-compat",
         "xz-static"
-      ]
+      ],
+      "variant_of": null
     },
     "zchunk": {
       "build_requires_resolved": {
@@ -367556,13 +370204,15 @@
         "location": "Packages/z/zchunk-1.5.4-1.fc43.src.rpm",
         "name": "zchunk",
         "repo": "source-updates",
-        "sha256": "8b077e12f38f8827ed30f6ccc4836313ab18ab7a63264a14507d5fe10c78ad0e"
+        "sha256": "8b077e12f38f8827ed30f6ccc4836313ab18ab7a63264a14507d5fe10c78ad0e",
+        "source_name": "zchunk"
       },
       "subpackages": [
         "zchunk",
         "zchunk-devel",
         "zchunk-libs"
-      ]
+      ],
+      "variant_of": null
     },
     "zlib-ng": {
       "build_requires_resolved": {
@@ -369509,7 +372159,8 @@
         "location": "Packages/z/zlib-ng-2.3.3-2.fc43.src.rpm",
         "name": "zlib-ng",
         "repo": "source-updates",
-        "sha256": "520fabeeadb009d5f1271e93637087a957d2d8991c4e5fede62304407d1499c9"
+        "sha256": "520fabeeadb009d5f1271e93637087a957d2d8991c4e5fede62304407d1499c9",
+        "source_name": "zlib-ng"
       },
       "subpackages": [
         "zlib-ng",
@@ -369517,7 +372168,8 @@
         "zlib-ng-compat-devel",
         "zlib-ng-compat-static",
         "zlib-ng-devel"
-      ]
+      ],
+      "variant_of": null
     },
     "zstd": {
       "build_requires_resolved": {
@@ -371259,14 +373911,16 @@
         "location": "Packages/z/zstd-1.5.7-2.fc43.src.rpm",
         "name": "zstd",
         "repo": "source-releases",
-        "sha256": "5f23c3d7406e25119b7aa7af17a8a08f1bd903cdd92b239a9fc0bc428e145eca"
+        "sha256": "5f23c3d7406e25119b7aa7af17a8a08f1bd903cdd92b239a9fc0bc428e145eca",
+        "source_name": "zstd"
       },
       "subpackages": [
         "libzstd",
         "libzstd-devel",
         "libzstd-static",
         "zstd"
-      ]
+      ],
+      "variant_of": null
     }
   },
   "problems": [],
@@ -371302,6 +373956,7 @@
     "build": [
       "NetworkManager",
       "acl",
+      "acl-compat",
       "attr",
       "audit",
       "authselect",
@@ -371610,6 +374265,10 @@
     "probe": "fedora-43.probe.json",
     "seed_only": false,
     "seed_packages": [],
+    "source_pins": [],
+    "source_variants": [
+      "acl-compat=acl@2.3.2-4.fc43:tar"
+    ],
     "stages": 3
   },
   "staged": [
@@ -371694,6 +374353,89 @@
       "source": "acl",
       "stage": 1,
       "target": "acl-stage1"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "crypto-policies",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "keyutils",
+        "krb5",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtool",
+        "libunistring",
+        "libverto",
+        "libxcrypt",
+        "libxml2",
+        "lua",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "popt",
+        "readline",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tar",
+        "util-linux",
+        "which",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "seed",
+      "ships": false,
+      "source": "acl-compat",
+      "stage": 1,
+      "target": "acl-compat-stage1"
     },
     {
       "cycle_deps": [
@@ -381120,7 +383862,7 @@
     },
     {
       "cycle_deps": [
-        "acl",
+        "acl-compat",
         "attr",
         "audit",
         "bash",
@@ -381976,6 +384718,89 @@
       "source": "acl",
       "stage": 2,
       "target": "acl-stage2"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "crypto-policies",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "keyutils",
+        "krb5",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtool",
+        "libunistring",
+        "libverto",
+        "libxcrypt",
+        "libxml2",
+        "lua",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "popt",
+        "readline",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tar",
+        "util-linux",
+        "which",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "stage1",
+      "ships": false,
+      "source": "acl-compat",
+      "stage": 2,
+      "target": "acl-compat-stage2"
     },
     {
       "cycle_deps": [
@@ -391402,7 +394227,7 @@
     },
     {
       "cycle_deps": [
-        "acl",
+        "acl-compat",
         "attr",
         "audit",
         "bash",
@@ -392258,6 +395083,89 @@
       "source": "acl",
       "stage": 3,
       "target": "acl-stage3"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "crypto-policies",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "keyutils",
+        "krb5",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtool",
+        "libunistring",
+        "libverto",
+        "libxcrypt",
+        "libxml2",
+        "lua",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "popt",
+        "readline",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tar",
+        "util-linux",
+        "which",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "stage2",
+      "ships": true,
+      "source": "acl-compat",
+      "stage": 3,
+      "target": "acl-compat-stage3"
     },
     {
       "cycle_deps": [
@@ -401684,7 +404592,7 @@
     },
     {
       "cycle_deps": [
-        "acl",
+        "acl-compat",
         "attr",
         "audit",
         "bash",
@@ -402473,16 +405381,48 @@
       "live": 187
     },
     "pins_by_repo": {
-      "binary-releases": 20335,
-      "binary-updates": 19946,
-      "source-releases": 64,
+      "binary-releases": 20465,
+      "binary-updates": 20076,
+      "source-releases": 65,
       "source-updates": 62
     },
     "problems": 0,
-    "source_packages_built": 126,
-    "staged_targets": 351,
+    "source_packages_built": 127,
+    "staged_targets": 354,
     "superseded": 29123,
     "total_build_deps": 2255
   },
-  "target_cpu": "x86_64"
+  "target_cpu": "x86_64",
+  "variant_seed": [
+    {
+      "arch": "x86_64",
+      "evr": "2.3.2-4.fc43",
+      "location": "Packages/l/libacl-2.3.2-4.fc43.x86_64.rpm",
+      "name": "libacl",
+      "repo": "binary-releases",
+      "sha256": "090ecb93a55ca35ff683d5037df4fef8283dd840db9bd62aa3ddc9632bee5972",
+      "source": "acl",
+      "variant": "acl-compat"
+    },
+    {
+      "arch": "x86_64",
+      "evr": "2.3.2-4.fc43",
+      "location": "Packages/a/acl-2.3.2-4.fc43.x86_64.rpm",
+      "name": "acl",
+      "repo": "binary-releases",
+      "sha256": "2c1614987cf3b249511758d5be238c0e509a22b8eaf45a63d76ae07d53f8d25d",
+      "source": "acl",
+      "variant": "acl-compat"
+    },
+    {
+      "arch": "x86_64",
+      "evr": "2.3.2-4.fc43",
+      "location": "Packages/l/libacl-devel-2.3.2-4.fc43.x86_64.rpm",
+      "name": "libacl-devel",
+      "repo": "binary-releases",
+      "sha256": "7c330b0064a3a3ca882c8c7f66410d9c0db4157363c798018f169cfb7420147b",
+      "source": "acl",
+      "variant": "acl-compat"
+    }
+  ]
 }

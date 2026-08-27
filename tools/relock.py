@@ -242,7 +242,9 @@ def solve_argv(lock, repos, out, probe=None):
     for flag, key in (("--build", "build"), ("--override", "overrides"),
                       ("--image", "images"),
                       ("--image-override", "image_overrides"),
-                      ("--seed-package", "seed_packages")):
+                      ("--seed-package", "seed_packages"),
+                      ("--source-pin", "source_pins"),
+                      ("--source-variant", "source_variants")):
         for item in recorded.get(key, []):
             argv += [flag, item]
     return argv

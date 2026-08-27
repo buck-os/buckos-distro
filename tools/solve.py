@@ -310,6 +310,8 @@ def merge_packages(groups):
     # reported against the base rather than against whatever intermediate
     # build happened to be seen most recently.
     origin = {}
+    # Every build seen for a key, winners and losers alike.
+    candidates = {}
 
     for _repo, packages in groups:
         # Resolve within the repo first. A repo carrying two builds of one
@@ -330,6 +332,7 @@ def merge_packages(groups):
                 group_best[key] = pkg
 
         for key, pkg in group_best.items():
+            candidates.setdefault(key, []).append(pkg)
             incumbent = index.get(key)
             if incumbent is None:
                 index[key] = pkg
@@ -349,7 +352,21 @@ def merge_packages(groups):
         for key, pkg in sorted(index.items())
         if pkg is not origin[key]
     ]
-    return [index[key] for key in sorted(index)], replacements
+    # The builds that lost, kept rather than dropped.  Newest-wins is the
+    # right default and the wrong answer for a source package older than
+    # the update: tar 1.35-6 cannot compile against acl 2.4.0, because the
+    # 2.4.0 header declares an acl_get_file_at that tar declares itself
+    # with a different arity.  Fedora shipped that update without rebuilding
+    # tar, so its own buildroot would fail the same way -- the GA binary
+    # simply predates the header.  Building it needs the acl it was built
+    # against, and that build has to still be reachable to be named.
+    superseded = {}
+    for key, losers in sorted(candidates.items()):
+        for pkg in losers:
+            if pkg is index[key]:
+                continue
+            superseded.setdefault(key, {})[_evr_string(pkg)] = pkg
+    return [index[key] for key in sorted(index)], replacements, superseded
 
 
 def _evr_string(pkg):
@@ -477,7 +494,208 @@ def _arch_rank(arch, target_cpu):
     return 2
 
 
-def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64"):
+def parse_source_variants(specs):
+    """Parse --source-variant into {variant: {source, evr, consumers}}.
+
+        acl-compat=acl@2.3.2-4.fc43:tar,rsync
+
+    One flag rather than two, because declaring a variant and saying who
+    uses it are not separable decisions -- a variant nobody consumes is
+    dead weight in the graph, and a consumer naming a variant that was
+    never declared is a typo that should fail here rather than resolve to
+    the default and build the wrong thing.
+    """
+    variants = {}
+    for spec in specs:
+        head, _, consumers = spec.partition(":")
+        name, _, origin = head.partition("=")
+        source, _, evr = origin.partition("@")
+        name, source, evr = name.strip(), source.strip(), evr.strip()
+        if not (name and source and evr and consumers.strip()):
+            sys.exit(
+                "--source-variant expects name=source@evr:consumer[,...], "
+                "got {!r}".format(spec))
+        if name == source:
+            sys.exit(
+                "--source-variant {}: the variant needs a name of its own, "
+                "distinct from the source package it is built from".format(
+                    name))
+        variants[name] = {
+            "source": source,
+            "evr": evr,
+            "consumers": sorted(
+                {c.strip() for c in consumers.split(",") if c.strip()}),
+        }
+    return variants
+
+
+def add_source_variants(variants, universe, source_superseded,
+                        binary_superseded, build_set):
+    """Register a second build of a source package, at another version.
+
+    An update is published for the package it updates, not for everything
+    built against it, so a distro can reach a state where one version
+    satisfies some consumers and another satisfies the rest.  Fedora 43 is
+    in exactly that state over acl: 2.4.0 added a versioned symbol that
+    rsync now requires, and the same release's header change broke tar
+    1.35, whose source declares its own three-argument `acl_get_file_at`
+    where 2.4.0 declares four.  Fedora resolves it by not rebuilding tar.
+    A repo that builds everything from source cannot, so it builds both.
+
+    Modelled on the staging machinery rather than beside it: a stage is
+    already "this source package, built more than once, with consumers
+    routed to the right one".  The only new thing is that the copies differ by
+    version instead of by position in a cycle, so a variant carries its own
+    srpm and its own EVR and is otherwise an ordinary recipe.
+
+    Deliberately not automatic.  Deciding that two versions must coexist is
+    a claim about the distro that a person should make and review, and
+    guessing it from a failed compile would be the solver inventing policy.
+
+    Returns (problems, subpackages_by_variant, routes) where routes is
+    {consumer: {binary: variant}}.
+    """
+    problems = []
+    subpackages = {}
+    routes = {}
+    for name in sorted(variants):
+        spec = variants[name]
+        source, evr = spec["source"], spec["evr"]
+        current = universe["source_index"].get(source)
+        if current is None:
+            problems.append(
+                ("variant", "no source package named {!r}".format(source),
+                 name))
+            continue
+        older = source_superseded.get((source, current["arch"]), {}).get(evr)
+        if older is None:
+            problems.append((
+                "variant",
+                "{} wants {} at {}, which this repodata does not carry "
+                "(newest is {}; superseded: {})".format(
+                    name, source, evr, _evr_string(current),
+                    ", ".join(sorted(source_superseded.get(
+                        (source, current["arch"]), {}))) or "none"),
+                name))
+            continue
+
+        # The variant is a source package in its own right from here on.
+        universe["source_index"][name] = dict(older, name=name)
+        # Its outputs are the same binary names, at the pinned EVR.  Kept
+        # out of `source_of` and `subpackages`, which answer "who normally
+        # builds this" for the whole graph -- a variant is by definition
+        # not the normal answer, and overwriting them would reroute every
+        # consumer rather than the named ones.
+        subpackages[name] = list(universe["subpackages"].get(source, []))
+        build_set.add(name)
+
+        for consumer in spec["consumers"]:
+            for binary in subpackages[name]:
+                if binary_superseded.get(
+                        (binary, universe["binary_index"].get(
+                            binary, {}).get("arch")), {}).get(evr) is None:
+                    # This subpackage did not change between the two
+                    # builds, so there is one rpm and no routing to do.
+                    continue
+                routes.setdefault(consumer, {})[binary] = name
+    return problems, subpackages, routes
+
+
+def apply_source_pins(pins, binary_pkgs, source_pkgs,
+                      binary_superseded, source_superseded):
+    """Build a source package from an older srpm than newest-wins picked.
+
+    Newest-wins is right for an image and wrong for a rebuild, and the two
+    cannot be reconciled by choosing better: an update is published for the
+    package it updates, not for everything that was built against it.  tar
+    is the case.  Fedora shipped acl 2.4.0 as an update and never rebuilt
+    tar, whose 1.35 source declares its own three-argument
+    `acl_get_file_at` -- the one 2.4.0's header now declares with four:
+
+        xattrs.c:142:14: error: conflicting types for 'acl_get_file_at'
+
+    Fedora's tar binary is fine, because it predates the header.  Rebuilding
+    it against the current buildroot fails, and would fail in Fedora's own
+    buildroot too.  What makes it buildable is the acl it was actually
+    built against, which is still in releases/ and still pinned by digest.
+
+    Pins the *source* package rather than a build dependency, because acl
+    is in the build set: tar's libacl-devel is something this repo compiles,
+    not something it downloads, so there is no seed entry to redirect.  The
+    binary builds of the same EVR move with it, so the graph stays coherent
+    -- a lockfile naming acl 2.3.2-4's srpm and 2.4.0-1's libacl would
+    describe a build nobody can reproduce.
+
+    Blast radius is the pinned package and whatever builds against it,
+    stated plainly: everything now gets acl 2.3.2, which is what Fedora 43
+    shipped at GA.  That is a real cost and the honest alternative is worse
+    -- an update nobody can rebuild against is not a version anyone has.
+    """
+    problems = []
+    if not pins:
+        return binary_pkgs, source_pkgs, problems
+
+    source_by_name = {p["name"]: p for p in source_pkgs}
+    chosen = {}
+    for name, evr in sorted(pins.items()):
+        current = source_by_name.get(name)
+        if current is None:
+            problems.append(
+                ("pin", "no source package named {!r} to pin".format(name),
+                 name))
+            continue
+        if _evr_string(current) == evr:
+            # Already the winner.  Not an error -- an update can land that
+            # makes a pin redundant, and saying so is more useful than
+            # either failing or silently doing nothing.
+            print("buckos-distro: --source-pin {}={} matches the newest "
+                  "build; no change".format(name, evr), file=sys.stderr)
+            continue
+        older = source_superseded.get((name, current["arch"]), {}).get(evr)
+        if older is None:
+            available = sorted(
+                source_superseded.get((name, current["arch"]), {}))
+            problems.append((
+                "pin",
+                "{} pinned to {}, which this repodata does not carry "
+                "(newest is {}; superseded: {})".format(
+                    name, evr, _evr_string(current),
+                    ", ".join(available) or "none"),
+                name))
+            continue
+        chosen[name] = (older, evr)
+
+    if not chosen:
+        return binary_pkgs, source_pkgs, problems
+
+    source_pkgs = [
+        chosen[p["name"]][0] if p["name"] in chosen else p
+        for p in source_pkgs
+    ]
+
+    # The binary side has to follow, or the lockfile describes a source at
+    # one version and its outputs at another.
+    moved = []
+    for pkg in binary_pkgs:
+        src = source_name_from_sourcerpm(pkg["sourcerpm"])
+        want = chosen.get(src)
+        if want is None:
+            moved.append(pkg)
+            continue
+        older = binary_superseded.get((pkg["name"], pkg["arch"]), {}).get(
+            want[1])
+        if older is None:
+            # A subpackage that did not change between the two builds keeps
+            # its entry, which is correct: repodata carries one build of it
+            # and both srpms produce it.
+            moved.append(pkg)
+            continue
+        moved.append(older)
+    return moved, source_pkgs, problems
+
+
+def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
+                   superseded=None):
     """Index the repodata into the maps depgraph needs.
 
     Collapses the arch dimension: callers work in package names, so of the
@@ -642,6 +860,9 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64"):
         "subpackages": subpackages,
         "binary_index": binary_index,
         "source_index": source_index,
+        # {(name, arch): {evr: pkg}} for the builds newest-wins discarded,
+        # so --pin can name one.  Empty unless merge_packages supplied it.
+        "superseded": superseded or {},
         "foreign_index": foreign_index,
         "foreign_provides": foreign_provides,
         "foreign_source_of": foreign_source_of,
@@ -1069,10 +1290,23 @@ def _count_pins_by_repo(lock):
     return dict(sorted(counts.items()))
 
 
+def _dedupe_pins(entries):
+    """One entry per rpm, keyed by digest."""
+    by_sha = {}
+    for entry in entries:
+        by_sha.setdefault(entry.get("sha256") or repr(entry), entry)
+    return [by_sha[k] for k in sorted(by_sha)]
+
+
 def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
                   dynamic, plan, depth, image_sets, seed_packages,
-                  replacements, base_closure, args):
+                  replacements, base_closure, args,
+                  variant_subpackages=None, variant_routes=None,
+                  binary_superseded=None):
     """Produce the lockfile. Every entry is pinned by checksum."""
+    variant_subpackages = variant_subpackages or {}
+    variant_routes = variant_routes or {}
+    binary_superseded = binary_superseded or {}
 
     def pin_binary(name):
         pkg = universe["binary_index"].get(name)
@@ -1102,6 +1336,36 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             "repo": pkg.get("repo"),
         }
 
+    def routed_binary(src, name):
+        """pin_binary, sent to a version variant where one is routed.
+
+        The pin has to move with the routing or the lockfile describes a
+        buildroot nobody can assemble: tar's recipe would point at the
+        compat variant's target while its recorded sha256 named the
+        current build's rpm.
+        """
+        variant = variant_routes.get(src, {}).get(name)
+        if variant is None:
+            return pin_binary(name)
+        evr = args.source_variant[variant]["evr"]
+        current = universe["binary_index"].get(name, {})
+        older = binary_superseded.get(
+            (name, current.get("arch")), {}).get(evr)
+        entry = pin_binary(name)
+        if older is not None:
+            entry.update({
+                "evr": _evr_string(older),
+                "arch": older["arch"],
+                "location": older["location"],
+                "sha256": (older["checksum"]
+                           if older["checksum_type"] == "sha256" else None),
+                "repo": older.get("repo"),
+            })
+        # Named even when the rpm did not move, so the generator routes the
+        # dependency to the variant's target either way.
+        entry["variant"] = variant
+        return entry
+
     packages = {}
     for src in sorted(build_set):
         record = universe["source_index"].get(src, {})
@@ -1114,6 +1378,11 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
         packages[src] = {
             "source": {
                 "name": src,
+                # The spec's own name, which is `src` for everything except
+                # a version variant: acl-compat is a target name, and the
+                # srpm inside still holds acl.spec.
+                "source_name": (args.source_variant.get(src) or {}).get(
+                    "source") or src,
                 "evr": "{}-{}".format(record.get("version"), record.get("release")),
                 "location": record.get("location"),
                 "sha256": record.get("checksum")
@@ -1121,10 +1390,15 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
                 else None,
                 "repo": record.get("repo"),
             },
-            "subpackages": universe["subpackages"].get(src, []),
+            "subpackages": (variant_subpackages.get(src)
+                            or universe["subpackages"].get(src, [])),
+            # Set on a second build of a source package at another
+            # version; the generator keeps it out of the default
+            # binary-to-recipe map so only routed consumers reach it.
+            "variant_of": (args.source_variant.get(src) or {}).get("source"),
             "build_requires_resolved": resolutions.get(src, {}),
             # The cut: which deps are built here vs taken from the seed.
-            "deps_built": [pin_binary(d) for d in built],
+            "deps_built": [routed_binary(src, d) for d in built],
             "deps_seed": [pin_binary(d) for d in seeded],
             # Where this package's BuildRequires came from, and what the
             # generator added if one ran.  A record rather than a list
@@ -1193,6 +1467,13 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             "implicit_group": list(args.implicit_group),
             "seed_only": args.seed_only,
             "seed_packages": sorted(args.seed_package),
+            "source_variants": [
+                "{}={}@{}:{}".format(k, v["source"], v["evr"],
+                                     ",".join(v["consumers"]))
+                for k, v in sorted(args.source_variant.items())
+            ],
+            "source_pins": ["{}={}".format(k, v)
+                            for k, v in sorted(args.source_pin.items())],
             "stages": args.stages,
             "images": sorted(args.image),
             "image_overrides": sorted(args.image_override),
@@ -1229,6 +1510,17 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             superseded=len(replacements),
         ),
         "buildroot_seed": [pin_binary(d) for d in seed_closure],
+        # The variant-routed pins, kept in their own list rather than mixed
+        # into buildroot_seed.  A cycle stage falls back to a prebuilt, and
+        # for a routed dependency that prebuilt must be the variant's build,
+        # so it has to be fetchable -- but buildroot_seed is filtered by
+        # *name* to form the shared base, and libacl is in that base.  Mixed
+        # in, both builds of libacl would be installed into one buildroot.
+        "variant_seed": _dedupe_pins([
+            routed_binary(src, name)
+            for src in sorted(variant_routes)
+            for name in sorted(variant_routes[src])
+        ]),
         # Which of those form the shared tree.  Names rather than pins:
         # the pin lives in buildroot_seed above, and repeating it would be
         # two records of one fact.
@@ -1314,6 +1606,16 @@ def main(argv=None):
                          "seed (repeatable)")
     ap.add_argument("--override", action="append", default=[],
                     help="capability=package to break an ambiguity (repeatable)")
+    ap.add_argument("--source-variant", action="append", default=[],
+                    metavar="NAME=SOURCE@EVR:CONSUMER[,...]",
+                    help="build SOURCE a second time at EVR under NAME, and "
+                         "route the named consumers' build deps to it "
+                         "(repeatable)")
+    ap.add_argument("--source-pin", action="append", default=[],
+                    metavar="SOURCE=EVR",
+                    help="build this source package from an older srpm than "
+                         "newest-wins would pick, for a package that cannot "
+                         "compile against a later dependency (repeatable)")
     ap.add_argument("--image", action="append", default=[], metavar="NAME=PKGS",
                     help="named image set: comma-separated *binary* package "
                          "names, closed over their runtime Requires "
@@ -1361,6 +1663,17 @@ def main(argv=None):
         cap, pkg = parse_override(item, "--override")
         overrides[cap] = pkg
 
+    source_variants = parse_source_variants(args.source_variant)
+    args.source_variant = source_variants
+
+    source_pins = {}
+    for item in args.source_pin:
+        if "=" not in item:
+            sys.exit("--source-pin expects source=evr, got {!r}".format(item))
+        name, evr = item.split("=", 1)
+        source_pins[name.strip()] = evr.strip()
+    args.source_pin = source_pins
+
     image_roots = {}
     for item in args.image:
         if "=" not in item:
@@ -1399,8 +1712,10 @@ def main(argv=None):
         print("  {} packages".format(len(packages)), file=sys.stderr)
         groups[repo["kind"]].append((repo["name"], packages))
 
-    binary_pkgs, binary_updates = merge_packages(groups["binary"])
-    source_pkgs, source_updates = merge_packages(groups["source"])
+    binary_pkgs, binary_updates, binary_superseded = merge_packages(
+        groups["binary"])
+    source_pkgs, source_updates, source_superseded = merge_packages(
+        groups["source"])
     replacements = binary_updates + source_updates
     print(
         "universe: {} binary, {} source packages "
@@ -1411,17 +1726,33 @@ def main(argv=None):
         file=sys.stderr,
     )
 
+    binary_pkgs, source_pkgs, pin_problems = apply_source_pins(
+        args.source_pin, binary_pkgs, source_pkgs,
+        binary_superseded, source_superseded)
+
     universe = build_universe(binary_pkgs, source_pkgs,
-                              target_cpu=args.target_cpu)
+                              target_cpu=args.target_cpu,
+                              superseded=binary_superseded)
+    variant_problems, variant_subpackages, variant_routes = \
+        add_source_variants(source_variants, universe, source_superseded,
+                            binary_superseded, build_set)
+
     build_deps, resolutions, problems, dynamic, base_closure = solve(
         universe, build_set, overrides, strict=args.strict,
         probe=load_probe(args.probe, build_set),
         implicit=args.implicit_group,
     )
+    # A rotted pin is reported with everything else rather than fatally:
+    # it means the build it protected will fail later, which the reviewer
+    # should see alongside the rest of the run.
+    problems.extend(pin_problems)
+    problems.extend(variant_problems)
     plan = plan_build_order(
-        build_deps, universe["source_of"], build_set, stages=args.stages
+        build_deps, universe["source_of"], build_set, stages=args.stages,
+        routes=variant_routes,
     )
-    depth = bootstrap_depth(build_deps, universe["source_of"], build_set)
+    depth = bootstrap_depth(build_deps, universe["source_of"], build_set,
+                            routes=variant_routes)
 
     image_sets, image_problems = solve_image_sets(
         universe, image_roots, overrides, image_overrides
@@ -1451,6 +1782,9 @@ def main(argv=None):
         universe, build_set, build_deps, resolutions, problems,
         dynamic, plan, depth, image_sets, seed_packages, replacements,
         base_closure, args,
+        variant_subpackages=variant_subpackages,
+        variant_routes=variant_routes,
+        binary_superseded=binary_superseded,
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)

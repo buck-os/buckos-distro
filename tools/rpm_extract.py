@@ -37,7 +37,7 @@ import os
 import shutil
 import sys
 
-from _rpm import extract_rpm
+from _rpm import extract_rpm, make_dirs_writable
 
 
 def select_rpm(rpm_dir, name):
@@ -115,6 +115,11 @@ def main():
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out, exist_ok=True)
     extract_rpm(rpm_path, out)
+    # Buck2 hashes every byte of an output tree, and rpm ships files it
+    # cannot open -- `setup` owns /etc/gshadow at mode 0000.  Without this
+    # the action succeeds and buck2 then fails collecting its own output,
+    # naming a path the rule never mentions.  See make_dirs_writable.
+    make_dirs_writable(out)
 
     print(
         "buckos-distro: unpacked {} -> {}".format(

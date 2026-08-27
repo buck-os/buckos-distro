@@ -896,24 +896,37 @@ def runtime_closure(roots, requires, provides, overrides=None, extra=None):
 # ── Source-level graph and cycle handling ────────────────────────────
 
 
-def project_to_source_graph(build_deps, source_of, build_set):
+def project_to_source_graph(build_deps, source_of, build_set, routes=None):
     """Collapse binary-level build deps onto a source-package graph.
 
     build_deps: {source_pkg: set(binary_pkg)}  -- resolved BuildRequires
                 closure for each source package we intend to build
     source_of:  {binary_pkg: source_pkg}
     build_set:  the source packages being built from source
+    routes:     {source_pkg: {binary_pkg: source_pkg}} -- version variants,
+                which override source_of for the consumer that named one
 
     Only edges *within* build_set become graph edges.  An edge to a
     package outside build_set is satisfied from the seed and therefore
     cannot participate in a cycle.
+
+    `routes` has to be honoured here or the graph is a lie about what
+    depends on what.  tar builds against the acl-compat variant, and with
+    the edge still pointing at acl the planner sees no cycle through the
+    variant, stages nothing, and buck2 rejects the target graph at analysis
+    with a cycle the solver said did not exist:
+
+        tar-stage1 -> acl-compat -> zstd-stage3
+                   -> zlib-ng-stage2 -> tar-stage1
     """
+    routes = routes or {}
     graph = {src: set() for src in build_set}
     for src, bins in build_deps.items():
         if src not in build_set:
             continue
+        routed = routes.get(src, {})
         for binary in bins:
-            dep_src = source_of.get(binary)
+            dep_src = routed.get(binary) or source_of.get(binary)
             if dep_src is None or dep_src not in build_set:
                 continue  # from seed -- not an edge
             if dep_src != src:
@@ -1048,12 +1061,12 @@ def stage_cycle(component, graph, stages=3):
     return plan
 
 
-def plan_build_order(build_deps, source_of, build_set, stages=3):
+def plan_build_order(build_deps, source_of, build_set, stages=3, routes=None):
     """Full graph plan: order, cycles, and the staging needed to break them.
 
     Returns a dict suitable for embedding in the lockfile.
     """
-    graph = project_to_source_graph(build_deps, source_of, build_set)
+    graph = project_to_source_graph(build_deps, source_of, build_set, routes)
     cycles = find_cycles(graph)
     cyclic = {pkg for comp in cycles for pkg in comp}
 
@@ -1072,19 +1085,21 @@ def plan_build_order(build_deps, source_of, build_set, stages=3):
 # ── Bootstrap depth reporting ────────────────────────────────────────
 
 
-def bootstrap_depth(build_deps, source_of, build_set):
+def bootstrap_depth(build_deps, source_of, build_set, routes=None):
     """Summarize how much of the closure is built vs seeded.
 
     The headline number for "how much of this distro do we actually build
     from source" (SPEC.md section 3a).
     """
+    routes = routes or {}
     built = set()
     seeded = set()
     for src, bins in build_deps.items():
         if src not in build_set:
             continue
+        routed = routes.get(src, {})
         for binary in bins:
-            dep_src = source_of.get(binary)
+            dep_src = routed.get(binary) or source_of.get(binary)
             if dep_src in build_set:
                 built.add(binary)
             else:

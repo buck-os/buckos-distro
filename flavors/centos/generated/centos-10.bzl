@@ -703,6 +703,14 @@ BASE_SEED = [
     "zstd",
 ]
 
+# Pins that exist only to serve a version variant.  Kept out
+# of SEED_RPMS because that list is filtered by name to form
+# the shared base, and a variant is a second build of a name
+# the base may already carry -- mixed in, both would be
+# installed into one buildroot.
+VARIANT_SEED_RPMS = [
+]
+
 RECIPES = [
 ]
 
