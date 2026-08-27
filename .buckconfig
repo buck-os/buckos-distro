@@ -106,6 +106,10 @@
   releases = 26.04
   buildroot = binary-seed
 
+[buckos.debian]
+  releases = 13
+  buildroot = binary-seed
+
 # ── Source mirror ────────────────────────────────────────────────────
 # upstream  fetch source packages from the distro's own mirrors
 # vendor    read pre-downloaded source packages from vendor_dir

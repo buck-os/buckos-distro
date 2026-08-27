@@ -8,8 +8,8 @@ import unittest
 from _deb import clear_signed_payload, dsc_files, parse_control
 from deb_buildroot_assemble import ensure_base_files
 from dsc_unpack import validate_sources
-from ubuntu_generate import bzl_literal
-from ubuntu_lock import apt_uri_lines
+from deb_generate import bzl_literal
+from deb_lock import apt_options, apt_uri_lines
 
 
 DSC = """-----BEGIN PGP SIGNED MESSAGE-----
@@ -78,6 +78,11 @@ class TestBuildrootSkeleton(unittest.TestCase):
 
 
 class TestAptMetadata(unittest.TestCase):
+    def test_uses_private_status_and_archive_cache(self):
+        options = apt_options("/tmp/status", "/tmp/archives")
+        self.assertIn("Dir::State::status=/tmp/status", options)
+        self.assertIn("Dir::Cache::archives=/tmp/archives", options)
+
     def test_parses_sha256_download_uri(self):
         digest = "a" * 64
         self.assertEqual(
@@ -91,6 +96,21 @@ class TestAptMetadata(unittest.TestCase):
             apt_uri_lines(
                 "'http://archive.example/hello_2.10%2bdfsg_amd64.deb' "
                 "hello_2.10%2Bdfsg_amd64.deb 42 SHA256:{}\n".format(digest)
+            ),
+        )
+
+    def test_accepts_debian_binary_uri_without_digest(self):
+        self.assertEqual(
+            [{
+                "digest": "",
+                "digest_kind": "",
+                "filename": "libsmartcols1_2.41.5-0+deb13u1_amd64.deb",
+                "size": 143216,
+                "url": "http://security.example/libsmartcols1.deb",
+            }],
+            apt_uri_lines(
+                "'http://security.example/libsmartcols1.deb' "
+                "libsmartcols1_2.41.5-0+deb13u1_amd64.deb 143216\n"
             ),
         )
 

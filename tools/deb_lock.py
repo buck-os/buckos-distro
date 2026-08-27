@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Resolve Ubuntu source buildroots with APT and write a pinned lockfile."""
+"""Resolve Debian-family source buildroots with APT and write a lockfile."""
 
 import argparse
 import json
+import logging
 import os
 import re
 import shlex
@@ -15,10 +16,11 @@ from _deb import parse_control_paragraphs
 
 
 TARGET_RE = re.compile(r"[^A-Za-z0-9_-]+")
+LOG = logging.getLogger("deb-lock")
 
 
 def run_output(command):
-    print("+ {}".format(" ".join(shlex.quote(part) for part in command)), file=sys.stderr)
+    LOG.debug("+ %s", " ".join(shlex.quote(part) for part in command))
     result = subprocess.run(command, check=True, capture_output=True, text=True)
     return result.stdout
 
@@ -29,9 +31,12 @@ def apt_uri_lines(output):
         if not line.startswith("'"):
             continue
         parts = shlex.split(line)
-        if len(parts) < 4:
+        if len(parts) < 3:
             raise ValueError("malformed apt URI line: {!r}".format(line))
-        digest_kind, _, digest = parts[3].partition(":")
+        digest_kind = ""
+        digest = ""
+        if len(parts) >= 4:
+            digest_kind, _, digest = parts[3].partition(":")
         entries.append({
             "url": parts[0],
             "filename": urllib.parse.unquote(parts[1]),
@@ -44,9 +49,10 @@ def apt_uri_lines(output):
     return entries
 
 
-def apt_options(status):
+def apt_options(status, archives):
     return [
         "-o", "Dir::State::status={}".format(status),
+        "-o", "Dir::Cache::archives={}".format(archives),
         "-o", "APT::Install-Recommends=false",
         "-o", "APT::Install-Suggests=false",
         "--print-uris",
@@ -169,42 +175,64 @@ def os_release():
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--distro", choices=("debian", "ubuntu"), required=True)
     parser.add_argument("--release", required=True)
     parser.add_argument("--codename", required=True)
     parser.add_argument("--architecture", default="amd64")
     parser.add_argument("--source", action="append", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="deb-lock: %(message)s",
+    )
 
     release = os_release()
-    if release.get("ID") != "ubuntu" or release.get("VERSION_ID") != args.release:
+    if release.get("ID") != args.distro or release.get("VERSION_ID") != args.release:
         sys.exit(
-            "ubuntu lock must run on Ubuntu {}; found {} {}".format(
-                args.release, release.get("ID", "unknown"), release.get("VERSION_ID", "unknown")
+            "{} lock must run on {} {}; found {} {}".format(
+                args.distro,
+                args.distro,
+                args.release,
+                release.get("ID", "unknown"),
+                release.get("VERSION_ID", "unknown"),
             )
         )
     if release.get("VERSION_CODENAME") != args.codename:
         sys.exit(
-            "ubuntu codename mismatch: expected {}, found {}".format(
-                args.codename, release.get("VERSION_CODENAME", "unknown")
+            "{} codename mismatch: expected {}, found {}".format(
+                args.distro, args.codename, release.get("VERSION_CODENAME", "unknown")
             )
         )
     architecture = run_output(["dpkg", "--print-architecture"]).strip()
     if architecture != args.architecture:
         sys.exit(
-            "ubuntu architecture mismatch: expected {}, found {}".format(
-                args.architecture, architecture or "unknown"
+            "{} architecture mismatch: expected {}, found {}".format(
+                args.distro, args.architecture, architecture or "unknown"
             )
         )
 
+    LOG.info(
+        "resolving %s %s (%s) for %s",
+        args.distro,
+        args.release,
+        args.codename,
+        args.architecture,
+    )
     sources = [source_record(name) for name in args.source]
-    with tempfile.NamedTemporaryFile(prefix="buckos-apt-status-") as status:
+    with tempfile.TemporaryDirectory(prefix="buckos-apt-state-") as apt_state:
+        status = os.path.join(apt_state, "status")
+        archives = os.path.join(apt_state, "archives")
+        with open(status, "w", encoding="utf-8"):
+            pass
+        os.makedirs(os.path.join(archives, "partial"))
         build_output = run_output(
-            ["apt-get"] + apt_options(status.name) + ["build-dep"] + args.source
+            ["apt-get"] + apt_options(status, archives) + ["build-dep"] + args.source
         )
         base_roots = essential_packages() + ["build-essential", "fakeroot"]
         base_output = run_output(
-            ["apt-get"] + apt_options(status.name) + ["install"] + base_roots
+            ["apt-get"] + apt_options(status, archives) + ["install"] + base_roots
         )
 
     by_target = {}
@@ -218,6 +246,7 @@ def main():
     lock = {
         "architecture": args.architecture,
         "codename": args.codename,
+        "distro": args.distro,
         "release": args.release,
         "schema": 1,
         "seed_debs": sorted(by_target.values(), key=lambda item: item["target"]),
@@ -227,11 +256,11 @@ def main():
     with open(args.output, "w", encoding="utf-8") as stream:
         json.dump(lock, stream, indent=2, sort_keys=True)
         stream.write("\n")
-    print(
-        "wrote {}: {} seed debs, {} sources".format(
-            args.output, len(lock["seed_debs"]), len(lock["sources"])
-        ),
-        file=sys.stderr,
+    LOG.info(
+        "wrote %s: %d seed debs, %d sources",
+        args.output,
+        len(lock["seed_debs"]),
+        len(lock["sources"]),
     )
 
 

@@ -104,7 +104,7 @@ check_flavor_tools() {
                 command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
             done
             ;;
-        ubuntu)
+        debian|ubuntu)
             for tool in python3 tar dpkg-source dpkg-buildpackage dpkg-deb; do
                 command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
             done

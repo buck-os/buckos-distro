@@ -189,8 +189,8 @@ python_test(
         "deb_test.py",
         "deb_buildroot_assemble.py",
         "dsc_unpack.py",
-        "ubuntu_generate.py",
-        "ubuntu_lock.py",
+        "deb_generate.py",
+        "deb_lock.py",
     ],
     base_module = "",
     deps = [
@@ -244,15 +244,15 @@ python_binary(
 )
 
 python_binary(
-    name = "ubuntu_lock",
-    main = "ubuntu_lock.py",
+    name = "deb_lock",
+    main = "deb_lock.py",
     deps = [":_deb"],
     visibility = ["PUBLIC"],
 )
 
 python_binary(
-    name = "ubuntu_generate",
-    main = "ubuntu_generate.py",
+    name = "deb_generate",
+    main = "deb_generate.py",
     visibility = ["PUBLIC"],
 )
 

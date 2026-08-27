@@ -1,4 +1,4 @@
-"""Ubuntu/Debian source package replay rules."""
+"""Debian-family source package replay rules."""
 
 load(
     "//defs:buildroot_helpers.bzl",
@@ -36,7 +36,7 @@ def _dsc_unpack_impl(ctx: AnalysisContext) -> list[Provider]:
             name = ctx.attrs.package_name,
             version = ctx.attrs.version,
             release = ctx.attrs.release,
-            flavor = "ubuntu",
+            flavor = ctx.attrs.flavor,
         ),
     ]
 
@@ -45,6 +45,7 @@ dsc_unpack = rule(
     impl = _dsc_unpack_impl,
     attrs = {
         "dsc": attrs.source(),
+        "flavor": attrs.string(default = "debian"),
         "package_name": attrs.string(),
         "release": attrs.string(default = ""),
         "source_files": attrs.list(attrs.source()),
@@ -102,7 +103,7 @@ def _deb_build_impl(ctx: AnalysisContext) -> list[Provider]:
             name = source.name,
             version = source.version,
             release = source.release,
-            flavor = "ubuntu",
+            flavor = source.flavor,
             prefix = installroot,
             libraries = ctx.attrs.libraries,
             cflags = [],
@@ -138,7 +139,7 @@ deb_build = rule(
         "source_date_epoch": attrs.string(default = "1700000000"),
         "src_sha256": attrs.string(default = ""),
         "src_uri": attrs.string(default = ""),
-        "supplier": attrs.string(default = "Organization: Ubuntu"),
+        "supplier": attrs.string(default = "Organization: Debian"),
         "_replay": attrs.default_only(attrs.exec_dep(default = "//tools:dpkgbuild_replay")),
     } | BUILDROOT_ATTRS,
 )

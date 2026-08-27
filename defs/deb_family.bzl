@@ -1,10 +1,13 @@
-"""Ubuntu package downloads, buildroots, and source replay targets."""
+"""Shared Debian-family downloads, buildroots, and source replay targets."""
 
 load("//defs:flavor.bzl", "package")
 load("//defs:releases.bzl", "release_suffix")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_deb_buildroot")
 
-_PACKAGE_URL_TEMPLATE = read_config("buckos.ubuntu", "package_url_template", "")
+_DISTRO_SUPPLIERS = {
+    "debian": "Organization: Debian",
+    "ubuntu": "Organization: Ubuntu",
+}
 
 _PATH_ESCAPES = {
     " ": "%20",
@@ -25,9 +28,13 @@ def _filename_parts(filename):
     stem, extension = filename.rsplit(".", 1)
     return stem, "." + extension
 
-def _render_package_url(template, release, entry):
+def _validate_flavor(flavor):
+    if flavor not in _DISTRO_SUPPLIERS:
+        fail("unsupported Debian-family flavor: {}".format(flavor))
+
+def _render_package_url(flavor, template, release, entry):
     if "{sha256}" not in template:
-        fail("[buckos.ubuntu] package_url_template must contain {sha256}")
+        fail("[buckos.{}] package_url_template must contain {{sha256}}".format(flavor))
 
     stem, extension = _filename_parts(entry["filename"])
     replacements = {
@@ -42,19 +49,20 @@ def _render_package_url(template, release, entry):
     for placeholder in replacements:
         remaining = remaining.replace(placeholder, "")
     if "{" in remaining or "}" in remaining:
-        fail("[buckos.ubuntu] package_url_template contains an unsupported placeholder: {}".format(template))
+        fail("[buckos.{}] package_url_template contains an unsupported placeholder: {}".format(flavor, template))
 
     url = template
     for placeholder, value in replacements.items():
         url = url.replace(placeholder, value)
     return url
 
-def _download_url(data, entry):
-    if _PACKAGE_URL_TEMPLATE:
-        return _render_package_url(_PACKAGE_URL_TEMPLATE, data.RELEASE, entry)
+def _download_url(flavor, data, entry):
+    template = read_config("buckos." + flavor, "package_url_template", "")
+    if template:
+        return _render_package_url(flavor, template, data.RELEASE, entry)
     return entry["url"]
 
-def _download(data, entry, suffix, defined):
+def _download(flavor, data, entry, suffix, defined):
     name = entry["target"] + suffix
     previous = defined.get(name)
     if previous != None:
@@ -65,29 +73,31 @@ def _download(data, entry, suffix, defined):
     native.http_file(
         name = name,
         out = entry["filename"],
-        urls = [_download_url(data, entry)],
+        urls = [_download_url(flavor, data, entry)],
         sha256 = entry["sha256"],
         size_bytes = entry["size"],
         visibility = ["PUBLIC"],
     )
 
-def ubuntu_downloads(data, suffix):
+def deb_downloads(flavor, data, suffix):
+    _validate_flavor(flavor)
     defined = {}
     for entry in data.SEED_DEBS:
-        _download(data, entry, suffix, defined)
+        _download(flavor, data, entry, suffix, defined)
     for source in data.SOURCES:
         for entry in source["files"]:
-            _download(data, entry, suffix, defined)
+            _download(flavor, data, entry, suffix, defined)
 
-def _target_cpu(architecture):
+def _target_cpu(flavor, architecture):
     if architecture == "amd64":
         return "x86_64"
     if architecture == "arm64":
         return "aarch64"
-    fail("unsupported Ubuntu architecture: {}".format(architecture))
+    fail("unsupported {} architecture: {}".format(flavor, architecture))
 
-def ubuntu_buildroots(data, suffix):
-    target_cpu = _target_cpu(data.ARCHITECTURE)
+def deb_buildroots(flavor, data, suffix):
+    _validate_flavor(flavor)
+    target_cpu = _target_cpu(flavor, data.ARCHITECTURE)
     host_buildroot(
         name = "buildroot-host" + suffix,
         target_cpu = target_cpu,
@@ -100,11 +110,12 @@ def ubuntu_buildroots(data, suffix):
         visibility = ["PUBLIC"],
     )
 
-def ubuntu_buildroot_target(suffix):
-    provenance = read_config("buckos.ubuntu", "buildroot", "binary-seed")
+def deb_buildroot_target(flavor, suffix):
+    provenance = read_config("buckos." + flavor, "buildroot", "binary-seed")
     return ":buildroot-{}{}".format(provenance, suffix)
 
-def ubuntu_packages(data, suffix):
+def deb_packages(flavor, data, suffix):
+    _validate_flavor(flavor)
     for source in data.SOURCES:
         dsc = None
         source_files = []
@@ -118,45 +129,48 @@ def ubuntu_packages(data, suffix):
             if ".orig.tar" in entry["filename"] and not entry["filename"].endswith(".asc"):
                 source_blob = entry
         if dsc == None:
-            fail("ubuntu source {} has no .dsc file".format(source["name"]))
+            fail("{} source {} has no .dsc file".format(flavor, source["name"]))
         if source_blob == None:
             source_blob = source["files"][0]
 
         package(
             name = source["name"] + suffix,
-            flavor = "ubuntu",
+            flavor = flavor,
             dsc = dsc,
             source_files = source_files,
             source_name = source["name"],
             version = source["version"],
             release = source["release"],
             subpackages = source["binaries"],
-            buildroot = ubuntu_buildroot_target(suffix),
+            buildroot = deb_buildroot_target(flavor, suffix),
             homepage = source["homepage"],
-            src_uri = _download_url(data, source_blob),
+            supplier = _DISTRO_SUPPLIERS[flavor],
+            src_uri = _download_url(flavor, data, source_blob),
             src_sha256 = source_blob["sha256"],
             visibility = ["PUBLIC"],
         )
 
-def _data_for(data_by_release, release):
+def _data_for(flavor, data_by_release, release):
     data = data_by_release.get(release)
     if data == None:
         fail(
-            "ubuntu release {} has no generated data; run tools/ubuntu_lock.py and tools/ubuntu_generate.py".format(release),
+            "{} release {} has no generated data; run tools/deb_lock.py and tools/deb_generate.py".format(flavor, release),
         )
+    if data.DISTRO != flavor:
+        fail("{} release {} loaded {} data".format(flavor, release, data.DISTRO))
     return data
 
-def ubuntu_downloads_for(releases, default, data_by_release):
+def deb_downloads_for(flavor, releases, default, data_by_release):
     for release in releases:
-        ubuntu_downloads(_data_for(data_by_release, release), release_suffix(release))
-    ubuntu_downloads(_data_for(data_by_release, default), "")
+        deb_downloads(flavor, _data_for(flavor, data_by_release, release), release_suffix(release))
+    deb_downloads(flavor, _data_for(flavor, data_by_release, default), "")
 
-def ubuntu_buildroots_for(releases, default, data_by_release):
+def deb_buildroots_for(flavor, releases, default, data_by_release):
     for release in releases:
-        ubuntu_buildroots(_data_for(data_by_release, release), release_suffix(release))
-    ubuntu_buildroots(_data_for(data_by_release, default), "")
+        deb_buildroots(flavor, _data_for(flavor, data_by_release, release), release_suffix(release))
+    deb_buildroots(flavor, _data_for(flavor, data_by_release, default), "")
 
-def ubuntu_packages_for(releases, default, data_by_release):
+def deb_packages_for(flavor, releases, default, data_by_release):
     for release in releases:
-        ubuntu_packages(_data_for(data_by_release, release), release_suffix(release))
-    ubuntu_packages(_data_for(data_by_release, default), "")
+        deb_packages(flavor, _data_for(flavor, data_by_release, release), release_suffix(release))
+    deb_packages(flavor, _data_for(flavor, data_by_release, default), "")

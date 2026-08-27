@@ -57,6 +57,12 @@ constraint_value(
 )
 
 constraint_value(
+    name = "debian",
+    constraint_setting = ":flavor",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
     name = "buckos",
     constraint_setting = ":flavor",
     visibility = ["PUBLIC"],
@@ -124,6 +130,29 @@ constraint_setting(
         visibility = ["PUBLIC"],
     )
     for _release in flavor_releases("ubuntu", default = "26.04")
+]
+
+[
+    constraint_value(
+        name = "debian-{}".format(_release),
+        constraint_setting = ":release",
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("debian", default = "13")
+]
+
+[
+    platform(
+        name = "debian-{}-x86_64".format(_release),
+        constraint_values = [
+            "prelude//cpu/constraints:x86_64",
+            "prelude//os/constraints:linux",
+            ":debian",
+            ":debian-{}".format(_release),
+        ],
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("debian", default = "13")
 ]
 
 # ── Buildroot provenance ─────────────────────────────────────────────

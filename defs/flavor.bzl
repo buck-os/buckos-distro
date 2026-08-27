@@ -8,6 +8,7 @@ fills the four slots from SPEC.md section 2:
     flavor  source package        declared deps    build driver        output
     ------  -------------------   --------------   -----------------   ------
     fedora  .src.rpm             BuildRequires    rpmbuild -bb        .rpm
+    debian  .dsc + debian.tar    Build-Depends    dpkg-buildpackage   .deb
     ubuntu  .dsc + debian.tar    Build-Depends    dpkg-buildpackage   .deb
     buckos  upstream tarball     Buck labels      configure && make   prefix tree
 
@@ -34,7 +35,7 @@ load(
     "srpm_unpack",
 )
 
-FLAVORS = ("fedora", "ubuntu", "buckos")
+FLAVORS = ("fedora", "debian", "ubuntu", "buckos")
 
 def current_flavor():
     """The flavor selected by .buckconfig, overridable per invocation with
@@ -260,10 +261,11 @@ def _resolve_bconds(use, use_bcond):
 
     return sorted(enabled), sorted(disabled)
 
-# ── Ubuntu frontend ─────────────────────────────────────────────────
+# ── Debian-family frontend ──────────────────────────────────────────
 
-def _ubuntu_package(
+def _deb_package(
         name,
+        flavor,
         dsc,
         source_files,
         source_name = None,
@@ -287,6 +289,7 @@ def _ubuntu_package(
         dsc = dsc,
         source_files = source_files,
         package_name = source_name,
+        flavor = flavor,
         version = version,
         release = release,
         visibility = visibility,
@@ -300,7 +303,7 @@ def _ubuntu_package(
         build_profiles = build_profiles,
         nocheck = nocheck,
         buildroot = buildroot,
-        dpkg_buildpackage = read_config("buckos.ubuntu", "dpkg_buildpackage", None),
+        dpkg_buildpackage = read_config("buckos." + flavor, "dpkg_buildpackage", None),
         visibility = visibility,
         **kwargs
     )
@@ -337,8 +340,8 @@ def package(name, flavor = None, **kwargs):
 
     if flavor == "fedora":
         _fedora_package(name = name, **kwargs)
-    elif flavor == "ubuntu":
-        _ubuntu_package(name = name, **kwargs)
+    elif flavor in ("debian", "ubuntu"):
+        _deb_package(name = name, flavor = flavor, **kwargs)
     elif flavor in FLAVORS:
         fail(
             "flavor {} is declared but its frontend is not implemented yet; see flavors/{}/README.md".format(flavor, flavor),

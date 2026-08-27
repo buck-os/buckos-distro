@@ -2,6 +2,7 @@ load(
     ":ubuntu-26.04.bzl",
     _ARCHITECTURE_26_04 = "ARCHITECTURE",
     _CODENAME_26_04 = "CODENAME",
+    _DISTRO_26_04 = "DISTRO",
     _RELEASE_26_04 = "RELEASE",
     _SEED_DEBS_26_04 = "SEED_DEBS",
     _SOURCES_26_04 = "SOURCES",
@@ -11,6 +12,7 @@ DATA_BY_RELEASE = {
     "26.04": struct(
         ARCHITECTURE = _ARCHITECTURE_26_04,
         CODENAME = _CODENAME_26_04,
+        DISTRO = _DISTRO_26_04,
         RELEASE = _RELEASE_26_04,
         SEED_DEBS = _SEED_DEBS_26_04,
         SOURCES = _SOURCES_26_04,

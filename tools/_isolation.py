@@ -67,8 +67,8 @@ def resolve_isolation(mode):
     sys.exit(
         "isolation=auto found neither bwrap nor unshare. A hermetic "
         "buildroot cannot be entered without one of them; install "
-        "bubblewrap or util-linux, or set `buildroot = host` under "
-        "`[buckos.fedora]` in .buckconfig.local and accept that the result "
+        "bubblewrap or util-linux, or set `buildroot = host` for the "
+        "selected flavor in .buckconfig.local and accept that the result "
         "is not built with the target distro's toolchain."
     )
 

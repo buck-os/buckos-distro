@@ -1,6 +1,7 @@
 {
   "architecture": "amd64",
   "codename": "resolute",
+  "distro": "ubuntu",
   "release": "26.04",
   "schema": 1,
   "seed_debs": [
