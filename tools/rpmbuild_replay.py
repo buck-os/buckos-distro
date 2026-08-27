@@ -168,6 +168,21 @@ def install_deps(sysroot, dep_rpms, args, work, env):
     cannot chown a mount point -- "cpio: chown failed - Device or resource
     busy".  They are in the base already, so nothing is lost.
     """
+    # Refused rather than attempted without a sandbox.  run_isolated's
+    # "none" mode runs the command directly, with no chroot, so `sysroot`
+    # would be ignored and this would install the overlay into the
+    # developer's own machine -- with --replacefiles, over their own
+    # packages.  Nothing routes host provenance here today, since --dep-rpm
+    # is only emitted for a seeded buildroot, and that is precisely why the
+    # guard belongs here: the day something does, the failure is silent and
+    # off-target.
+    if args.isolation == "none":
+        sys.exit(
+            "install_deps needs a sandbox: isolation=none would install "
+            "these {} package(s) onto the host rather than into {}".format(
+                len(dep_rpms), sysroot)
+        )
+
     staging = os.path.join(work, "deprpms")
     stage_rpms([os.path.abspath(path) for path in dep_rpms], staging)
 
@@ -657,9 +672,16 @@ def main():
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
 
-    if sysroot and args.dep_rpm:
-        install_deps(sysroot, args.dep_rpm, args, work, env)
-
+    # Shaped before anything runs inside the sandbox, not after.  This used
+    # to sit below install_deps, which meant the overlay transaction ran
+    # with reproducible_env's inherited *host* PATH -- and inside the
+    # chroot those directories do not exist, so `rpm` was simply not found
+    # and every affected replay died on exit 127 with no other explanation.
+    #
+    # It survived early testing because a host PATH usually contains
+    # /usr/bin, which does resolve in the chroot, to the buildroot's own
+    # rpm.  That is the bad kind of working: the command found was
+    # whichever one the ambient environment happened to expose.
     if sysroot and args.isolation == "none":
         env.update(sysroot_env(sysroot, env))
     elif args.isolation != "none":
@@ -685,6 +707,10 @@ def main():
         os.makedirs(sandbox_tmp, exist_ok=True)
         for var in ("TMPDIR", "TMP", "TEMP"):
             env[var] = sandbox_tmp
+
+    if sysroot and args.dep_rpm:
+        install_deps(sysroot, args.dep_rpm, args, work, env)
+
     for assignment in args.env:
         key, _, value = assignment.partition("=")
         env[key] = value
