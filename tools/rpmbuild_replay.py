@@ -692,6 +692,32 @@ def main():
         env["PATH"] = "/usr/bin:/usr/sbin:/bin:/sbin"
         env["HOME"] = "/builddir"
 
+        # We are uid 0 in this namespace, and gnulib's configure objects:
+        #
+        #     configure: error: you should not run configure as root
+        #     (set FORCE_UNSAFE_CONFIGURE=1 in environment to bypass this
+        #     check)
+        #
+        # coreutils and tar both stop there.  The check exists because
+        # gnulib's chown/chmod feature tests can damage a real system when
+        # run by a real root -- the classic case is a test creating a file
+        # under /tmp and chowning it away.  Neither hazard exists here: the
+        # root is the namespace's, mapped to our own unprivileged uid, and
+        # the only writable path is a scratch tree that gets deleted.
+        #
+        # mock avoids this by building as an unprivileged mockbuild user
+        # instead.  That is not available to us for the reason the whole
+        # sandbox is shaped this way: rpm has to chown payload files to the
+        # ids their packages declare, which needs uid 0 inside the
+        # namespace.  So we take the escape hatch upstream provides, rather
+        # than the user account it assumes.
+        #
+        # Set for every package rather than listed per package, because the
+        # reasoning is a property of the sandbox and not of any spec, and a
+        # list would grow an entry for every gnulib-based configure in
+        # Fedora, discovered one build failure at a time.
+        env["FORCE_UNSAFE_CONFIGURE"] = "1"
+
         # Same class of problem, and it is the one that actually bites.
         # Buck2 points TMPDIR at a per-action directory under buck-out,
         # which is not bound into the sandbox, so the first %install step
