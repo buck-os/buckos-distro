@@ -543,8 +543,26 @@ def reproducible_env(env=None, source_date_epoch="1700000000"):
     """
     out = dict(env or os.environ)
     out.setdefault("SOURCE_DATE_EPOCH", source_date_epoch)
-    out.setdefault("LC_ALL", "C")
-    out.setdefault("LANG", "C")
+    # C.UTF-8 rather than C, and the difference is not cosmetic.  Plain C
+    # implies a US-ASCII charset, and a tool that takes its encoding from
+    # the locale then cannot read a UTF-8 source file:
+    #
+    #     po-man/translations/cs/write.1.adoc: "\xC3" on US-ASCII
+    #     (Encoding::InvalidByteSequenceError)
+    #
+    # That is util-linux, whose %build runs asciidoctor over translated man
+    # pages -- Ruby sets Encoding.default_external from the locale, so the
+    # Czech translation is unreadable and the build stops.  Any locale-aware
+    # tool over non-ASCII input has the same problem; util-linux is just
+    # where it surfaced first.
+    #
+    # Reproducibility is unaffected, which is the reason this is the right
+    # fix rather than a trade.  C.UTF-8 keeps C's collation exactly --
+    # codepoint order, no locale data consulted -- and only changes the
+    # charset.  glibc has provided it unconditionally since 2.35, so it
+    # needs no langpack in the buildroot.
+    out.setdefault("LC_ALL", "C.UTF-8")
+    out.setdefault("LANG", "C.UTF-8")
     out.setdefault("TZ", "UTC")
     # rpm bakes the build host into package metadata; pin it.
     out.setdefault("RPM_BUILD_HOST", "buckos-distro")
