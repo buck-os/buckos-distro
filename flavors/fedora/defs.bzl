@@ -95,8 +95,7 @@ _LIVE_KERNEL_ARGS = "rd.live.image console=tty0 console=ttyS0,115200"
 # Which URL is used is a separate question from which bytes are correct.
 # The sha256 is the identity and buck2 enforces it, so any mirror serving
 # the same digest is interchangeable and none of them can corrupt a build.
-# Redirection therefore belongs in configuration, and the two knobs below
-# are the whole of it.
+# Redirection therefore belongs in configuration.
 
 # A read-through, content-addressed cache, tried instead of upstream when
 # set.  The sha256 leads, so re-pinning a package changes the URL and buck2
@@ -109,6 +108,15 @@ _LIVE_KERNEL_ARGS = "rd.live.image console=tty0 console=ttyS0,115200"
 # silent build dependency -- the build did not fail saying so, it just
 # could not download.  Set it in .buckconfig.local, which is gitignored.
 _BLOB_BASE = read_config("buckos.fedora", "blob_base", "")
+
+# A static content-addressed HTTP store. The full digest is required in the
+# template so different pins cannot resolve to the same URL. The filename is
+# optional and is escaped for use as one URL path component.
+_PACKAGE_URL_TEMPLATE = read_config(
+    "buckos.fedora",
+    "package_url_template",
+    "",
+)
 
 # Rewrites the prefix of the lockfile's recorded base, for a plain mirror
 # of upstream's directory layout rather than a digest endpoint.  Lets a
@@ -146,8 +154,30 @@ def _escape(text, table):
         out += table.get(char, char)
     return out
 
+def _render_package_url(template, entry):
+    if "{sha256}" not in template:
+        fail("[buckos.fedora] package_url_template must contain {sha256}")
+
+    remaining = template.replace("{sha256}", "").replace("{filename}", "")
+    if "{" in remaining or "}" in remaining:
+        fail("[buckos.fedora] package_url_template contains an unsupported placeholder: {}".format(template))
+
+    filename = _escape(entry["location"].split("/")[-1], _PATH_ESCAPES)
+    return template.replace(
+        "{sha256}",
+        entry["sha256"],
+    ).replace(
+        "{filename}",
+        filename,
+    )
+
 def _download_url(data, entry):
     """The one URL this pinned rpm is fetched from."""
+    if _PACKAGE_URL_TEMPLATE:
+        if _BLOB_BASE or _MIRROR_BASE:
+            fail("[buckos.fedora] package_url_template cannot be combined with blob_base or mirror_base")
+        return _render_package_url(_PACKAGE_URL_TEMPLATE, entry)
+
     if _BLOB_BASE:
         return "{}/{}/{}?release={}&location={}".format(
             _BLOB_BASE,
@@ -167,7 +197,7 @@ def _download_url(data, entry):
     repo = entry["repo"]
     base = data.REPO_BASE.get(repo, "")
     if not base:
-        fail("fedora {}: lockfile records no base URL for repo {}, so there is nowhere to fetch {} from. Re-solve with --binary-base/--source-base, or set [buckos.fedora] blob_base.".format(
+        fail("fedora {}: lockfile records no base URL for repo {}, so there is nowhere to fetch {} from. Re-solve with --binary-base/--source-base, or set [buckos.fedora] package_url_template or blob_base.".format(
             data.RELEASE,
             repo if repo else "(unattributed)",
             entry["location"],

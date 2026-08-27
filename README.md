@@ -129,12 +129,21 @@ Rewrite Fedora's recorded repository prefix to a mirror with the same directory 
   mirror_base = https://archives.fedoraproject.org/pub/archive/fedora/linux
 ```
 
+A static content-addressed HTTP store can provide pinned packages through `package_url_template`. The template must contain `{sha256}` and may contain `{filename}`, which is escaped as one URL path component.
+
+```ini
+[buckos.fedora]
+  package_url_template = https://cache.example.invalid/sha256/{sha256}/{filename}
+```
+
 A content-addressed read-through service can be configured with `blob_base`. The service receives the SHA-256 digest and filename in the path, plus the Fedora release and repository-relative location as query parameters.
 
 ```ini
 [buckos.fedora]
   blob_base = https://cache.example.invalid/rpm
 ```
+
+`package_url_template` cannot be combined with `mirror_base` or `blob_base`. These settings change where bytes are fetched but do not change the full SHA-256 digest enforced by Buck2.
 
 Enable remote cache lookups or remote execution through the execution platform:
 

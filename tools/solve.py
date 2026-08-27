@@ -118,8 +118,9 @@ def check_public_base(flag, url):
             "to be one any clone can reach.\n"
             "Solve against whatever mirror you like, but pass the canonical "
             "upstream URL here -- the sha256 pins make the two "
-            "interchangeable. Point the *build* at a mirror instead, with "
-            "[buckos.fedora] mirror_base or blob_base in .buckconfig.local.\n"
+            "interchangeable. Point the *build* at another source instead, "
+            "with [buckos.fedora] mirror_base, package_url_template, or "
+            "blob_base in .buckconfig.local.\n"
             "Public hosts: {}".format(
                 flag, url, parts.hostname, ", ".join(PUBLIC_BASE_HOSTS)
             )

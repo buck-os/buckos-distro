@@ -93,7 +93,7 @@ Tree artifacts are passed as complete hidden inputs when a command also referenc
 
 The checked-in configuration defines Fedora 43 and Fedora 44. Each has its own repository table, package pins, buildroot seed, source recipes, probe data, bootstrap plan, and image package sets.
 
-Package downloads use one URL and one SHA-256 digest per target. The URL comes from the package's recorded repository base, an optional `mirror_base` prefix rewrite, or an optional content-addressed `blob_base`. The digest remains authoritative for every source.
+Package downloads use one URL and one SHA-256 digest per target. The URL comes from the package's recorded repository base, an optional `mirror_base` prefix rewrite, an optional static `package_url_template`, or an optional read-through `blob_base`. The static template requires the full digest and may include the escaped filename. It cannot be combined with either existing redirect setting. The digest remains authoritative for every source.
 
 `tools/relock.py` refreshes releases and updates metadata, calls the solver, and regenerates the Starlark data. A release must already have a lockfile because the initial package set and override policy require review.
 
