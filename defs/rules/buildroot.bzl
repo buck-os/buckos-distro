@@ -48,9 +48,8 @@ def _host_buildroot_impl(ctx: AnalysisContext) -> list[Provider]:
 
 host_buildroot = rule(
     impl = _host_buildroot_impl,
-    # A toolchain rule, so it can sit behind toolchains//:buildroot and be
-    # swapped per flavor from .buckconfig -- the same socket buckos-build
-    # exposes as toolchains//:buckos.
+    # A toolchain rule, so it can sit behind //:buildroot and be swapped
+    # per flavor from .buckconfig.
     is_toolchain_rule = True,
     attrs = {
         "dist_tag": attrs.string(default = ""),

@@ -274,21 +274,13 @@ def fedora_buildroots(release, suffix, data = None):
 def fedora_buildroot_target(suffix):
     """The buildroot a release's packages build against.
 
-    Pinned per release rather than left to `toolchains//:buildroot`, for
-    two reasons.
-
-    The release axis: the toolchain alias is a single global target, so
+    Pinned per release rather than left to `//:buildroot`. The toolchain
+    alias is a single global target, so
     every package in the graph would build against one release's
     buildroot no matter which release it belongs to -- gzip-43 compiled
     by Fedora 44's gcc and stamped .fc44.  That is exactly the "release
     as a global mode" failure defs/releases.bzl exists to prevent, and it
     is silent: the build succeeds and the artifact is mislabelled.
-
-    And config visibility: buck2 resolves read_config per *cell*, and the
-    toolchains cell has no .buckconfig of its own, so
-    `[buckos.fedora] buildroot` set at the repo root is invisible there
-    and the alias always fell back to "host".  Reading it here, in the
-    cell that owns the setting, is what makes the setting mean anything.
     """
     provenance = read_config("buckos.fedora", "buildroot", "host")
     return ":buildroot-{}{}".format(provenance, suffix)

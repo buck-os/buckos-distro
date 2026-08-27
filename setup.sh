@@ -7,11 +7,21 @@ set -euo pipefail
 
 BINDIR="${BINDIR:-$HOME/.local/bin}"
 BUCK2_VERSION="${BUCK2_VERSION:-latest}"
+BUCK2_SOURCE="${BUCK2_SOURCE:-}"
 
 log() { printf '==> %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
 
 BUCK2_BIN=""
+DOWNLOAD_DIR=""
+
+cleanup() {
+    if [[ -n "$DOWNLOAD_DIR" ]]; then
+        rm -rf "$DOWNLOAD_DIR"
+    fi
+}
+
+trap cleanup EXIT
 
 case "$(uname -m)" in
     x86_64)  arch=x86_64 ;;
@@ -42,25 +52,33 @@ install_buck2() {
         return
     fi
 
-    require_command curl
-    require_command zstd
-
-    local url
-    if [[ "$BUCK2_VERSION" == "latest" ]]; then
-        url="https://github.com/facebook/buck2/releases/latest/download/buck2-${arch}-unknown-linux-gnu.zst"
-    else
-        url="https://github.com/facebook/buck2/releases/download/${BUCK2_VERSION}/buck2-${arch}-unknown-linux-gnu.zst"
-    fi
-    log "installing buck2 from ${url}"
     mkdir -p "$BINDIR"
 
-    local tmpdir
-    tmpdir="$(mktemp -d)"
-    trap 'rm -rf "$tmpdir"' EXIT
-    curl -fsSL "$url" | zstd -d > "$tmpdir/buck2"
-    install -m 0755 "$tmpdir/buck2" "$BINDIR/buck2"
-    rm -rf "$tmpdir"
-    trap - EXIT
+    if [[ -n "$BUCK2_SOURCE" ]]; then
+        if [[ ! -f "$BUCK2_SOURCE" || ! -x "$BUCK2_SOURCE" ]]; then
+            echo "BUCK2_SOURCE is not an executable file: $BUCK2_SOURCE" >&2
+            exit 1
+        fi
+        log "installing buck2 from ${BUCK2_SOURCE}"
+        install -m 0755 "$BUCK2_SOURCE" "$BINDIR/buck2"
+    else
+        require_command curl
+        require_command zstd
+
+        local url
+        if [[ "$BUCK2_VERSION" == "latest" ]]; then
+            url="https://github.com/facebook/buck2/releases/latest/download/buck2-${arch}-unknown-linux-gnu.zst"
+        else
+            url="https://github.com/facebook/buck2/releases/download/${BUCK2_VERSION}/buck2-${arch}-unknown-linux-gnu.zst"
+        fi
+        log "installing buck2 from ${url}"
+
+        DOWNLOAD_DIR="$(mktemp -d)"
+        curl -fsSL "$url" | zstd -d > "$DOWNLOAD_DIR/buck2"
+        install -m 0755 "$DOWNLOAD_DIR/buck2" "$BINDIR/buck2"
+        rm -rf "$DOWNLOAD_DIR"
+        DOWNLOAD_DIR=""
+    fi
 
     BUCK2_BIN="$BINDIR/buck2"
     "$BUCK2_BIN" --version >/dev/null

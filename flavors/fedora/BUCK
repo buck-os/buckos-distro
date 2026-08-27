@@ -15,7 +15,7 @@ load(
 #   [buckos.fedora] buildroot = host          -> :buildroot-host
 #   [buckos.fedora] buildroot = binary-seed   -> :buildroot-binary-seed
 #
-# toolchains//:buildroot aliases to whichever one is configured, so
+# //:buildroot aliases to whichever one is configured, so
 # nothing downstream names either target directly.
 #
 # Releases are a list, not a single value (defs/releases.bzl).  Every

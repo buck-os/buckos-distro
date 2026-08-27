@@ -135,6 +135,13 @@ python_test(
     deps = [":_image"],
 )
 
+python_test(
+    name = "isolation_test",
+    srcs = ["isolation_test.py"],
+    base_module = "",
+    deps = [":_isolation"],
+)
+
 # ── Solver (runs out-of-band, not in the build graph) ────────────────
 #
 # solve.py reads pinned repodata and writes the checked-in lockfile.  It is

@@ -83,7 +83,7 @@ Fedora defines a buildroot per configured release and provenance.
 
 `host` exposes the host filesystem as the buildroot. Actions using it run without the hermetic sandbox, set `local_only`, and disable shared-cache upload.
 
-`toolchains//:buildroot` aliases the configured flavor and provenance target. Rules consume `BuildrootInfo` through that toolchain unless they receive an explicit buildroot.
+`//:buildroot` aliases the configured flavor and provenance target. Rules consume `BuildrootInfo` through that toolchain unless they receive an explicit buildroot.
 
 Tree artifacts are passed as complete hidden inputs when a command also references projected paths. This ensures remote workers materialize the libraries and data required by tools inside the tree.
 

@@ -56,7 +56,7 @@ import solve
 # /usr, so the answer describes this machine rather than the flavor --
 # and the host's rpmbuild may not even be rpm's (a site wrapper that
 # refuses to run is the friendly version of that failure).
-DEFAULT_CONFIG = ["-c", "buckos.fedora.buildroot=binary-seed"]
+DEFAULT_CONFIG = ["--config-file", "tools/probe.buckconfig"]
 
 
 def probe_targets(lock, release):
@@ -190,10 +190,9 @@ def main(argv=None):
     root = relock.repo_root()
     lock_dir = args.lock_dir or os.path.join(root, "flavors", "fedora", "lock")
 
-    config = []
+    config = list(DEFAULT_CONFIG)
     for flag in args.config:
         config += ["-c", flag]
-    config = config or DEFAULT_CONFIG
 
     releases = args.release or relock.lockfile_releases(lock_dir)
     for release in releases:

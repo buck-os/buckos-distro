@@ -2,7 +2,7 @@
 
 `buckos-distro` is a Buck2 repository for replaying upstream Linux package builds and assembling bootable distribution images.
 
-The implemented flavor is Fedora. Fedora 43 and Fedora 44 have pinned package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Ubuntu and BuckOS are declared flavor names but do not have build frontends.
+The implemented flavor is Fedora. Fedora 43 and Fedora 44 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Ubuntu and BuckOS are declared flavor names but do not have build frontends.
 
 ## Quick start
 
@@ -14,8 +14,14 @@ The build runs on Linux. A Fedora build needs Python 3, GNU tar, `rpm2archive`, 
 export PATH="$HOME/.local/bin:$PATH"
 ./setup.sh
 buck2 build //:flavor
-buck2 test //...
+buck2 test //tools/...
 buck2 build //tests:hello //tests:hello-greeting
+```
+
+On a host without access to GitHub releases, install a local Buck2 binary through the same setup path:
+
+```sh
+BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 ```
 
 `//:flavor` writes the selected flavor name. The two `hello` targets replay the same checked-in source RPM; `hello-greeting` enables the package's `greeting` `%bcond`.
@@ -92,10 +98,10 @@ The rootfs is a tar archive because package ownership and valid RPM filenames ca
 
 The live squashfs is used directly as the root filesystem. The ISO contains BIOS and UEFI boot entries, derives `root=live:CDLABEL=` from its volume label, and is not signed for Secure Boot.
 
-Build a Fedora 43 live ISO with:
+Build a Fedora 44 live ISO with:
 
 ```sh
-buck2 build //flavors/fedora:iso-live-43
+buck2 build //flavors/fedora:iso-live-44
 ```
 
 ## Configuration
@@ -149,7 +155,7 @@ flavors/ubuntu/          Ubuntu implementation-status documentation
 flavors/buckos/          BuckOS implementation-status documentation
 platforms/               Target constraints and execution-platform registration
 tests/                   Checked-in source RPM replay fixtures
-toolchains/              Prelude and buildroot toolchain aliases
+toolchains/              Prelude toolchain registrations
 tools/                   Solver, generators, action drivers, and tests
 ```
 
