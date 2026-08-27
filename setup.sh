@@ -67,14 +67,15 @@ install_buck2() {
 
         local url
         if [[ "$BUCK2_VERSION" == "latest" ]]; then
-            url="https://github.com/facebook/buck2/releases/latest/download/buck2-${arch}-unknown-linux-gnu.zst"
+            url="https://github.com/facebook/buck2/releases/download/latest/buck2-${arch}-unknown-linux-gnu.zst"
         else
             url="https://github.com/facebook/buck2/releases/download/${BUCK2_VERSION}/buck2-${arch}-unknown-linux-gnu.zst"
         fi
         log "installing buck2 from ${url}"
 
         DOWNLOAD_DIR="$(mktemp -d)"
-        curl -fsSL "$url" | zstd -d > "$DOWNLOAD_DIR/buck2"
+        curl --fail --location --retry 5 --retry-all-errors --retry-delay 1 --remove-on-error --silent --show-error --output "$DOWNLOAD_DIR/buck2.zst" "$url"
+        zstd -d -q -o "$DOWNLOAD_DIR/buck2" "$DOWNLOAD_DIR/buck2.zst"
         install -m 0755 "$DOWNLOAD_DIR/buck2" "$BINDIR/buck2"
         rm -rf "$DOWNLOAD_DIR"
         DOWNLOAD_DIR=""
