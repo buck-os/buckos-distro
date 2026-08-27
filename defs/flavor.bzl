@@ -202,18 +202,30 @@ def _strip_prefix(value, prefix):
     return value
 
 def _subpackage_rpm_name(source_name, sub):
-    """Binary package name for a declared subpackage.
+    """Binary package name for a declared subpackage: the name, verbatim.
 
-    Recipes name subpackages the short way (`devel`, `libs`) the same way
-    a spec's `%package devel` does; rpm expands that to `<name>-devel`.  A
-    subpackage declared with `-n` keeps its own full name, which the recipe
-    signals by writing it out in full.
+    This used to expand a short form the way a spec does -- `%package
+    devel` under `Name: attr` becomes `attr-devel`, so a recipe saying
+    "devel" meant "attr-devel".  That is wrong here, and wrong in a way
+    that only a package with a `%package -n` shows.
+
+    Subpackage lists come from the lockfile, and the lockfile records what
+    rpm will actually emit: `attr` builds `attr`, `libattr` and
+    `libattr-devel`, none of which is a short form.  Expanding turned the
+    last two into `attr-libattr` and `attr-libattr-devel`, names no rpm in
+    the build has, and the failure landed at selection time as "no rpm for
+    binary package 'attr-libattr-devel'".
+
+    No heuristic rescues that, which is worth saying because the obvious
+    one nearly does: "expand only names without a hyphen" handles
+    `libattr-devel` and still mangles `libattr`.  The distinction is not
+    in the string.
+
+    Nothing needs the short form either -- the only hand-written recipes
+    name a subpackage that equals the source package, which was already
+    the identity case.  So the expansion is gone rather than narrowed.
     """
-    if sub == source_name:
-        return source_name
-    if sub.startswith(source_name + "-"):
-        return sub
-    return source_name + "-" + sub
+    return sub
 
 def _resolve_bconds(use, use_bcond):
     """Turn USE flags into rpm --with/--without pairs (SPEC.md section 5).
