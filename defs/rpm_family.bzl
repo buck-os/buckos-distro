@@ -516,6 +516,44 @@ def rpm_packages(flavor, data, suffix):
             visibility = ["PUBLIC"],
         )
 
+def _disabled_bconds(flavor):
+    """Per-package `--without` from local config, as {source: [bcond]}.
+
+        [buckos.fedora]
+          without = gmp:fips, nettle:fipshmac
+
+    Configuration rather than a table in this file, because what it is for
+    is a property of the *build host* rather than of the distro.  The case
+    it exists for: libkcapi's fipshmac opens a NETLINK_CRYPTO socket to ask
+    the kernel about an algorithm, and a kernel built without
+    CONFIG_CRYPTO_USER answers EPROTONOSUPPORT -- which surfaces as
+
+        Allocation of hmac(sha256) cipher failed (ret=-93)
+
+    in %install, for gmp, nettle and libxcrypt.  Nothing to do with the
+    sandbox: the same binary fails the same way run directly on the host,
+    and the AF_ALG socket it actually hashes with binds fine.  A stock
+    Fedora kernel enables CONFIG_CRYPTO_USER and needs none of this, so
+    defaulting to it here would ship a distro without FIPS integrity
+    hashes to work around one machine.
+
+    libxcrypt cannot be helped this way and is not worth pretending
+    otherwise: it calls fipshmac from %__spec_install_post with no bcond
+    guarding it, and the spec even says why a %global will not work.  On a
+    host without CONFIG_CRYPTO_USER that package does not build.
+    """
+    raw = read_config("buckos." + flavor, "without", "")
+    out = {}
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" not in item:
+            fail("[buckos.{}] without expects source:bcond entries, got {}".format(flavor, item))
+        source, bcond = item.split(":", 1)
+        out.setdefault(source.strip(), []).append(bcond.strip())
+    return out
+
 def _stage_key(source, stage):
     return "{}/stage{}".format(source, stage)
 
@@ -683,6 +721,18 @@ def _rpm_one_package(
         release = release,
         build_deps = sorted(build_deps),
         dep_rpms = sorted(dep_rpms),
+        # Keyed on the source package, not the target: gmp-stage1 and
+        # gmp-stage2 replay one spec and must be told the same thing.
+        #
+        # Mapped flag-to-itself with `use` left empty, which is how
+        # _resolve_bconds spells "pass --without": every bcond in the map
+        # gets an explicit --with or --without, so the spec never silently
+        # keeps its own default.
+        use = [],
+        use_bcond = {
+            b: b
+            for b in _disabled_bconds(flavor).get(recipe["source_name"], [])
+        },
         subpackages = recipe["subpackages"],
         supplier = _flavor_config(flavor)["supplier"],
         visibility = ["PUBLIC"],

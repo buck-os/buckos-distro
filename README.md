@@ -137,6 +137,23 @@ Use the host buildroot for local development:
 
 CentOS Stream, CentOS Hyperscale, Debian, and Ubuntu use the same release and provenance settings under `[buckos.centos]`, `[buckos.centos-hyperscale]`, `[buckos.debian]`, and `[buckos.ubuntu]`; the checked-in releases are `9,10`, `9,10`, `13`, and `26.04`. CentOS Stream release 9 layers EPEL and EPEL Next, while unsuffixed CentOS Stream targets remain on release 10. CentOS Hyperscale 9 uses that EPEL Next base; Hyperscale 10 uses EPEL without EPEL Next. Release 10 is the default for both CentOS flavors.
 
+Turn off a spec's `%bcond` for one source package, when the build host cannot support it:
+
+```ini
+[buckos.fedora]
+  without = gmp:fips, nettle:fipshmac
+```
+
+The case this exists for is a kernel built without `CONFIG_CRYPTO_USER`. libkcapi's `fipshmac` opens a `NETLINK_CRYPTO` socket to ask the kernel about an algorithm, gets `EPROTONOSUPPORT`, and dies in `%install`:
+
+```
+Allocation of hmac(sha256) cipher failed (ret=-93)
+```
+
+Nothing to do with the sandbox — the same binary fails identically run straight on the host, and the `AF_ALG` socket it actually hashes with binds fine. A stock Fedora kernel enables `CONFIG_CRYPTO_USER` and needs none of this, which is why it is configuration rather than a default: the alternative would ship a distro without FIPS integrity hashes to work around one machine.
+
+`libxcrypt` cannot be rescued this way. It calls `fipshmac` from `%__spec_install_post` with no `%bcond` guarding it — the spec notes that a `%global` does not work there — so on a host without `CONFIG_CRYPTO_USER` that package does not build.
+
 Rewrite Fedora's recorded repository prefix to a mirror with the same directory layout:
 
 ```ini
