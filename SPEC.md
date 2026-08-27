@@ -103,7 +103,7 @@ Package downloads use one URL and one SHA-256 digest per target. The URL comes f
 
 ## CentOS Stream release graph
 
-`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. The checked-in CentOS Stream 10 lock pins the BaseOS and AppStream closure needed for the upstream build-system package group. Its source replay target builds the checked-in SRPM fixture with the Stream 10 toolchain and `.el10` macros. CentOS bootable image sets are not defined.
+`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. The checked-in CentOS Stream 10 lock pins the BaseOS and AppStream closures for the upstream build-system package group, live root filesystem, and image toolchain. Its source replay target builds the checked-in SRPM fixture with the Stream 10 toolchain and `.el10` macros. Its hybrid live ISO boots through both BIOS and UEFI with SELinux enforcing.
 
 ## Debian-family release graphs
 
@@ -119,7 +119,7 @@ The rootfs output is a tar archive. The archive preserves ownership, capabilitie
 
 `initramfs` unpacks the rootfs into isolated scratch space and runs the image's own dracut with a non-host-only configuration.
 
-`squashfs` unpacks the rootfs and runs the target image toolchain's `mksquashfs`. Fedora live images enable SELinux relabeling, which derives contexts from the image's own policy and writes them through the squashfs pseudo-file interface.
+`squashfs` unpacks the rootfs and runs the target image toolchain's `mksquashfs`. Fedora and CentOS live images enable SELinux relabeling, which derives contexts from the image's own policy and writes them through the squashfs pseudo-file interface.
 
 `iso_image` creates the ISO9660 tree, BIOS boot files, UEFI files, El Torito entries, and optional isohybrid metadata. The volume label is also used to derive the live-root kernel argument. Secure Boot signing is not implemented.
 

@@ -2,7 +2,7 @@
 
 `buckos-distro` is a Buck2 repository for replaying upstream Linux package builds and assembling bootable distribution images.
 
-Fedora 43 and Fedora 44 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. CentOS Stream 10 has a pinned RPM buildroot, source-replay fixture, and seed root filesystem. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
+Fedora 43, Fedora 44, and CentOS Stream 10 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
 
 ## Quick start
 
@@ -31,12 +31,12 @@ BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 | Flavor | Status | Primary outputs |
 |---|---|---|
 | Fedora | Implemented | RPMs, root filesystems, live ISOs |
-| [CentOS Stream](flavors/centos/README.md) | Source replay | RPMs, install roots, seed root filesystem |
+| [CentOS Stream](flavors/centos/README.md) | Implemented | RPMs, root filesystems, live ISO |
 | [Debian](flavors/debian/README.md) | Source replay | DEBs and install roots |
 | [Ubuntu](flavors/ubuntu/README.md) | Source replay | DEBs and install roots |
 | [BuckOS](flavors/buckos/README.md) | Stub | None |
 
-The Fedora lockfiles currently replay `gzip`, `xz`, and `zlib-ng` from source. The live image package sets are pinned upstream binary RPMs. The source-replay pipeline and image package sets are separate inputs.
+The Fedora lockfiles currently replay `gzip`, `xz`, and `zlib-ng` from source. Fedora and CentOS live image package sets are pinned upstream binary RPMs. The source-replay pipeline and image package sets are separate inputs.
 
 ## Build model
 
@@ -77,7 +77,7 @@ Each release receives suffixed targets such as:
 
 The default release also receives unsuffixed targets. Release-specific target platforms, such as `//platforms:fedora-43-x86_64`, carry the release as a constraint value.
 
-CentOS Stream 10, Debian 13, and Ubuntu 26.04 similarly provide release-suffixed buildroot and hello targets plus unsuffixed aliases for their default releases.
+CentOS Stream 10 provides the same release-suffixed rootfs, boot, and image targets as Fedora, plus its buildroot and hello targets. Debian 13 and Ubuntu 26.04 provide release-suffixed buildroot and hello targets. Each flavor also has unsuffixed aliases for its default release.
 
 ## Buildroots
 
@@ -92,7 +92,7 @@ Package dependencies contribute install-root trees. Each replay copies the seed 
 
 ## Image pipeline
 
-The Fedora image pipeline has separate targets for work with different invalidation costs:
+The RPM-family image pipeline has separate targets for work with different invalidation costs:
 
 - `rootfs` runs an RPM transaction with a package database and scriptlets, then returns a tar archive.
 - `kernel_image` extracts the selected kernel and version from the rootfs archive.
@@ -104,10 +104,11 @@ The rootfs is a tar archive because package ownership and valid RPM filenames ca
 
 The live squashfs is used directly as the root filesystem. The ISO contains BIOS and UEFI boot entries, derives `root=live:CDLABEL=` from its volume label, and is not signed for Secure Boot.
 
-Build a Fedora 44 live ISO with:
+Build Fedora 44 or CentOS Stream 10 live media with:
 
 ```sh
 buck2 build //flavors/fedora:iso-live-44
+buck2 build //flavors/centos:iso-live-10
 ```
 
 ## Configuration
