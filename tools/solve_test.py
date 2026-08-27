@@ -258,7 +258,7 @@ class TestDynamicBuildRequires(unittest.TestCase):
     def test_centos_can_supply_its_own_implicit_build_group(self):
         binaries = [binary(name) for name in CENTOS_BUILDSYS_BUILD]
         universe = build_universe(binaries, [source("widget")])
-        deps, _, problems, _ = solve(
+        deps, _, problems, _, base = solve(
             universe,
             {"widget"},
             implicit=CENTOS_BUILDSYS_BUILD,
@@ -266,6 +266,13 @@ class TestDynamicBuildRequires(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertIn("centos-stream-release", deps["widget"])
         self.assertNotIn("fedora-release-common", deps["widget"])
+        # And the shared base buildroot follows the flavor too.  It is
+        # closed over the same implicit group, so hardcoding Fedora's would
+        # build every CentOS package in a tree CentOS never promised -- and
+        # would do it quietly, since the per-package overlay still supplies
+        # what the spec asked for by name.
+        self.assertIn("centos-stream-release", base)
+        self.assertNotIn("fedora-release-common", base)
 
     def test_centos_hyperscale_inherits_the_centos_implicit_group(self):
         self.assertEqual(

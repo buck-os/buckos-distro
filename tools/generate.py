@@ -117,7 +117,27 @@ def collect(lock):
     # Which of those form the shared buildroot.  The rest are overlaid per
     # package, from each recipe's seed_deps below -- see the base_seed
     # comment in tools/solve.py for why a union is not a buildroot.
-    base = sorted(lock.get("base_seed", []))
+    #
+    # A lockfile solved before the field existed does not carry it, and the
+    # two cases are not equally recoverable.  With nothing built from
+    # source there is nothing to overlay, so `buildroot_seed` is the base by
+    # construction rather than by approximation -- seed_closure is the union
+    # of the per-package deps (empty) with the seed, and that is the whole
+    # of it.  With a build list, the split is exactly the information the
+    # old solver did not record, and defaulting to either end of it is
+    # wrong quietly: an empty base builds every package in a tree with no
+    # compiler, and a full one is the union this field exists to stop.
+    if "base_seed" in lock:
+        base = sorted(lock["base_seed"])
+    elif not lock["solve"]["build"]:
+        base = sorted(entry["name"] for entry in seed)
+    else:
+        sys.exit(
+            "lockfile predates base_seed and builds {} source package(s); "
+            "re-run the solve to record which of its {} pinned rpms form "
+            "the shared buildroot".format(
+                len(lock["solve"]["build"]), len(seed))
+        )
     base_set = set(base)
 
     # Runtime closures, one per --image.  Deduped within a set but not
