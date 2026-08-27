@@ -19,6 +19,12 @@ restructuring anything.
 """
 
 load(
+    "//defs/rules/dsc.bzl",
+    "deb_build",
+    "deb_subpackage",
+    "dsc_unpack",
+)
+load(
     "//defs/rules/srpm.bzl",
     "built_rpm",
     "prebuilt_rpm",
@@ -254,6 +260,70 @@ def _resolve_bconds(use, use_bcond):
 
     return sorted(enabled), sorted(disabled)
 
+# ── Ubuntu frontend ─────────────────────────────────────────────────
+
+def _ubuntu_package(
+        name,
+        dsc,
+        source_files,
+        source_name = None,
+        version = "",
+        release = "",
+        build_deps = None,
+        subpackages = None,
+        build_profiles = None,
+        nocheck = True,
+        buildroot = None,
+        visibility = None,
+        **kwargs):
+    """Replay one Debian source package with dpkg-buildpackage."""
+    source_name = source_name or name
+    build_deps = build_deps or []
+    subpackages = subpackages or [source_name]
+    build_profiles = build_profiles or []
+
+    dsc_unpack(
+        name = name + "-source",
+        dsc = dsc,
+        source_files = source_files,
+        package_name = source_name,
+        version = version,
+        release = release,
+        visibility = visibility,
+    )
+
+    deb_build(
+        name = name + "-build",
+        source = ":" + name + "-source",
+        dsc = dsc,
+        build_deps = build_deps,
+        build_profiles = build_profiles,
+        nocheck = nocheck,
+        buildroot = buildroot,
+        dpkg_buildpackage = read_config("buckos.ubuntu", "dpkg_buildpackage", None),
+        visibility = visibility,
+        **kwargs
+    )
+
+    for subpackage in subpackages:
+        deb_subpackage(
+            name = _subpackage_target(name, source_name, subpackage),
+            source = ":" + name + "-build",
+            package_name = subpackage,
+            visibility = visibility,
+        )
+
+    if source_name in subpackages:
+        actual = ":" + _subpackage_target(name, source_name, source_name)
+    else:
+        actual = ":" + name + "-build"
+
+    native.alias(
+        name = name,
+        actual = actual,
+        visibility = visibility,
+    )
+
 # ── Dispatch ─────────────────────────────────────────────────────────
 
 def package(name, flavor = None, **kwargs):
@@ -267,6 +337,8 @@ def package(name, flavor = None, **kwargs):
 
     if flavor == "fedora":
         _fedora_package(name = name, **kwargs)
+    elif flavor == "ubuntu":
+        _ubuntu_package(name = name, **kwargs)
     elif flavor in FLAVORS:
         fail(
             "flavor {} is declared but its frontend is not implemented yet; see flavors/{}/README.md".format(flavor, flavor),

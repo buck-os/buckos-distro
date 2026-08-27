@@ -4,7 +4,7 @@ This document describes the implemented build model and public Starlark interfac
 
 ## Package replay
 
-The Fedora frontend treats the upstream spec file as executable build metadata. It does not translate RPM macros or spec sections into Buck rules.
+The Fedora frontend treats the upstream spec file as executable build metadata. The Ubuntu frontend treats the unpacked Debian source package and `debian/rules` the same way. Neither translates the upstream recipe into Buck rules.
 
 For each source package, `package()` creates these targets:
 
@@ -19,9 +19,11 @@ For each source package, `package()` creates these targets:
 
 `srpm_unpack` uses `rpm2archive` and GNU tar to preserve package payload semantics while producing an RPM topdir. `srpm_build` copies that topdir and its buildroot inputs into writable scratch space, enters the selected buildroot, and runs `rpmbuild -bb`. `rpm_subpackage` selects one binary RPM and exposes its unpacked install root as `PackageInfo`.
 
+For Ubuntu, `package()` creates `:name-source`, `:name-build`, one projection per binary package, and a `:name` alias. `dsc_unpack` verifies every source member against the `.dsc` SHA-256 manifest before invoking `dpkg-source`. `deb_build` enters the selected buildroot and runs `dpkg-buildpackage -b`; `deb_subpackage` selects a named DEB and exposes its install root as `PackageInfo`.
+
 USE flags map to RPM build conditionals. A `use_bcond` entry causes the replay to pass an explicit `--with` or `--without` option to `rpmbuild`; the source spec remains unchanged.
 
-Ubuntu and BuckOS names are accepted by the flavor dispatcher, but their frontends are not implemented. Selecting either flavor causes `package()` to fail during loading.
+BuckOS is accepted by the flavor dispatcher but has no frontend. Selecting it causes `package()` to fail during loading.
 
 ## Providers
 
@@ -35,7 +37,7 @@ The implemented pipeline uses four providers from `defs/providers.bzl`.
 
 `BootInfo` carries a kernel artifact, an optional initramfs artifact, and the kernel-version artifact used by downstream image rules.
 
-`FlavorInfo`, `SourcePackageInfo`, and `DebArtifactInfo` are declared but are not used by the implemented Fedora target graph.
+`SourcePackageInfo` and `DebArtifactInfo` carry the Ubuntu source and binary artifacts. `FlavorInfo` remains reserved for a future addressable flavor abstraction.
 
 ## Dependency data flow
 
@@ -75,11 +77,13 @@ Bootstrap cycles are strongly connected components in the projected source graph
 
 Dynamic build requirements are collected by running `rpmbuild -br` in `:name-buildrequires` targets. `tools/probe.py` writes the reports consumed by a subsequent solve. Probe results are checked in with the lockfile.
 
+Ubuntu dependency resolution is deliberately smaller: `tools/ubuntu_lock.py` runs APT inside the target Ubuntu release, resolves the source Build-Depends plus the essential build base against an empty dpkg status database, and records every source and binary artifact by URL and SHA-256. `tools/ubuntu_generate.py` converts that lock into pure Starlark data.
+
 ## Buildroot provenance
 
-Fedora defines a buildroot per configured release and provenance.
+Fedora and Ubuntu define a buildroot per configured release and provenance.
 
-`binary-seed` assembles a tree from the pinned Fedora `@buildsys-build` closure. The tree contains the target release's compiler, RPM implementation, macros, libraries, and build utilities. Actions using it run with Bubblewrap or unshare isolation and are eligible for remote execution and cache upload.
+`binary-seed` assembles a tree from the pinned Fedora `@buildsys-build` closure or Ubuntu APT build closure. The tree contains the target release's compiler, package implementation, libraries, and build utilities. Actions using it run with Bubblewrap or unshare isolation and are eligible for remote execution and cache upload.
 
 `host` exposes the host filesystem as the buildroot. Actions using it run without the hermetic sandbox, set `local_only`, and disable shared-cache upload.
 
@@ -93,9 +97,13 @@ Tree artifacts are passed as complete hidden inputs when a command also referenc
 
 The checked-in configuration defines Fedora 43 and Fedora 44. Each has its own repository table, package pins, buildroot seed, source recipes, probe data, bootstrap plan, and image package sets.
 
-Package downloads use one URL and one SHA-256 digest per target. The URL comes from the package's recorded repository base, an optional `mirror_base` prefix rewrite, an optional static `package_url_template`, or an optional read-through `blob_base`. The static template requires the full digest and may include the escaped filename. It cannot be combined with either existing redirect setting. The digest remains authoritative for every source.
+Package downloads use one URL and one SHA-256 digest per target. The URL comes from the package's recorded repository base, an optional `mirror_base` prefix rewrite, an optional static `package_url_template`, or an optional read-through `blob_base`. The static template requires the full digest and may include its 12-character prefix plus escaped filename, stem, extension, and release components. It cannot be combined with either existing redirect setting. The digest remains authoritative for every source.
 
 `tools/relock.py` refreshes releases and updates metadata, calls the solver, and regenerates the Starlark data. A release must already have a lockfile because the initial package set and override policy require review.
+
+## Ubuntu release graph
+
+`[buckos.ubuntu] releases` uses the same suffix/default expansion as Fedora. The checked-in Ubuntu 26.04 (`resolute`) data pins the GNU hello source set and its complete binary buildroot closure. Package downloads support the same content-addressed `package_url_template` placeholders as Fedora.
 
 ## Root filesystem and media pipeline
 
@@ -128,11 +136,13 @@ defs/releases.bzl           Configured release expansion
 defs/buildroot_helpers.bzl  Buildroot access and execution policy
 defs/exec.bzl               Execution-platform registration
 defs/rules/srpm.bzl         Source RPM unpack, replay, and projection rules
+defs/rules/dsc.bzl          Debian source unpack, replay, and projection rules
 defs/rules/buildroot.bzl    Host and binary-seeded buildroots
 defs/rules/rootfs.bzl       RPM transaction and rootfs archive
 defs/rules/boot.bzl         Kernel and initramfs rules
 defs/rules/image.bzl        Squashfs and ISO rules
 flavors/fedora/             Fedora configuration, lockfiles, and generated data
+flavors/ubuntu/             Ubuntu configuration, lockfile, and generated data
 tools/                      Solver, generators, action drivers, and tests
 ```
 

@@ -110,8 +110,8 @@ _LIVE_KERNEL_ARGS = "rd.live.image console=tty0 console=ttyS0,115200"
 _BLOB_BASE = read_config("buckos.fedora", "blob_base", "")
 
 # A static content-addressed HTTP store. The full digest is required in the
-# template so different pins cannot resolve to the same URL. The filename is
-# optional and is escaped for use as one URL path component.
+# template so different pins cannot resolve to the same URL. Optional release
+# and filename components are escaped for use in URL paths.
 _PACKAGE_URL_TEMPLATE = read_config(
     "buckos.fedora",
     "package_url_template",
@@ -154,29 +154,46 @@ def _escape(text, table):
         out += table.get(char, char)
     return out
 
-def _render_package_url(template, entry):
+def _filename_parts(filename):
+    if filename.endswith(".src.rpm"):
+        return filename[:-len(".src.rpm")], ".src.rpm"
+    if "." in filename:
+        parts = filename.rsplit(".", 1)
+        return parts[0], "." + parts[1]
+    return filename, ""
+
+def _render_package_url(template, data, entry):
     if "{sha256}" not in template:
         fail("[buckos.fedora] package_url_template must contain {sha256}")
 
-    remaining = template.replace("{sha256}", "").replace("{filename}", "")
+    filename = entry["location"].split("/")[-1]
+    stem, extension = _filename_parts(filename)
+    replacements = {
+        "{ext}": _escape(extension, _PATH_ESCAPES),
+        "{filename}": _escape(filename, _PATH_ESCAPES),
+        "{release}": _escape(data.RELEASE, _PATH_ESCAPES),
+        "{sha256}": entry["sha256"],
+        "{sha256_12}": entry["sha256"][:12],
+        "{stem}": _escape(stem, _PATH_ESCAPES),
+    }
+
+    remaining = template
+    for placeholder in replacements:
+        remaining = remaining.replace(placeholder, "")
     if "{" in remaining or "}" in remaining:
         fail("[buckos.fedora] package_url_template contains an unsupported placeholder: {}".format(template))
 
-    filename = _escape(entry["location"].split("/")[-1], _PATH_ESCAPES)
-    return template.replace(
-        "{sha256}",
-        entry["sha256"],
-    ).replace(
-        "{filename}",
-        filename,
-    )
+    url = template
+    for placeholder, value in replacements.items():
+        url = url.replace(placeholder, value)
+    return url
 
 def _download_url(data, entry):
     """The one URL this pinned rpm is fetched from."""
     if _PACKAGE_URL_TEMPLATE:
         if _BLOB_BASE or _MIRROR_BASE:
             fail("[buckos.fedora] package_url_template cannot be combined with blob_base or mirror_base")
-        return _render_package_url(_PACKAGE_URL_TEMPLATE, entry)
+        return _render_package_url(_PACKAGE_URL_TEMPLATE, data, entry)
 
     if _BLOB_BASE:
         return "{}/{}/{}?release={}&location={}".format(

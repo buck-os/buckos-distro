@@ -2,11 +2,11 @@
 
 `buckos-distro` is a Buck2 repository for replaying upstream Linux package builds and assembling bootable distribution images.
 
-The implemented flavor is Fedora. Fedora 43 and Fedora 44 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Ubuntu and BuckOS are declared flavor names but do not have build frontends.
+Fedora 43 and Fedora 44 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Ubuntu 26.04 has a pinned Debian source-package replay path and binary-seeded buildroot. BuckOS remains a declared flavor without a build frontend.
 
 ## Quick start
 
-The build runs on Linux. A Fedora build needs Python 3, GNU tar, `rpm2archive`, and either Bubblewrap or util-linux `unshare`. The unshare path also needs `newuidmap`, `newgidmap`, and subordinate UID and GID ranges for the build user.
+The build runs on Linux. A Fedora build needs Python 3, GNU tar, `rpm2archive`, and either Bubblewrap or util-linux `unshare`. An Ubuntu build needs Python 3, GNU tar, `dpkg-source`, `dpkg-buildpackage`, `dpkg-deb`, and the same isolation choice. The unshare path also needs `newuidmap`, `newgidmap`, and subordinate UID and GID ranges for the build user.
 
 `setup.sh` installs the open-source Buck2 binary under `$HOME/.local/bin` when no working `buck2` is already available. It also creates the ignored `prelude/` mount point and writes `.buckconfig.local` when that file does not exist. It does not install system packages.
 
@@ -31,20 +31,22 @@ BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 | Flavor | Status | Primary outputs |
 |---|---|---|
 | Fedora | Implemented | RPMs, root filesystems, live ISOs |
-| [Ubuntu](flavors/ubuntu/README.md) | Stub | None |
+| [Ubuntu](flavors/ubuntu/README.md) | Source replay | DEBs and install roots |
 | [BuckOS](flavors/buckos/README.md) | Stub | None |
 
 The Fedora lockfiles currently replay `gzip`, `xz`, and `zlib-ng` from source. The live image package sets are pinned upstream binary RPMs. The source-replay pipeline and image package sets are separate inputs.
 
 ## Build model
 
-An upstream source package remains authoritative. The Fedora frontend unpacks the source RPM, assembles a buildroot from pinned packages, and runs `rpmbuild -bb` without translating the spec file into Starlark.
+An upstream source package remains authoritative. The Fedora frontend unpacks the source RPM, assembles a buildroot from pinned packages, and runs `rpmbuild -bb` without translating the spec file into Starlark. The Ubuntu frontend applies the same model to a `.dsc` source set and runs `dpkg-buildpackage -b` inside a buildroot assembled from SHA-256-pinned DEBs.
 
 Dependency resolution happens before Buck analysis:
 
 1. `tools/solve.py` reads Fedora repository metadata, resolves capabilities, computes runtime closures, and emits a JSON lockfile.
 2. `tools/generate.py` converts the lockfile into Starlark data.
 3. Buck loads that generated data as an ordinary dependency graph.
+
+Ubuntu uses the corresponding `tools/ubuntu_lock.py` and `tools/ubuntu_generate.py` pair. The checked-in Ubuntu graph currently replays GNU hello as the end-to-end source-build fixture.
 
 The lockfile records exact package locations, SHA-256 digests, repository origins, source recipes, bootstrap stages, overrides, and image sets. Buck verifies each downloaded package against its recorded digest.
 
@@ -73,12 +75,14 @@ Each release receives suffixed targets such as:
 
 The default release also receives unsuffixed targets. Release-specific target platforms, such as `//platforms:fedora-43-x86_64`, carry the release as a constraint value.
 
+Ubuntu 26.04 similarly provides `//flavors/ubuntu:buildroot-binary-seed-26.04`, `//flavors/ubuntu:hello-26.04`, and unsuffixed aliases for the default release.
+
 ## Buildroots
 
-Fedora supports two buildroot provenances:
+Fedora and Ubuntu support two buildroot provenances:
 
-- `binary-seed` assembles the build environment from pinned Fedora RPMs. It is the default and is eligible for remote execution and shared-cache upload.
-- `host` uses the host root filesystem and installed RPM toolchain. It is non-hermetic, local-only, and excluded from shared-cache upload.
+- `binary-seed` assembles the build environment from pinned Fedora RPMs or Ubuntu DEBs. It is the default and is eligible for remote execution and shared-cache upload.
+- `host` uses the host root filesystem and installed distro toolchain. It is non-hermetic, local-only, and excluded from shared-cache upload.
 
 The binary seed cuts bootstrap cycles that Buck cannot represent directly. The solver records staged source builds for cycles that are included in the source-replay set.
 
@@ -122,6 +126,8 @@ Use the host buildroot for local development:
   buildroot = host
 ```
 
+Ubuntu uses the same release and provenance settings under `[buckos.ubuntu]`; the checked-in release is `26.04`.
+
 Rewrite Fedora's recorded repository prefix to a mirror with the same directory layout:
 
 ```ini
@@ -129,11 +135,11 @@ Rewrite Fedora's recorded repository prefix to a mirror with the same directory 
   mirror_base = https://archives.fedoraproject.org/pub/archive/fedora/linux
 ```
 
-A static content-addressed HTTP store can provide pinned packages through `package_url_template`. The template must contain `{sha256}` and may contain `{filename}`, which is escaped as one URL path component.
+A static content-addressed HTTP store can provide pinned packages through `package_url_template`. The template must contain `{sha256}` and may contain `{sha256_12}`, `{filename}`, `{stem}`, `{ext}`, and `{release}`. Filename and release components are escaped for use in URL paths.
 
 ```ini
 [buckos.fedora]
-  package_url_template = https://cache.example.invalid/sha256/{sha256}/{filename}
+  package_url_template = https://cache.example.invalid/fedora/{release}/{stem}-{sha256_12}{ext}?digest={sha256}
 ```
 
 A content-addressed read-through service can be configured with `blob_base`. The service receives the SHA-256 digest and filename in the path, plus the Fedora release and repository-relative location as query parameters.
@@ -160,7 +166,7 @@ A remote backend still requires a matching `[buck2_re_client]` configuration. Re
 ```text
 defs/                    Providers, flavor dispatch, release handling, and Buck rules
 flavors/fedora/          Fedora target generation, lockfiles, and generated package data
-flavors/ubuntu/          Ubuntu implementation-status documentation
+flavors/ubuntu/          Ubuntu lockfile, generated package data, and replay targets
 flavors/buckos/          BuckOS implementation-status documentation
 platforms/               Target constraints and execution-platform registration
 tests/                   Checked-in source RPM replay fixtures

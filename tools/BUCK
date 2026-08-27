@@ -8,6 +8,13 @@ python_library(
     visibility = ["PUBLIC"],
 )
 
+python_library(
+    name = "_deb",
+    srcs = ["_deb.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
 # Entering a buildroot as / -- shared by the spec replay and by rootfs
 # installation, which must agree about what the sandbox guarantees.
 python_library(
@@ -48,6 +55,47 @@ python_binary(
     name = "rpm_extract",
     main = "rpm_extract.py",
     deps = [":_rpm"],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "dsc_unpack",
+    main = "dsc_unpack.py",
+    deps = [
+        ":_deb",
+        ":_rpm",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "dpkgbuild_replay",
+    main = "dpkgbuild_replay.py",
+    deps = [
+        ":_deb",
+        ":_isolation",
+        ":_rpm",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "deb_extract",
+    main = "deb_extract.py",
+    deps = [
+        ":_deb",
+        ":_rpm",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "deb_buildroot_assemble",
+    main = "deb_buildroot_assemble.py",
+    deps = [
+        ":_deb",
+        ":_rpm",
+    ],
     visibility = ["PUBLIC"],
 )
 
@@ -136,6 +184,22 @@ python_test(
 )
 
 python_test(
+    name = "deb_test",
+    srcs = [
+        "deb_test.py",
+        "deb_buildroot_assemble.py",
+        "dsc_unpack.py",
+        "ubuntu_generate.py",
+        "ubuntu_lock.py",
+    ],
+    base_module = "",
+    deps = [
+        ":_deb",
+        ":_rpm",
+    ],
+)
+
+python_test(
     name = "isolation_test",
     srcs = ["isolation_test.py"],
     base_module = "",
@@ -176,6 +240,19 @@ python_binary(
     name = "solve",
     main_module = "solve",
     deps = [":solve_lib"],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "ubuntu_lock",
+    main = "ubuntu_lock.py",
+    deps = [":_deb"],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "ubuntu_generate",
+    main = "ubuntu_generate.py",
     visibility = ["PUBLIC"],
 )
 

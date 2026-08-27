@@ -1,0 +1,15 @@
+load("//defs:releases.bzl", "default_release", "flavor_releases")
+load("//flavors/ubuntu/generated:index.bzl", "DATA_BY_RELEASE")
+load(
+    ":defs.bzl",
+    "ubuntu_buildroots_for",
+    "ubuntu_downloads_for",
+    "ubuntu_packages_for",
+)
+
+RELEASES = flavor_releases("ubuntu", default = "26.04")
+DEFAULT_RELEASE = default_release("ubuntu", RELEASES)
+
+ubuntu_downloads_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+ubuntu_buildroots_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+ubuntu_packages_for(RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)

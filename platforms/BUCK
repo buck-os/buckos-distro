@@ -103,6 +103,29 @@ constraint_setting(
     for _release in flavor_releases("fedora", default = "43,44")
 ]
 
+[
+    constraint_value(
+        name = "ubuntu-{}".format(_release),
+        constraint_setting = ":release",
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("ubuntu", default = "26.04")
+]
+
+[
+    platform(
+        name = "ubuntu-{}-x86_64".format(_release),
+        constraint_values = [
+            "prelude//cpu/constraints:x86_64",
+            "prelude//os/constraints:linux",
+            ":ubuntu",
+            ":ubuntu-{}".format(_release),
+        ],
+        visibility = ["PUBLIC"],
+    )
+    for _release in flavor_releases("ubuntu", default = "26.04")
+]
+
 # ── Buildroot provenance ─────────────────────────────────────────────
 #
 # SPEC.md section 3.  Exposed as constraints so a target can be declared
