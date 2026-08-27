@@ -102,6 +102,10 @@
   releases = 43,44
   buildroot = binary-seed
 
+[buckos.centos]
+  releases = 10
+  buildroot = binary-seed
+
 [buckos.ubuntu]
   releases = 26.04
   buildroot = binary-seed

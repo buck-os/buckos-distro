@@ -1,4 +1,4 @@
-"""Fedora buildroot and package definitions, one set per release.
+"""RPM-family buildroot and package definitions, one set per release.
 
 Lives in a .bzl rather than inline in BUCK because the BUCK dialect allows
 neither `def` nor top-level `if`, and defining a release's targets is a
@@ -16,6 +16,23 @@ load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_buildroot")
 load("//defs/rules/image.bzl", "iso_image", "squashfs")
 load("//defs/rules/rootfs.bzl", "rootfs")
+
+_RPM_FLAVORS = {
+    "centos": {
+        "mirror_from": "https://mirror.stream.centos.org/10-stream",
+        "supplier": "Organization: CentOS",
+    },
+    "fedora": {
+        "mirror_from": "https://dl.fedoraproject.org/pub/fedora/linux",
+        "supplier": "Organization: Fedora Project",
+    },
+}
+
+def _flavor_config(flavor):
+    config = _RPM_FLAVORS.get(flavor)
+    if config == None:
+        fail("unsupported RPM-family flavor: {}".format(flavor))
+    return config
 
 # Which dracut modules an image set's initramfs has to be told to include.
 #
@@ -107,16 +124,9 @@ _LIVE_KERNEL_ARGS = "rd.live.image console=tty0 console=ttyS0,115200"
 # something was listening there, which made an unshipped local helper a
 # silent build dependency -- the build did not fail saying so, it just
 # could not download.  Set it in .buckconfig.local, which is gitignored.
-_BLOB_BASE = read_config("buckos.fedora", "blob_base", "")
-
 # A static content-addressed HTTP store. The full digest is required in the
 # template so different pins cannot resolve to the same URL. Optional release
 # and filename components are escaped for use in URL paths.
-_PACKAGE_URL_TEMPLATE = read_config(
-    "buckos.fedora",
-    "package_url_template",
-    "",
-)
 
 # Rewrites the prefix of the lockfile's recorded base, for a plain mirror
 # of upstream's directory layout rather than a digest endpoint.  Lets a
@@ -124,9 +134,6 @@ _PACKAGE_URL_TEMPLATE = read_config(
 # matters because a URL pin rots on upstream's schedule, not on this repo's:
 # a release moves to archives.fedoraproject.org at EOL and the recorded
 # base stops resolving even though the pins are still perfectly good.
-_MIRROR_FROM = "https://dl.fedoraproject.org/pub/fedora/linux"
-_MIRROR_BASE = read_config("buckos.fedora", "mirror_base", "")
-
 # Percent-encodings for the characters an rpm filename can carry that a URL
 # cannot take literally.  Two tables because the rules differ by position,
 # and the difference is exactly where this went wrong:
@@ -162,9 +169,9 @@ def _filename_parts(filename):
         return parts[0], "." + parts[1]
     return filename, ""
 
-def _render_package_url(template, data, entry):
+def _render_package_url(flavor, template, data, entry):
     if "{sha256}" not in template:
-        fail("[buckos.fedora] package_url_template must contain {sha256}")
+        fail("[buckos.{}] package_url_template must contain {{sha256}}".format(flavor))
 
     filename = entry["location"].split("/")[-1]
     stem, extension = _filename_parts(filename)
@@ -181,23 +188,29 @@ def _render_package_url(template, data, entry):
     for placeholder in replacements:
         remaining = remaining.replace(placeholder, "")
     if "{" in remaining or "}" in remaining:
-        fail("[buckos.fedora] package_url_template contains an unsupported placeholder: {}".format(template))
+        fail("[buckos.{}] package_url_template contains an unsupported placeholder: {}".format(flavor, template))
 
     url = template
     for placeholder, value in replacements.items():
         url = url.replace(placeholder, value)
     return url
 
-def _download_url(data, entry):
+def _download_url(flavor, data, entry):
     """The one URL this pinned rpm is fetched from."""
-    if _PACKAGE_URL_TEMPLATE:
-        if _BLOB_BASE or _MIRROR_BASE:
-            fail("[buckos.fedora] package_url_template cannot be combined with blob_base or mirror_base")
-        return _render_package_url(_PACKAGE_URL_TEMPLATE, data, entry)
+    config = _flavor_config(flavor)
+    section = "buckos." + flavor
+    blob_base = read_config(section, "blob_base", "")
+    mirror_base = read_config(section, "mirror_base", "")
+    package_url_template = read_config(section, "package_url_template", "")
 
-    if _BLOB_BASE:
+    if package_url_template:
+        if blob_base or mirror_base:
+            fail("[{}] package_url_template cannot be combined with blob_base or mirror_base".format(section))
+        return _render_package_url(flavor, package_url_template, data, entry)
+
+    if blob_base:
         return "{}/{}/{}?release={}&location={}".format(
-            _BLOB_BASE,
+            blob_base,
             entry["sha256"],
             _escape(entry["location"].split("/")[-1], _PATH_ESCAPES),
             data.RELEASE,
@@ -214,16 +227,19 @@ def _download_url(data, entry):
     repo = entry["repo"]
     base = data.REPO_BASE.get(repo, "")
     if not base:
-        fail("fedora {}: lockfile records no base URL for repo {}, so there is nowhere to fetch {} from. Re-solve with --binary-base/--source-base, or set [buckos.fedora] package_url_template or blob_base.".format(
+        fail("{} {}: lockfile records no base URL for repo {}, so there is nowhere to fetch {} from. Re-solve with --binary-base/--source-base, or set [{}] package_url_template or blob_base.".format(
+            flavor,
             data.RELEASE,
             repo if repo else "(unattributed)",
             entry["location"],
+            section,
         ))
-    if _MIRROR_BASE and base.startswith(_MIRROR_FROM):
-        base = _MIRROR_BASE + base[len(_MIRROR_FROM):]
+    mirror_from = config["mirror_from"]
+    if mirror_base and base.startswith(mirror_from):
+        base = mirror_base + base[len(mirror_from):]
     return "{}/{}".format(base, _escape(entry["location"], _PATH_ESCAPES))
 
-def fedora_rpm_downloads(data, suffix):
+def rpm_downloads(flavor, data, suffix):
     """One http_file per pinned rpm: seed closure, image sets, source rpms.
 
     sha256 is passed through to http_file, so the pin in the lockfile is
@@ -238,16 +254,16 @@ def fedora_rpm_downloads(data, suffix):
     """
     defined = {}
     for entry in data.SEED_RPMS:
-        _rpm_download(data, entry, suffix, defined)
+        _rpm_download(flavor, data, entry, suffix, defined)
 
     for name in sorted(data.IMAGE_SETS):
         for entry in data.IMAGE_SETS[name]:
-            _rpm_download(data, entry, suffix, defined)
+            _rpm_download(flavor, data, entry, suffix, defined)
 
     for entry in data.SOURCE_RPMS:
-        _rpm_download(data, entry, suffix, defined)
+        _rpm_download(flavor, data, entry, suffix, defined)
 
-def _rpm_download(data, entry, suffix, defined):
+def _rpm_download(flavor, data, entry, suffix, defined):
     name = entry["target"] + suffix
     if name in defined:
         # Same target name from a different pin would mean two rpms with
@@ -263,13 +279,13 @@ def _rpm_download(data, entry, suffix, defined):
     defined[name] = entry["sha256"]
     native.http_file(
         name = name,
-        urls = [_download_url(data, entry)],
+        urls = [_download_url(flavor, data, entry)],
         sha256 = entry["sha256"],
         visibility = ["PUBLIC"],
     )
 
-def fedora_buildroots(release, suffix, data = None):
-    """Define the host and binary-seed buildroots for one Fedora release.
+def rpm_buildroots(flavor, release, suffix, data = None):
+    """Define the host and binary-seed buildroots for one RPM release.
 
     Called once per release with a `-<release>` suffix, and once more with
     an empty suffix for the default release's unsuffixed aliases.
@@ -283,10 +299,13 @@ def fedora_buildroots(release, suffix, data = None):
     # release even though the host may be something else entirely -- so the
     # artifacts are labelled honestly and their mislabelling is visible
     # rather than silent.
+    dist_tag = data.DIST_TAG if data != None else ""
+    target_cpu = data.TARGET_CPU if data != None else "x86_64"
+
     host_buildroot(
         name = "buildroot-host" + suffix,
-        dist_tag = ".fc{}".format(release),
-        target_cpu = "x86_64",
+        dist_tag = dist_tag,
+        target_cpu = target_cpu,
         visibility = ["PUBLIC"],
     )
 
@@ -295,13 +314,13 @@ def fedora_buildroots(release, suffix, data = None):
     # This is where the dependency graph is cut (SPEC.md section 3a).  Every
     # rpm in seed_rpms is fetched by sha256 and is NOT built from source; the
     # size of this list is the repo's bootstrap debt, so it stays as close to
-    # Fedora's @buildsys-build group as possible and grows only deliberately.
+    # the upstream build-system group as possible and grows only deliberately.
     #
-    # This is also the answer to "does the build use the Fedora toolchain":
+    # This is also the answer to "does the build use the target toolchain":
     # gcc, glibc, rpm, redhat-rpm-config and the rest all come out of this
-    # list, at the exact versions that Fedora release shipped.  The host
+    # list, at the exact versions that release shipped.  The host
     # buildroot above uses whatever the machine happens to have, which is a
-    # different distro's toolchain wearing a .fc<release> dist tag.
+    # different distro's toolchain wearing the target release's dist tag.
     seed_rpms = []
     if data != None:
         seed_rpms = [
@@ -311,28 +330,27 @@ def fedora_buildroots(release, suffix, data = None):
 
     seeded_buildroot(
         name = "buildroot-binary-seed" + suffix,
-        dist_tag = ".fc{}".format(release),
-        macros = "macros.buckos-distro",
+        dist_tag = dist_tag,
+        macros = "//defs:macros.buckos-distro",
         seed_rpms = seed_rpms,
-        target_cpu = "x86_64",
+        target_cpu = target_cpu,
         visibility = ["PUBLIC"],
     )
 
-def fedora_buildroot_target(suffix):
+def rpm_buildroot_target(flavor, suffix):
     """The buildroot a release's packages build against.
 
     Pinned per release rather than left to `//:buildroot`. The toolchain
     alias is a single global target, so
     every package in the graph would build against one release's
-    buildroot no matter which release it belongs to -- gzip-43 compiled
-    by Fedora 44's gcc and stamped .fc44.  That is exactly the "release
+    buildroot no matter which release it belongs to. That is exactly the "release
     as a global mode" failure defs/releases.bzl exists to prevent, and it
     is silent: the build succeeds and the artifact is mislabelled.
     """
-    provenance = read_config("buckos.fedora", "buildroot", "host")
+    provenance = read_config("buckos." + flavor, "buildroot", "host")
     return ":buildroot-{}{}".format(provenance, suffix)
 
-def fedora_packages(data, suffix):
+def rpm_packages(flavor, data, suffix):
     """One package() per recipe, staged where the lockfile says to stage.
 
     A recipe's build_deps arrive as *binary* package names -- "xz-libs",
@@ -356,7 +374,7 @@ def fedora_packages(data, suffix):
     copy of a package that is already present.
     """
     by_source = {entry["name"]: entry for entry in data.SOURCE_RPMS}
-    buildroot = fedora_buildroot_target(suffix)
+    buildroot = rpm_buildroot_target(flavor, suffix)
 
     # Which recipe produces a given binary package.  Built from the
     # subpackage lists, which are the binary names rpm will emit.
@@ -386,8 +404,8 @@ def fedora_packages(data, suffix):
     for recipe in data.RECIPES:
         if recipe["name"] in staged_sources:
             continue
-        _fedora_one_package(
-            data, suffix, buildroot, by_source, recipe,
+        _rpm_one_package(
+            flavor, data, suffix, buildroot, by_source, recipe,
             recipe["name"],
             _variant_map(default_variant, recipe["name"], {}, ""),
             provider,
@@ -396,8 +414,8 @@ def fedora_packages(data, suffix):
     for entry in data.STAGED:
         recipe = _recipe_named(data, entry["source"])
         cycle_deps = {name: True for name in entry["cycle_deps"]}
-        _fedora_one_package(
-            data, suffix, buildroot, by_source, recipe,
+        _rpm_one_package(
+            flavor, data, suffix, buildroot, by_source, recipe,
             entry["target"],
             _variant_map(
                 default_variant,
@@ -497,7 +515,8 @@ def _variant_map(default_variant, exclude, cycle_deps, from_stage, stage_target 
             out[source] = variant
     return out
 
-def _fedora_one_package(
+def _rpm_one_package(
+        flavor,
         data,
         suffix,
         buildroot,
@@ -531,7 +550,7 @@ def _fedora_one_package(
 
     package(
         name = target_name + suffix,
-        flavor = "fedora",
+        flavor = flavor,
         buildroot = buildroot,
         srpm = ":" + source["target"] + suffix,
         source_name = recipe["source_name"],
@@ -539,10 +558,11 @@ def _fedora_one_package(
         release = release,
         build_deps = sorted(build_deps),
         subpackages = recipe["subpackages"],
+        supplier = _flavor_config(flavor)["supplier"],
         visibility = ["PUBLIC"],
     )
 
-def fedora_rootfs(data, suffix):
+def rpm_rootfs(flavor, data, suffix):
     """A rootfs installed from the release's pinned seed closure.
 
     The seed is a *build* closure, not the package set anyone would ship,
@@ -560,12 +580,12 @@ def fedora_rootfs(data, suffix):
     """
     rootfs(
         name = "rootfs-seed" + suffix,
-        buildroot = fedora_buildroot_target(suffix),
+        buildroot = rpm_buildroot_target(flavor, suffix),
         rpms = [":" + entry["target"] + suffix for entry in data.SEED_RPMS],
         visibility = ["PUBLIC"],
     )
 
-def fedora_image_rootfs(data, suffix):
+def rpm_image_rootfs(flavor, data, suffix):
     """A rootfs per named image set: the thing an ISO is actually made of.
 
     Same rule as rootfs-seed, different closure, and that is the whole
@@ -573,7 +593,7 @@ def fedora_image_rootfs(data, suffix):
     the solver derived for another purpose; these are the lists someone
     chose, closed over their runtime Requires, and they contain a kernel.
     """
-    buildroot = fedora_buildroot_target(suffix)
+    buildroot = rpm_buildroot_target(flavor, suffix)
 
     # Which recipe, if any, produces each binary package.  This is what
     # decides whether a package in an image comes out of this repo's
@@ -613,7 +633,7 @@ def fedora_image_rootfs(data, suffix):
             visibility = ["PUBLIC"],
         )
 
-def fedora_image_tools(data, suffix):
+def rpm_image_tools(data, suffix):
     """A buildroot per tool set: what assembles an image, not what boots.
 
     seeded_buildroot rather than rootfs because the consumer is an action,
@@ -639,7 +659,7 @@ def fedora_image_tools(data, suffix):
             visibility = ["PUBLIC"],
         )
 
-def fedora_boot(data, suffix):
+def rpm_boot(flavor, data, suffix):
     """Kernel and initramfs per image set: what a bootloader loads.
 
     Only for sets that have a kernel, which in practice means the ones
@@ -648,7 +668,7 @@ def fedora_boot(data, suffix):
     absent, which is the difference between "this image does not boot" and
     "I cannot find the target that would tell me".
     """
-    buildroot = fedora_buildroot_target(suffix)
+    buildroot = rpm_buildroot_target(flavor, suffix)
 
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
@@ -669,7 +689,7 @@ def fedora_boot(data, suffix):
             visibility = ["PUBLIC"],
         )
 
-def fedora_images(data, release, suffix):
+def rpm_images(flavor, data, release, suffix):
     """squashfs and ISO per bootable image set.
 
     The squashfs is separate from the ISO rather than folded into it
@@ -706,7 +726,7 @@ def fedora_images(data, release, suffix):
         # command line as CDLABEL=, and genisoimage-style volume ids are
         # upper-cased by the filesystem -- a lowercase label here would be
         # written uppercase and then not match at boot.
-        label = "FEDORA-{}-{}".format(release, name.upper())
+        label = "{}-{}-{}".format(flavor.upper(), release, name.upper())
 
         iso_image(
             name = "iso-" + name + suffix,
@@ -722,59 +742,64 @@ def fedora_images(data, release, suffix):
 # ── Per-release fan-out ──────────────────────────────────────────────
 #
 # Each release gets a `-<release>` suffix, and the default release gets a
-# second, unsuffixed copy so callers that do not care which Fedora they
+# second, unsuffixed copy so callers that do not care which release they
 # get keep working.  The three passes are separate because Buck needs a
 # target defined before it is referenced: downloads, then the buildroot
 # that consumes them, then the packages that build against it.
 
-def _missing(release):
+def _missing(flavor, release):
     fail(
-        "fedora release {} is in `[buckos.fedora] releases` but has no ".format(release) +
+        "{} release {} is in `[buckos.{}] releases` but has no ".format(flavor, release, flavor) +
         "generated data. Solve and generate it:\n" +
-        "    tools/solve.py --release {}\n".format(release) +
-        "    tools/generate.py flavors/fedora/lock/fedora-{}.lock.json".format(release),
+        "    tools/solve.py --flavor {} --release {} ...\n".format(flavor, release) +
+        "    tools/generate.py flavors/{}/lock/{}-{}.lock.json".format(flavor, flavor, release),
     )
 
-def _data_for(data_by_release, release):
+def _data_for(flavor, data_by_release, release):
     data = data_by_release.get(release)
     if data == None:
-        _missing(release)
+        _missing(flavor, release)
+    if data.FLAVOR != flavor:
+        fail("{} release {} loaded {} data".format(flavor, release, data.FLAVOR))
     return data
 
-def fedora_downloads_for(releases, default, data_by_release):
+def rpm_downloads_for(flavor, releases, default, data_by_release):
     """http_file targets for every pinned rpm, per release."""
     for release in releases:
-        fedora_rpm_downloads(
-            _data_for(data_by_release, release),
+        rpm_downloads(
+            flavor,
+            _data_for(flavor, data_by_release, release),
             release_suffix(release),
         )
 
-    fedora_rpm_downloads(_data_for(data_by_release, default), "")
+    rpm_downloads(flavor, _data_for(flavor, data_by_release, default), "")
 
-def fedora_buildroots_for(releases, default, data_by_release = None):
+def rpm_buildroots_for(flavor, releases, default, data_by_release = None):
     """Define buildroots for every release, plus the unsuffixed default."""
     data_by_release = data_by_release or {}
 
     for release in releases:
-        fedora_buildroots(
+        rpm_buildroots(
+            flavor,
             release,
             release_suffix(release),
             data_by_release.get(release),
         )
 
-    fedora_buildroots(default, "", data_by_release.get(default))
+    rpm_buildroots(flavor, default, "", data_by_release.get(default))
 
-def fedora_packages_for(releases, default, data_by_release):
+def rpm_packages_for(flavor, releases, default, data_by_release):
     """package() calls for every recipe, per release."""
     for release in releases:
-        fedora_packages(
-            _data_for(data_by_release, release),
+        rpm_packages(
+            flavor,
+            _data_for(flavor, data_by_release, release),
             release_suffix(release),
         )
 
-    fedora_packages(_data_for(data_by_release, default), "")
+    rpm_packages(flavor, _data_for(flavor, data_by_release, default), "")
 
-def fedora_rootfs_for(releases, default, data_by_release):
+def rpm_rootfs_for(flavor, releases, default, data_by_release):
     """rootfs and boot targets for every release, plus the default.
 
     Boot targets are defined in the same pass, after the rootfs they read:
@@ -782,17 +807,17 @@ def fedora_rootfs_for(releases, default, data_by_release):
     kernel-<set> / initramfs-<set> both take :rootfs-<set>.
     """
     for release in releases:
-        data = _data_for(data_by_release, release)
+        data = _data_for(flavor, data_by_release, release)
         suffix = release_suffix(release)
-        fedora_rootfs(data, suffix)
-        fedora_image_rootfs(data, suffix)
-        fedora_image_tools(data, suffix)
-        fedora_boot(data, suffix)
-        fedora_images(data, release, suffix)
+        rpm_rootfs(flavor, data, suffix)
+        rpm_image_rootfs(flavor, data, suffix)
+        rpm_image_tools(data, suffix)
+        rpm_boot(flavor, data, suffix)
+        rpm_images(flavor, data, release, suffix)
 
-    default_data = _data_for(data_by_release, default)
-    fedora_rootfs(default_data, "")
-    fedora_image_rootfs(default_data, "")
-    fedora_image_tools(default_data, "")
-    fedora_boot(default_data, "")
-    fedora_images(default_data, default, "")
+    default_data = _data_for(flavor, data_by_release, default)
+    rpm_rootfs(flavor, default_data, "")
+    rpm_image_rootfs(flavor, default_data, "")
+    rpm_image_tools(default_data, "")
+    rpm_boot(flavor, default_data, "")
+    rpm_images(flavor, default_data, default, "")

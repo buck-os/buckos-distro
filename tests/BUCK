@@ -1,5 +1,11 @@
 load("//defs:flavor.bzl", "package")
 
+export_file(
+    name = "hello-srpm",
+    src = "fixtures/hello-1.0-1.el9.src.rpm",
+    visibility = ["PUBLIC"],
+)
+
 # End-to-end exercise of the replay path on a checked-in fixture srpm.
 #
 # Deliberately a real .src.rpm rather than a synthetic topdir: the point is

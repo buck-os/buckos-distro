@@ -9,7 +9,7 @@ Two properties matter more than convenience here:
 
   * The output is *pure data* -- lists of dicts, no rule calls, no logic.
     Everything that turns data into targets stays in handwritten macros in
-    flavors/fedora/defs.bzl, where it can be read and tested.  A generator
+    defs/rpm_family.bzl, where it can be read and tested.  A generator
     that emits logic produces diffs nobody reviews.
 
   * The output is checked in.  That is the point of the split: the network
@@ -20,6 +20,7 @@ Two properties matter more than convenience here:
 Usage:
     tools/generate.py flavors/fedora/lock/fedora-43.lock.json
     tools/generate.py flavors/fedora/lock/*.lock.json
+    tools/generate.py flavors/centos/lock/centos-10.lock.json
 """
 
 import argparse
@@ -37,7 +38,7 @@ HEADER = '''\
 # Do not edit.  Re-run:
 #     tools/generate.py {lockfile}
 #
-# Pure data, deliberately: flavors/fedora/defs.bzl turns it into targets.
+# Pure data, deliberately: defs/rpm_family.bzl turns it into targets.
 # Every sha256 here is a pin carried through from the lockfile, and it is
 # what the http_file targets verify against, so a mirror that serves the
 # wrong bytes fails the build rather than poisoning it.
@@ -172,6 +173,7 @@ def collect(lock):
 
 def render(lock, lockfile, seed, image_sets, sources, recipes, staged):
     out = [HEADER.format(lockfile=lockfile)]
+    out.append("FLAVOR = {}\n".format(json.dumps(lock["flavor"])))
     out.append("RELEASE = {}\n".format(json.dumps(lock["release"])))
     out.append("DIST_TAG = {}\n".format(json.dumps(lock["dist_tag"])))
     out.append("TARGET_CPU = {}\n".format(json.dumps(lock["target_cpu"])))
@@ -197,8 +199,8 @@ def render(lock, lockfile, seed, image_sets, sources, recipes, staged):
         ))
     out.append("}\n\n")
 
-    out.append("# The binary-seed closure: prebuilt Fedora rpms that cut the\n")
-    out.append("# dependency graph.  This *is* the Fedora toolchain -- gcc,\n")
+    out.append("# The binary-seed closure: prebuilt distro rpms that cut the\n")
+    out.append("# dependency graph.  This is the target toolchain -- gcc,\n")
     out.append("# glibc, rpm macros and redhat-rpm-config all come from here,\n")
     out.append("# not from whatever the host happens to have installed.\n")
     out.append("SEED_RPMS = [\n")
@@ -319,6 +321,9 @@ def main(argv=None):
             sys.exit("{}: unsupported schema {} (this generator reads {}); "
                      "re-run tools/relock.py".format(
                          lockfile, lock.get("schema"), LOCK_SCHEMA))
+        if lock.get("flavor") not in ("centos", "fedora"):
+            sys.exit("{}: unsupported RPM flavor {!r}".format(
+                lockfile, lock.get("flavor")))
 
         seed, image_sets, sources, recipes, staged = collect(lock)
 
@@ -352,7 +357,7 @@ def main(argv=None):
             file=sys.stderr,
         )
 
-        write_index(out_dir)
+        write_index(out_dir, lock["flavor"])
 
 
 INDEX_HEADER = '''\
@@ -360,26 +365,28 @@ INDEX_HEADER = '''\
 #
 # Starlark's load() is static -- it cannot be driven by a config value --
 # but the set of releases to build is config-driven.  So every generated
-# release is loaded here unconditionally and flavors/fedora/BUCK picks the
-# ones `[buckos.fedora] releases` actually asks for out of this map.
+# release is loaded here unconditionally and flavors/{flavor}/BUCK picks the
+# ones `[buckos.{flavor}] releases` actually asks for out of this map.
 
 '''
 
 
-def write_index(out_dir):
+def write_index(out_dir, flavor):
     """Rewrite the index that maps a release onto its generated data."""
+    prefix = flavor + "-"
     releases = sorted(
-        name[len("fedora-"):-len(".bzl")]
+        name[len(prefix):-len(".bzl")]
         for name in os.listdir(out_dir)
-        if name.startswith("fedora-") and name.endswith(".bzl")
+        if name.startswith(prefix) and name.endswith(".bzl")
     )
 
-    lines = [INDEX_HEADER]
+    lines = [INDEX_HEADER.format(flavor=flavor)]
     for release in releases:
         alias = "_r{}".format(release)
         lines.append(
             'load(\n'
-            '    "//flavors/fedora/generated:fedora-{r}.bzl",\n'
+            '    "//flavors/{f}/generated:{f}-{r}.bzl",\n'
+            '    {a}_flavor = "FLAVOR",\n'
             '    {a}_dist_tag = "DIST_TAG",\n'
             '    {a}_image_sets = "IMAGE_SETS",\n'
             '    {a}_recipes = "RECIPES",\n'
@@ -389,7 +396,7 @@ def write_index(out_dir):
             '    {a}_sources = "SOURCE_RPMS",\n'
             '    {a}_staged = "STAGED",\n'
             '    {a}_target_cpu = "TARGET_CPU",\n'
-            ')\n'.format(r=release, a=alias)
+            ')\n'.format(f=flavor, r=release, a=alias)
         )
 
     lines.append("\nDATA_BY_RELEASE = {\n")
@@ -397,6 +404,7 @@ def write_index(out_dir):
         alias = "_r{}".format(release)
         lines.append(
             '    "{r}": struct(\n'
+            '        FLAVOR = {a}_flavor,\n'
             '        RELEASE = {a}_release,\n'
             '        DIST_TAG = {a}_dist_tag,\n'
             '        TARGET_CPU = {a}_target_cpu,\n'
@@ -421,7 +429,7 @@ def write_index(out_dir):
             fh.write(
                 "# Package marker so the generated .bzl files here are "
                 "loadable.\n# The data itself defines no targets; "
-                "flavors/fedora/BUCK does that.\n"
+                "flavors/{}/BUCK does that.\n".format(flavor)
             )
 
 

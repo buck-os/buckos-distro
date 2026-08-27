@@ -1,0 +1,47 @@
+load("//defs:flavor.bzl", "package")
+load("//defs:releases.bzl", "default_release", "flavor_releases")
+load(
+    "//defs:rpm_family.bzl",
+    "rpm_buildroot_target",
+    "rpm_buildroots_for",
+    "rpm_downloads_for",
+    "rpm_packages_for",
+    "rpm_rootfs_for",
+)
+load("//flavors/centos/generated:index.bzl", "DATA_BY_RELEASE")
+
+RELEASES = flavor_releases("centos", default = "10")
+DEFAULT_RELEASE = default_release("centos", RELEASES)
+
+rpm_downloads_for("centos", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_buildroots_for("centos", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_packages_for("centos", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_rootfs_for("centos", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+
+package(
+    name = "hello-10",
+    flavor = "centos",
+    srpm = "//tests:hello-srpm",
+    source_name = "hello",
+    version = "1.0",
+    release = "1",
+    subpackages = ["hello"],
+    defines = ["debug_package %{nil}"],
+    buildroot = rpm_buildroot_target("centos", "-10"),
+    supplier = "Organization: CentOS",
+    visibility = ["PUBLIC"],
+)
+
+package(
+    name = "hello",
+    flavor = "centos",
+    srpm = "//tests:hello-srpm",
+    source_name = "hello",
+    version = "1.0",
+    release = "1",
+    subpackages = ["hello"],
+    defines = ["debug_package %{nil}"],
+    buildroot = rpm_buildroot_target("centos", ""),
+    supplier = "Organization: CentOS",
+    visibility = ["PUBLIC"],
+)

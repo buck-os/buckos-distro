@@ -4,7 +4,7 @@ This document describes the implemented build model and public Starlark interfac
 
 ## Package replay
 
-The Fedora frontend treats the upstream spec file as executable build metadata. The Debian and Ubuntu frontends treat the unpacked Debian source package and `debian/rules` the same way. None translates the upstream recipe into Buck rules.
+The Fedora and CentOS frontends treat the upstream spec file as executable build metadata. The Debian and Ubuntu frontends treat the unpacked Debian source package and `debian/rules` the same way. None translates the upstream recipe into Buck rules.
 
 For each source package, `package()` creates these targets:
 
@@ -81,7 +81,7 @@ Debian-family dependency resolution is deliberately smaller: `tools/deb_lock.py`
 
 ## Buildroot provenance
 
-Fedora, Debian, and Ubuntu define a buildroot per configured release and provenance.
+Fedora, CentOS, Debian, and Ubuntu define a buildroot per configured release and provenance.
 
 `binary-seed` assembles a tree from the pinned Fedora `@buildsys-build` closure or a Debian-family APT build closure. The tree contains the target release's compiler, package implementation, libraries, and build utilities. Actions using it run with Bubblewrap or unshare isolation and are eligible for remote execution and cache upload.
 
@@ -100,6 +100,10 @@ The checked-in configuration defines Fedora 43 and Fedora 44. Each has its own r
 Package downloads use one URL and one SHA-256 digest per target. The URL comes from the package's recorded repository base, an optional `mirror_base` prefix rewrite, an optional static `package_url_template`, or an optional read-through `blob_base`. The static template requires the full digest and may include its 12-character prefix plus escaped filename, stem, extension, and release components. It cannot be combined with either existing redirect setting. The digest remains authoritative for every source.
 
 `tools/relock.py` refreshes releases and updates metadata, calls the solver, and regenerates the Starlark data. A release must already have a lockfile because the initial package set and override policy require review.
+
+## CentOS Stream release graph
+
+`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. The checked-in CentOS Stream 10 lock pins the BaseOS and AppStream closure needed for the upstream build-system package group. Its source replay target builds the checked-in SRPM fixture with the Stream 10 toolchain and `.el10` macros. CentOS bootable image sets are not defined.
 
 ## Debian-family release graphs
 
@@ -132,6 +136,7 @@ The repository does not provide service addresses or credentials for a remote ba
 ```text
 defs/providers.bzl          Shared providers
 defs/flavor.bzl             Package frontend and flavor dispatch
+defs/rpm_family.bzl         Shared Fedora and CentOS target generation
 defs/releases.bzl           Configured release expansion
 defs/buildroot_helpers.bzl  Buildroot access and execution policy
 defs/exec.bzl               Execution-platform registration
@@ -142,6 +147,7 @@ defs/rules/rootfs.bzl       RPM transaction and rootfs archive
 defs/rules/boot.bzl         Kernel and initramfs rules
 defs/rules/image.bzl        Squashfs and ISO rules
 flavors/fedora/             Fedora configuration, lockfiles, and generated data
+flavors/centos/             CentOS Stream configuration, lockfile, and generated data
 flavors/debian/             Debian configuration, lockfile, and generated data
 flavors/ubuntu/             Ubuntu configuration, lockfile, and generated data
 tools/                      Solver, generators, action drivers, and tests

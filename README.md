@@ -2,11 +2,11 @@
 
 `buckos-distro` is a Buck2 repository for replaying upstream Linux package builds and assembling bootable distribution images.
 
-Fedora 43 and Fedora 44 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
+Fedora 43 and Fedora 44 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. CentOS Stream 10 has a pinned RPM buildroot, source-replay fixture, and seed root filesystem. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
 
 ## Quick start
 
-The build runs on Linux. A Fedora build needs Python 3, GNU tar, `rpm2archive`, and either Bubblewrap or util-linux `unshare`. Debian-family builds need Python 3, GNU tar, `dpkg-source`, `dpkg-buildpackage`, `dpkg-deb`, and the same isolation choice. The unshare path also needs `newuidmap`, `newgidmap`, and subordinate UID and GID ranges for the build user.
+The build runs on Linux. RPM-family builds need Python 3, GNU tar, `rpm2archive`, and either Bubblewrap or util-linux `unshare`. Debian-family builds need Python 3, GNU tar, `dpkg-source`, `dpkg-buildpackage`, `dpkg-deb`, and the same isolation choice. The unshare path also needs `newuidmap`, `newgidmap`, and subordinate UID and GID ranges for the build user.
 
 `setup.sh` installs the open-source Buck2 binary under `$HOME/.local/bin` when no working `buck2` is already available. It also creates the ignored `prelude/` mount point and writes `.buckconfig.local` when that file does not exist. It does not install system packages.
 
@@ -31,6 +31,7 @@ BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 | Flavor | Status | Primary outputs |
 |---|---|---|
 | Fedora | Implemented | RPMs, root filesystems, live ISOs |
+| [CentOS Stream](flavors/centos/README.md) | Source replay | RPMs, install roots, seed root filesystem |
 | [Debian](flavors/debian/README.md) | Source replay | DEBs and install roots |
 | [Ubuntu](flavors/ubuntu/README.md) | Source replay | DEBs and install roots |
 | [BuckOS](flavors/buckos/README.md) | Stub | None |
@@ -39,11 +40,11 @@ The Fedora lockfiles currently replay `gzip`, `xz`, and `zlib-ng` from source. T
 
 ## Build model
 
-An upstream source package remains authoritative. The Fedora frontend unpacks the source RPM, assembles a buildroot from pinned packages, and runs `rpmbuild -bb` without translating the spec file into Starlark. The Debian and Ubuntu frontends apply the same model to a `.dsc` source set and run `dpkg-buildpackage -b` inside a buildroot assembled from SHA-256-pinned DEBs.
+An upstream source package remains authoritative. The Fedora and CentOS frontends unpack the source RPM, assemble a buildroot from pinned packages, and run `rpmbuild -bb` without translating the spec file into Starlark. The Debian and Ubuntu frontends apply the same model to a `.dsc` source set and run `dpkg-buildpackage -b` inside a buildroot assembled from SHA-256-pinned DEBs.
 
 Dependency resolution happens before Buck analysis:
 
-1. `tools/solve.py` reads Fedora repository metadata, resolves capabilities, computes runtime closures, and emits a JSON lockfile.
+1. `tools/solve.py` reads RPM repository metadata, resolves capabilities, computes runtime closures, and emits a JSON lockfile.
 2. `tools/generate.py` converts the lockfile into Starlark data.
 3. Buck loads that generated data as an ordinary dependency graph.
 
@@ -76,11 +77,11 @@ Each release receives suffixed targets such as:
 
 The default release also receives unsuffixed targets. Release-specific target platforms, such as `//platforms:fedora-43-x86_64`, carry the release as a constraint value.
 
-Debian 13 and Ubuntu 26.04 similarly provide release-suffixed buildroot and hello targets plus unsuffixed aliases for their default releases.
+CentOS Stream 10, Debian 13, and Ubuntu 26.04 similarly provide release-suffixed buildroot and hello targets plus unsuffixed aliases for their default releases.
 
 ## Buildroots
 
-Fedora, Debian, and Ubuntu support two buildroot provenances:
+Fedora, CentOS, Debian, and Ubuntu support two buildroot provenances:
 
 - `binary-seed` assembles the build environment from pinned Fedora RPMs or Debian-family DEBs. It is the default and is eligible for remote execution and shared-cache upload.
 - `host` uses the host root filesystem and installed distro toolchain. It is non-hermetic, local-only, and excluded from shared-cache upload.
@@ -127,7 +128,7 @@ Use the host buildroot for local development:
   buildroot = host
 ```
 
-Debian and Ubuntu use the same release and provenance settings under `[buckos.debian]` and `[buckos.ubuntu]`; the checked-in releases are `13` and `26.04`.
+CentOS, Debian, and Ubuntu use the same release and provenance settings under `[buckos.centos]`, `[buckos.debian]`, and `[buckos.ubuntu]`; the checked-in releases are `10`, `13`, and `26.04`.
 
 Rewrite Fedora's recorded repository prefix to a mirror with the same directory layout:
 
@@ -167,6 +168,7 @@ A remote backend still requires a matching `[buck2_re_client]` configuration. Re
 ```text
 defs/                    Providers, flavor dispatch, release handling, and Buck rules
 flavors/fedora/          Fedora target generation, lockfiles, and generated package data
+flavors/centos/          CentOS Stream lockfile, generated package data, and replay targets
 flavors/debian/          Debian lockfile, generated package data, and replay targets
 flavors/ubuntu/          Ubuntu lockfile, generated package data, and replay targets
 flavors/buckos/          BuckOS implementation-status documentation
