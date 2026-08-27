@@ -297,6 +297,68 @@ def _run_unshare(cmd, work, chdir, sysroot, env):
     return status
 
 
+def remove_tree(path):
+    """Delete a tree an rpm transaction chowned out of our reach.
+
+    A real transaction inside the sandbox chowns files to the ids their
+    packages declare, and those land in the subordinate range on the way
+    out: bind's /var/named/slaves comes back as uid 1879048216, mode 0770.
+    We do not own it, so chmod is EPERM, and 0770 grants nothing to
+    "other" -- so we cannot list it either, and an ordinary rmtree stops
+    with
+
+        PermissionError: [Errno 13] Permission denied:
+            .../sysroot/var/named/slaves
+
+    _rpm.make_dirs_writable cannot help: it forces owner bits, and we are
+    not the owner.  The asymmetry is the whole point -- the tree was
+    *created* by a process that could write those ids, so it has to be
+    destroyed by one too.  Same namespace, same maps, where uid 0 is us
+    and the range below maps back to what rpm asked for.
+
+    No chroot: this deletes a host path, and the namespace is here for the
+    id maps alone.
+
+    Returns True if it removed the tree, False if it could not even try --
+    the caller decides whether that is fatal, because it is not always:
+    a leftover only matters when something reuses the path.
+    """
+    if not os.path.exists(path):
+        return True
+    if not subid_mapping_available():
+        return False
+
+    unshare = require_tool("unshare")
+    ready_r, ready_w = os.pipe()
+    go_r, go_w = os.pipe()
+    # Same handshake as _run_unshare, and for the same reason: the maps go
+    # in from outside, after the namespace exists and before anything in it
+    # needs an identity.  Until then we are the overflow uid and own
+    # nothing, so the rm must wait.
+    script = "\n".join([
+        "set -e",
+        "echo r >&{}".format(ready_w),
+        "read _ <&{}".format(go_r),
+        'exec rm -rf -- "$1"',
+    ])
+    argv = [unshare, "--user", "--mount", "--",
+            "/bin/sh", "-c", script, "sh", str(path)]
+
+    print("+ {}".format(" ".join(argv)), file=sys.stderr, flush=True)
+    child = subprocess.Popen(argv, pass_fds=(ready_w, go_r))
+    try:
+        os.close(ready_w)
+        os.close(go_r)
+        if os.read(ready_r, 2):
+            _map_subordinate_ids(child.pid)
+        os.write(go_w, b"go\n")
+    finally:
+        os.close(ready_r)
+        os.close(go_w)
+
+    return child.wait() == 0
+
+
 def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
     """Run a command inside the sandbox the resolved mode implies.
 

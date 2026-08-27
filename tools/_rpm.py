@@ -50,7 +50,7 @@ SCRATCH_ROOT_ENV = "BUCKOS_SCRATCH_ROOT"
 _DEFAULT_SCRATCH_ROOT = "/var/tmp"
 
 
-def scratch_dir(prefix, key=None):
+def scratch_dir(prefix, key=None, remove=None):
     """A private scratch directory for a tree Buck must not walk.
 
     `key` makes the name a function of the action instead of random, and
@@ -73,6 +73,17 @@ def scratch_dir(prefix, key=None):
     So: pass something that identifies the action and is stable across
     runs of it -- an output path is both.  Callers that only need a
     private directory can leave it None and keep mkdtemp semantics.
+
+    `remove` overrides how a leftover from a previous run is deleted, and
+    a caller that ran an rpm transaction in here has to supply one.  The
+    transaction chowns files to the ids their packages declare -- bind's
+    /var/named/slaves comes back owned by a subordinate uid, mode 0770 --
+    and we own neither the directory nor the right to chmod it, so
+    make_dirs_writable below cannot reach it and rmtree stops on
+    EPERM.  _isolation.remove_tree deletes it from inside a namespace with
+    the same maps, which is the only thing that can.  Not the default
+    because this module is the layer _isolation is built on, and the
+    dependency only runs one way.
     """
     base = os.environ.get(SCRATCH_ROOT_ENV) or _DEFAULT_SCRATCH_ROOT
     os.makedirs(base, exist_ok=True)
@@ -85,8 +96,9 @@ def scratch_dir(prefix, key=None):
     # or its debris after a kill -- would otherwise be inherited as build
     # inputs.  mkdtemp got this for free by never repeating a name.
     if os.path.exists(path):
-        make_dirs_writable(path)
-        shutil.rmtree(path)
+        if remove is None or not remove(path):
+            make_dirs_writable(path)
+            shutil.rmtree(path)
     os.makedirs(path, mode=0o700)
     return path
 

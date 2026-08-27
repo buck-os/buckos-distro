@@ -42,7 +42,7 @@ import shlex
 import shutil
 import sys
 
-from _isolation import resolve_isolation, run_isolated
+from _isolation import remove_tree, resolve_isolation, run_isolated
 from _rpm import (
     extract_rpm,
     overlay_tree,
@@ -635,7 +635,8 @@ def main():
         # key differently and produce different build-ids for identical
         # sources.  Which would make the shared cache a liar.
         work = scratch_dir("buckos-distro-replay-",
-                           key=args.out_installroot or args.out_buildrequires)
+                           key=args.out_installroot or args.out_buildrequires,
+                           remove=remove_tree)
 
     topdir = os.path.join(work, "topdir")
     copy_topdir(args.topdir, topdir)
@@ -736,7 +737,7 @@ def main():
             file=sys.stderr,
         )
         if not args.keep_work and not args.work:
-            shutil.rmtree(work, ignore_errors=True)
+            remove_tree(work)
         return
 
     cmd = build_rpmbuild_cmd(spec, topdir, args, buildroot_dir)
@@ -789,8 +790,14 @@ def main():
 
     # Only on success: a failed replay leaves its BUILD tree behind, which
     # is the whole reason you want to look at it.
+    #
+    # remove_tree rather than rmtree, because the overlay transaction has
+    # chowned files to ids we do not own.  ignore_errors used to hide that
+    # -- the tree simply stayed -- and the cost landed on the next build of
+    # the same package, where scratch_dir reuses this keyed path and cannot
+    # clear it.
     if not args.keep_work and not args.work:
-        shutil.rmtree(work, ignore_errors=True)
+        remove_tree(work)
 
 
 if __name__ == "__main__":
