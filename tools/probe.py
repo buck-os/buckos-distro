@@ -212,6 +212,32 @@ def probe_path(lock_dir, release):
     return os.path.join(lock_dir, "fedora-{}.probe.json".format(release))
 
 
+def previous_packages(lock_dir, release):
+    """What the last probe run recorded, or nothing if there was none.
+
+    Tolerant of a file that does not parse or predates the schema: this is
+    a cache of answers, and a corrupt one should cost a re-probe rather
+    than the run.
+    """
+    path = probe_path(lock_dir, release)
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path) as fh:
+            recorded = json.load(fh)
+    except ValueError:
+        print("buckos-distro: {} does not parse; starting from an empty "
+              "probe set".format(path), file=sys.stderr)
+        return {}
+    if recorded.get("schema") != solve.PROBE_SCHEMA:
+        print("buckos-distro: {} is schema {}, not {}; starting from an "
+              "empty probe set".format(
+                  path, recorded.get("schema"), solve.PROBE_SCHEMA),
+              file=sys.stderr)
+        return {}
+    return recorded.get("packages", {})
+
+
 def write_probe_file(release, lock_dir, root, config=None, buck2=None):
     lock_path = os.path.join(lock_dir, "fedora-{}.lock.json".format(release))
     if not os.path.exists(lock_path):
@@ -224,7 +250,29 @@ def write_probe_file(release, lock_dir, root, config=None, buck2=None):
         release, len(lock["solve"]["build"])), file=sys.stderr)
     outputs = run_probes(resolve_buck2(root, buck2),
                          probe_targets(lock, release), config, root)
-    packages = collect(outputs, root)
+
+    # Layered over whatever is already recorded, not written in place of it.
+    #
+    # A probe that fails is the normal case -- run_probes says so at length
+    # -- but this file is the solver's only source for BuildRequires that
+    # repodata cannot see, so dropping a package from it silently downgrades
+    # the next solve to the weaker answer.  gcc is the case: its probe
+    # failed one run, its entry vanished, and the solve fell back to
+    # arch-neutral source repodata, which carries neither its
+    # %ifarch-guarded multilib BuildRequires nor llvm and lld.  The lockfile
+    # still said 0 unresolved; rpmbuild refused the build three steps later
+    # with a dependency the solver had known about the run before.
+    #
+    # A fresh answer always wins, so re-probing still updates.  What this
+    # prevents is a *missing* answer counting as a new one.
+    packages = dict(previous_packages(lock_dir, release))
+    fresh = collect(outputs, root)
+    kept = sorted(set(packages) - set(fresh))
+    packages.update(fresh)
+    if kept:
+        print("  keeping {} earlier result(s) for packages that did not "
+              "probe this run: {}".format(len(kept), ", ".join(kept)),
+              file=sys.stderr)
 
     out = probe_path(lock_dir, release)
     with open(out, "w") as fh:
