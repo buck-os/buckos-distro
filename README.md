@@ -43,11 +43,11 @@ Every Fedora release solves its live image from source, each with 0 unresolved c
 | ------- | --------------- | ---------- | ----------------- | -------------- | ------ |
 | 43      | 127             | 187        | 182               | 354            | 117    |
 | 44      | 127             | 186        | 181               | 357            | 114    |
-| 45      | 131             | 193        | 187               | 357            | 0      |
+| 45      | 131             | 193        | 187               | 369            | 119    |
 
 Solving and building are separate milestones — the solves are complete, and packages are still being built through them.
 
-The last column is the one that says whether a release can actually build, and it is easy to misread the others without it. A solve reads static `BuildRequires` out of repodata, and repodata does not carry everything the spec asks for: `tar`'s real list is eleven packages, of which repodata names one. The rest come from `tools/probe.py` running `rpmbuild -br` against the spec. A release with a clean solve and no probe data still fails at `%prep` with `Failed build dependencies`, so an unprobed release is not ready regardless of what its other columns say. Fedora 45 is in exactly that state.
+The last column is the one that says whether a release can actually build, and it is easy to misread the others without it. A solve reads static `BuildRequires` out of repodata, and repodata does not carry everything the spec asks for: `tar`'s real list is eleven packages, of which repodata names one. The rest come from `tools/probe.py` running `rpmbuild -br` against the spec. A release with a clean solve and no probe data still fails at `%prep` with `Failed build dependencies`, so an unprobed release is not ready regardless of what its other columns say — which is why the column is here rather than left implicit in the lockfile.
 
 Five of the packages in that gap are the same on every release, and they are a property of the *build host* rather than of the solve: `kernel`, its three subpackages, and `libxcrypt` call libkcapi's `sha512hmac` or `fipshmac` from `%install`, which needs a kernel built with `CONFIG_CRYPTO_USER`. On a host that has it, drop `prebuilt` from the flavor configuration and those five build too. See "Checking the host" below.
 

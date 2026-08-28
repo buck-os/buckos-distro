@@ -194,11 +194,7 @@
   "build_order": [
     "libndp",
     "NetworkManager",
-    "dosfstools",
-    "dracut",
-    "fuse",
     "iputils",
-    "kernel",
     "ntfs-3g",
     "parted",
     "rootfiles",
@@ -2547,12 +2543,30 @@
       "source": "glibc"
     },
     {
+      "arch": "i686",
+      "evr": "2.44-1.fc45",
+      "location": "Packages/g/glibc-devel-2.44-1.fc45.i686.rpm",
+      "name": "glibc-devel.i686",
+      "repo": "binary-releases",
+      "sha256": "9038f0fa613a37fd9b1cc389b4bf97d042ee094236968bb45357fad1b0abc903",
+      "source": "glibc"
+    },
+    {
       "arch": "x86_64",
       "evr": "2.44-1.fc45",
       "location": "Packages/g/glibc-gconv-extra-2.44-1.fc45.x86_64.rpm",
       "name": "glibc-gconv-extra",
       "repo": "binary-releases",
       "sha256": "db23fc4e9fc9a9d939931fb568248ae4a0dff77a047bc18cc66190ebd7ec2ce3",
+      "source": "glibc"
+    },
+    {
+      "arch": "i686",
+      "evr": "2.44-1.fc45",
+      "location": "Packages/g/glibc-gconv-extra-2.44-1.fc45.i686.rpm",
+      "name": "glibc-gconv-extra.i686",
+      "repo": "binary-releases",
+      "sha256": "abeb7972ffb0a226397c349957dd5f9da5e258aaff8808aa643f6465f11525bc",
       "source": "glibc"
     },
     {
@@ -2598,6 +2612,15 @@
       "name": "glibc-static",
       "repo": "binary-releases",
       "sha256": "dafd20238feef2c306085837b76bc0538ea7700d5491b05b4f26d108ba11f6de",
+      "source": "glibc"
+    },
+    {
+      "arch": "i686",
+      "evr": "2.44-1.fc45",
+      "location": "Packages/g/glibc-2.44-1.fc45.i686.rpm",
+      "name": "glibc.i686",
+      "repo": "binary-releases",
+      "sha256": "a8ab84ab67f99fab858ba4c14e41066bdd88952165c468aa77fe2346b3c2fcf7",
       "source": "glibc"
     },
     {
@@ -3652,6 +3675,15 @@
       "repo": "binary-releases",
       "sha256": "794ca9075194cdf173c8a175364fc88d9170450584ff4ca3dd086b7bd4f0828f",
       "source": "kbd"
+    },
+    {
+      "arch": "x86_64",
+      "evr": "7.2.0-61.fc45",
+      "location": "Packages/k/kernel-devel-7.2.0-61.fc45.x86_64.rpm",
+      "name": "kernel-devel",
+      "repo": "binary-releases",
+      "sha256": "0012d0d15114dcca475c4ee92abbabe214945bc3f6c01cc3de7a4c28e252808d",
+      "source": "kernel"
     },
     {
       "arch": "x86_64",
@@ -5001,6 +5033,15 @@
       "name": "libgcc",
       "repo": "binary-releases",
       "sha256": "eb62610d6a8fed5badc07316a2439d59009c70a22ffca2f9a0fb025cbe53912b",
+      "source": "gcc"
+    },
+    {
+      "arch": "i686",
+      "evr": "16.2.1-2.fc45",
+      "location": "Packages/l/libgcc-16.2.1-2.fc45.i686.rpm",
+      "name": "libgcc.i686",
+      "repo": "binary-releases",
+      "sha256": "8caa511122560e841291316fb21c572fdb9b791f352135e9ecf870e5a790c5ff",
       "source": "gcc"
     },
     {
@@ -6750,12 +6791,30 @@
       "source": "libxcrypt"
     },
     {
+      "arch": "i686",
+      "evr": "4.5.2-4.fc45",
+      "location": "Packages/l/libxcrypt-devel-4.5.2-4.fc45.i686.rpm",
+      "name": "libxcrypt-devel.i686",
+      "repo": "binary-releases",
+      "sha256": "67b0f86ee2d4455f7223af5a4b7c855f163fcfb74fb0fb72502a2556bd4c05d2",
+      "source": "libxcrypt"
+    },
+    {
       "arch": "x86_64",
       "evr": "4.5.2-4.fc45",
       "location": "Packages/l/libxcrypt-static-4.5.2-4.fc45.x86_64.rpm",
       "name": "libxcrypt-static",
       "repo": "binary-releases",
       "sha256": "614f4cfef42f9989cf765d7f0b1eea9e615e5506139a7b55b3f7ae091b0ee0c9",
+      "source": "libxcrypt"
+    },
+    {
+      "arch": "i686",
+      "evr": "4.5.2-4.fc45",
+      "location": "Packages/l/libxcrypt-4.5.2-4.fc45.i686.rpm",
+      "name": "libxcrypt.i686",
+      "repo": "binary-releases",
+      "sha256": "d83a139448c77a34575b0becd033845d8517cd1e4910559c080314f6c1eb210f",
       "source": "libxcrypt"
     },
     {
@@ -7435,15 +7494,6 @@
     },
     {
       "arch": "noarch",
-      "evr": "6.3.0-6.fc45",
-      "location": "Packages/m/mingw32-gmp-6.3.0-6.fc45.noarch.rpm",
-      "name": "mingw32-gmp",
-      "repo": "binary-releases",
-      "sha256": "b9fd6acf9dffbd56df7fbd1363fc5dca5b66a756de1b36533dbf027cbaec3594",
-      "source": "mingw-gmp"
-    },
-    {
-      "arch": "noarch",
       "evr": "14.0.0-2.fc45",
       "location": "Packages/m/mingw32-headers-14.0.0-2.fc45.noarch.rpm",
       "name": "mingw32-headers",
@@ -7498,15 +7548,6 @@
     },
     {
       "arch": "noarch",
-      "evr": "3.10.2-3.fc45",
-      "location": "Packages/m/mingw32-nettle-3.10.2-3.fc45.noarch.rpm",
-      "name": "mingw32-nettle",
-      "repo": "binary-releases",
-      "sha256": "afa2c604f28d6499d5ad33c2fc9b3dd485876a20078c1716e4844f8961748a6a",
-      "source": "mingw-nettle"
-    },
-    {
-      "arch": "noarch",
       "evr": "3.2.4-5.fc45",
       "location": "Packages/m/mingw32-openssl-3.2.4-5.fc45.noarch.rpm",
       "name": "mingw32-openssl",
@@ -7525,30 +7566,12 @@
     },
     {
       "arch": "noarch",
-      "evr": "8.3-4.fc45",
-      "location": "Packages/m/mingw32-readline-8.3-4.fc45.noarch.rpm",
-      "name": "mingw32-readline",
-      "repo": "binary-releases",
-      "sha256": "3537109526de240080e1940e6530915bf3a039ff89bcd903e2e69253e6a54bc3",
-      "source": "mingw-readline"
-    },
-    {
-      "arch": "noarch",
       "evr": "3.53.4-1.fc45",
       "location": "Packages/m/mingw32-sqlite-3.53.4-1.fc45.noarch.rpm",
       "name": "mingw32-sqlite",
       "repo": "binary-releases",
       "sha256": "8c368c4bdffa745a318d06b2e0520b8880690a32bb05cf9587d19fe0e45b2eb6",
       "source": "mingw-sqlite"
-    },
-    {
-      "arch": "noarch",
-      "evr": "1.3.1-41.fc45",
-      "location": "Packages/m/mingw32-termcap-1.3.1-41.fc45.noarch.rpm",
-      "name": "mingw32-termcap",
-      "repo": "binary-releases",
-      "sha256": "f59bd6849c8e0b8a3e02addb9ed9e227c400e6a8a54e2db141c821f5c5807820",
-      "source": "mingw-termcap"
     },
     {
       "arch": "noarch",
@@ -7678,15 +7701,6 @@
     },
     {
       "arch": "noarch",
-      "evr": "6.3.0-6.fc45",
-      "location": "Packages/m/mingw64-gmp-6.3.0-6.fc45.noarch.rpm",
-      "name": "mingw64-gmp",
-      "repo": "binary-releases",
-      "sha256": "e1a3fd80eff6c8075cbb3faaf12762b109ea266a7f0afec27174c7a42e5d0b7e",
-      "source": "mingw-gmp"
-    },
-    {
-      "arch": "noarch",
       "evr": "14.0.0-2.fc45",
       "location": "Packages/m/mingw64-headers-14.0.0-2.fc45.noarch.rpm",
       "name": "mingw64-headers",
@@ -7741,15 +7755,6 @@
     },
     {
       "arch": "noarch",
-      "evr": "3.10.2-3.fc45",
-      "location": "Packages/m/mingw64-nettle-3.10.2-3.fc45.noarch.rpm",
-      "name": "mingw64-nettle",
-      "repo": "binary-releases",
-      "sha256": "5abc1a5ed75c79a9de06ea1d4b5144a99bfa2df17a9ceb55a55db6f4eb076ac1",
-      "source": "mingw-nettle"
-    },
-    {
-      "arch": "noarch",
       "evr": "3.2.4-5.fc45",
       "location": "Packages/m/mingw64-openssl-3.2.4-5.fc45.noarch.rpm",
       "name": "mingw64-openssl",
@@ -7768,30 +7773,12 @@
     },
     {
       "arch": "noarch",
-      "evr": "8.3-4.fc45",
-      "location": "Packages/m/mingw64-readline-8.3-4.fc45.noarch.rpm",
-      "name": "mingw64-readline",
-      "repo": "binary-releases",
-      "sha256": "7248956ab4f12c8edd04c86f3db84d903813205ecae2141eb142843f62801b96",
-      "source": "mingw-readline"
-    },
-    {
-      "arch": "noarch",
       "evr": "3.53.4-1.fc45",
       "location": "Packages/m/mingw64-sqlite-3.53.4-1.fc45.noarch.rpm",
       "name": "mingw64-sqlite",
       "repo": "binary-releases",
       "sha256": "3b63655f3d63384d9c4bb94877b8c757ad082c54043bc95072db3bbf8e4c41b8",
       "source": "mingw-sqlite"
-    },
-    {
-      "arch": "noarch",
-      "evr": "1.3.1-41.fc45",
-      "location": "Packages/m/mingw64-termcap-1.3.1-41.fc45.noarch.rpm",
-      "name": "mingw64-termcap",
-      "repo": "binary-releases",
-      "sha256": "10f79eadc2d44fe99d8be5fd3f7a6d8840adc88c54866236897a58c31e5418ac",
-      "source": "mingw-termcap"
     },
     {
       "arch": "noarch",
@@ -21736,6 +21723,33 @@
     },
     {
       "arch": "x86_64",
+      "evr": "4.21.1-10.fc45",
+      "location": "Packages/x/xen-devel-4.21.1-10.fc45.x86_64.rpm",
+      "name": "xen-devel",
+      "repo": "binary-releases",
+      "sha256": "e4ec8fa2598d14186e8efeee7e39f2fd977cf57d5f57ed7d32205cda6ea20202",
+      "source": "xen"
+    },
+    {
+      "arch": "x86_64",
+      "evr": "4.21.1-10.fc45",
+      "location": "Packages/x/xen-libs-4.21.1-10.fc45.x86_64.rpm",
+      "name": "xen-libs",
+      "repo": "binary-releases",
+      "sha256": "8eeff78e4e8340886fe9951407b03c7c4d09786051ac8a53977e971e75f94e03",
+      "source": "xen"
+    },
+    {
+      "arch": "x86_64",
+      "evr": "4.21.1-10.fc45",
+      "location": "Packages/x/xen-licenses-4.21.1-10.fc45.x86_64.rpm",
+      "name": "xen-licenses",
+      "repo": "binary-releases",
+      "sha256": "88a5836a67f87b0a4737e3bbb0e8b1a8ee97c579321c38184cced54df2b2ffff",
+      "source": "xen"
+    },
+    {
+      "arch": "x86_64",
       "evr": "0.7.0-2.fc45",
       "location": "Packages/x/xevd-libs-0.7.0-2.fc45.x86_64.rpm",
       "name": "xevd-libs",
@@ -22062,6 +22076,8 @@
       "dbus-broker",
       "diffutils",
       "dnf5",
+      "dosfstools",
+      "dracut",
       "e2fsprogs",
       "elfutils",
       "expat",
@@ -22071,6 +22087,7 @@
       "findutils",
       "fips-provider",
       "fmt",
+      "fuse",
       "fuse3",
       "gawk",
       "gcc",
@@ -22086,6 +22103,7 @@
       "jq",
       "json-c",
       "kbd",
+      "kernel",
       "keyutils",
       "kmod",
       "krb5",
@@ -31871,7 +31889,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -34285,7 +34303,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -37140,7 +37158,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -41819,7 +41837,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -44454,7 +44472,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -46218,7 +46236,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -50066,7 +50084,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -52445,7 +52463,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -55351,7 +55369,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -57957,7 +57975,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -59866,7 +59884,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -63558,7 +63576,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -66566,7 +66584,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -66664,6 +66682,7 @@
         "tar": "tar",
         "unzip": "unzip",
         "util-linux": "util-linux",
+        "valgrind": "valgrind",
         "which": "which",
         "xz": "xz",
         "zlib-devel": "zlib-ng-compat-devel"
@@ -69931,6 +69950,15 @@
         },
         {
           "arch": "x86_64",
+          "evr": "1:3.27.1-2.fc45",
+          "location": "Packages/v/valgrind-3.27.1-2.fc45.x86_64.rpm",
+          "name": "valgrind",
+          "repo": "binary-releases",
+          "sha256": "0d74bd5341dc4e8c164fc4abb8555006233fdbbb684996be38395abc0cddfc3a",
+          "source": "valgrind"
+        },
+        {
+          "arch": "x86_64",
           "evr": "0.8.3-5.fc45",
           "location": "Packages/x/xxhash-libs-0.8.3-5.fc45.x86_64.rpm",
           "name": "xxhash-libs",
@@ -69959,9 +69987,9 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
-        "unmet": false
+        "unmet": true
       },
       "source": {
         "evr": "8.21.0-5.fc45",
@@ -72948,7 +72976,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -77302,7 +77330,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -79536,7 +79564,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -82148,7 +82176,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -87569,7 +87597,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -94327,7 +94355,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -94397,6 +94425,7 @@
         "sed": "sed",
         "shadow-utils": "shadow-utils",
         "socat": "socat",
+        "sysprof-capture-devel": "sysprof-capture-devel",
         "systemd": "systemd",
         "systemd-rpm-macros": "systemd-rpm-macros",
         "tar": "tar",
@@ -97599,6 +97628,15 @@
         },
         {
           "arch": "x86_64",
+          "evr": "51~alpha-2.fc45",
+          "location": "Packages/s/sysprof-capture-devel-51~alpha-2.fc45.x86_64.rpm",
+          "name": "sysprof-capture-devel",
+          "repo": "binary-releases",
+          "sha256": "42d4df57839becb33404c91e585235287af9de29fc2b5ff7c7e9fbb9dae18a27",
+          "source": "sysprof"
+        },
+        {
+          "arch": "x86_64",
           "evr": "2:1.35-9.fc45",
           "location": "Packages/t/tar-1.35-9.fc45.x86_64.rpm",
           "name": "tar",
@@ -97663,9 +97701,9 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
-        "unmet": false
+        "unmet": true
       },
       "source": {
         "evr": "0.195-3.fc45",
@@ -100264,7 +100302,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -102037,7 +102075,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -103869,7 +103907,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -106512,7 +106550,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -109317,7 +109355,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -114654,11 +114692,45 @@
         }
       ],
       "dynamic_buildrequires": {
-        "capabilities": [],
-        "source": "repodata",
-        "suspected": [
-          "cargo-rpm-macros"
+        "capabilities": [
+          "(crate(asn1/default) >= 0.24.0 with crate(asn1/default) < 0.25.0~)",
+          "(crate(bimap/default) >= 0.6.3 with crate(bimap/default) < 0.7.0~)",
+          "(crate(bindgen/default) >= 0.72.0 with crate(bindgen/default) < 0.73.0~)",
+          "(crate(bitflags/default) >= 2.4.1 with crate(bitflags/default) < 3.0.0~)",
+          "(crate(cfg-if/default) >= 1.0.0 with crate(cfg-if/default) < 2.0.0~)",
+          "(crate(clap) >= 4.5.26 with crate(clap) < 5.0.0~)",
+          "(crate(clap/cargo) >= 4.5.26 with crate(clap/cargo) < 5.0.0~)",
+          "(crate(clap/derive) >= 4.5.26 with crate(clap/derive) < 5.0.0~)",
+          "(crate(clap/help) >= 4.5.26 with crate(clap/help) < 5.0.0~)",
+          "(crate(clap/std) >= 4.5.26 with crate(clap/std) < 5.0.0~)",
+          "(crate(clap/usage) >= 4.5.26 with crate(clap/usage) < 5.0.0~)",
+          "(crate(constant_time_eq/default) >= 0.4.2 with crate(constant_time_eq/default) < 0.5.0~)",
+          "(crate(cryptoki/default) >= 0.12.0 with crate(cryptoki/default) < 0.13.0~)",
+          "(crate(data-encoding/default) >= 2.4.0 with crate(data-encoding/default) < 3.0.0~)",
+          "(crate(hex/default) >= 0.4.3 with crate(hex/default) < 0.5.0~)",
+          "(crate(itertools/default) >= 0.15.0 with crate(itertools/default) < 0.16.0~)",
+          "(crate(libc/default) >= 0.2.151 with crate(libc/default) < 0.3.0~)",
+          "(crate(num-bigint/default) >= 0.4.4 with crate(num-bigint/default) < 0.5.0~)",
+          "(crate(num-integer/default) >= 0.1.45 with crate(num-integer/default) < 0.2.0~)",
+          "(crate(num-traits/default) >= 0.2.17 with crate(num-traits/default) < 0.3.0~)",
+          "(crate(pkg-config/default) >= 0.3.0 with crate(pkg-config/default) < 0.4.0~)",
+          "(crate(rusqlite/default) >= 0.38.0 with crate(rusqlite/default) < 0.39.0~)",
+          "(crate(serde/default) >= 1.0.180 with crate(serde/default) < 2.0.0~)",
+          "(crate(serde/derive) >= 1.0.180 with crate(serde/derive) < 2.0.0~)",
+          "(crate(serde_json/default) >= 1.0.104 with crate(serde_json/default) < 2.0.0~)",
+          "(crate(serial_test/default) >= 3.1.1 with crate(serial_test/default) < 4.0.0~)",
+          "(crate(toml) >= 1.0.2 with crate(toml) < 2.0.0~)",
+          "(crate(toml/display) >= 1.0.2 with crate(toml/display) < 2.0.0~)",
+          "(crate(toml/parse) >= 1.0.2 with crate(toml/parse) < 2.0.0~)",
+          "(crate(toml/serde) >= 1.0.2 with crate(toml/serde) < 2.0.0~)",
+          "(crate(uuid/default) >= 1.4.1 with crate(uuid/default) < 2.0.0~)",
+          "(crate(uuid/v4) >= 1.4.1 with crate(uuid/v4) < 2.0.0~)",
+          "(crate(uuid/v8) >= 1.4.1 with crate(uuid/v8) < 2.0.0~)",
+          "(crate(vsprintf/default) >= 2.0.0 with crate(vsprintf/default) < 3.0.0~)",
+          "rust >= 1.85"
         ],
+        "source": "probe",
+        "suspected": [],
         "unmet": false
       },
       "source": {
@@ -116564,7 +116636,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -121477,7 +121549,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -126167,7 +126239,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -126227,7 +126299,10 @@
         "libgnat": "libgnat",
         "libgphobos-static": "libgphobos-static",
         "libmpc-devel": "libmpc-devel",
+        "libxml2-devel": "libxml2-devel",
         "libzstd-devel": "libzstd-devel",
+        "lld": "lld",
+        "llvm": "llvm",
         "make": "make",
         "mpfr-devel": "mpfr-devel",
         "patch": "patch",
@@ -127133,6 +127208,15 @@
           "name": "libxml2",
           "repo": "binary-releases",
           "sha256": "68ce3f9a93ea9539bab6710d89ee5cfafc9ceef2df7b83707f8a6aaf9c695944",
+          "source": "libxml2"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.13.9-4.fc45",
+          "location": "Packages/l/libxml2-devel-2.13.9-4.fc45.x86_64.rpm",
+          "name": "libxml2-devel",
+          "repo": "binary-releases",
+          "sha256": "0dfbd484637c8d141d490b72584fd906b85a11cafe9b38e65e0a0282100b897a",
           "source": "libxml2"
         },
         {
@@ -128254,6 +128338,33 @@
           "source": "ghostscript"
         },
         {
+          "arch": "i686",
+          "evr": "2.44-1.fc45",
+          "location": "Packages/g/glibc-devel-2.44-1.fc45.i686.rpm",
+          "name": "glibc-devel.i686",
+          "repo": "binary-releases",
+          "sha256": "9038f0fa613a37fd9b1cc389b4bf97d042ee094236968bb45357fad1b0abc903",
+          "source": "glibc"
+        },
+        {
+          "arch": "i686",
+          "evr": "2.44-1.fc45",
+          "location": "Packages/g/glibc-gconv-extra-2.44-1.fc45.i686.rpm",
+          "name": "glibc-gconv-extra.i686",
+          "repo": "binary-releases",
+          "sha256": "abeb7972ffb0a226397c349957dd5f9da5e258aaff8808aa643f6465f11525bc",
+          "source": "glibc"
+        },
+        {
+          "arch": "i686",
+          "evr": "2.44-1.fc45",
+          "location": "Packages/g/glibc-2.44-1.fc45.i686.rpm",
+          "name": "glibc.i686",
+          "repo": "binary-releases",
+          "sha256": "a8ab84ab67f99fab858ba4c14e41066bdd88952165c468aa77fe2346b3c2fcf7",
+          "source": "glibc"
+        },
+        {
           "arch": "x86_64",
           "evr": "2.2~beta-1.fc45",
           "location": "Packages/g/glycin-libs-2.2~beta-1.fc45.x86_64.rpm",
@@ -128884,6 +128995,15 @@
           "source": "fsverity-utils"
         },
         {
+          "arch": "i686",
+          "evr": "16.2.1-2.fc45",
+          "location": "Packages/l/libgcc-16.2.1-2.fc45.i686.rpm",
+          "name": "libgcc.i686",
+          "repo": "binary-releases",
+          "sha256": "8caa511122560e841291316fb21c572fdb9b791f352135e9ecf870e5a790c5ff",
+          "source": "gcc"
+        },
+        {
           "arch": "x86_64",
           "evr": "1.12.2-2.fc45",
           "location": "Packages/l/libgcrypt-1.12.2-2.fc45.x86_64.rpm",
@@ -129217,6 +129337,24 @@
           "source": "libxcb"
         },
         {
+          "arch": "i686",
+          "evr": "4.5.2-4.fc45",
+          "location": "Packages/l/libxcrypt-devel-4.5.2-4.fc45.i686.rpm",
+          "name": "libxcrypt-devel.i686",
+          "repo": "binary-releases",
+          "sha256": "67b0f86ee2d4455f7223af5a4b7c855f163fcfb74fb0fb72502a2556bd4c05d2",
+          "source": "libxcrypt"
+        },
+        {
+          "arch": "i686",
+          "evr": "4.5.2-4.fc45",
+          "location": "Packages/l/libxcrypt-4.5.2-4.fc45.i686.rpm",
+          "name": "libxcrypt.i686",
+          "repo": "binary-releases",
+          "sha256": "d83a139448c77a34575b0becd033845d8517cd1e4910559c080314f6c1eb210f",
+          "source": "libxcrypt"
+        },
+        {
           "arch": "x86_64",
           "evr": "1.3.2-9.fc45",
           "location": "Packages/l/libxshmfence-1.3.2-9.fc45.x86_64.rpm",
@@ -129242,6 +129380,33 @@
           "repo": "binary-releases",
           "sha256": "98559f70930cc1c414e4ea28f778bc1e7b21f0f87b321dc870a6a299f53ac4e2",
           "source": "rust-add-determinism"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-20.fc45",
+          "location": "Packages/l/lld-22.1.8-20.fc45.x86_64.rpm",
+          "name": "lld",
+          "repo": "binary-releases",
+          "sha256": "ce19c348320bb3baea8bb9a231c5df63ffcacc06ce16eb493d938dad3c7d1959",
+          "source": "llvm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-20.fc45",
+          "location": "Packages/l/lld-libs-22.1.8-20.fc45.x86_64.rpm",
+          "name": "lld-libs",
+          "repo": "binary-releases",
+          "sha256": "17b40e8f97ec667a3edb022877dede19388dd18a5bf7a5d173ff55f740602b24",
+          "source": "llvm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-20.fc45",
+          "location": "Packages/l/llvm-22.1.8-20.fc45.x86_64.rpm",
+          "name": "llvm",
+          "repo": "binary-releases",
+          "sha256": "78e8a00eef6cd79ecb43ea10d4248f9c13d33a51ff8bfcc40043a777b38df114",
+          "source": "llvm"
         },
         {
           "arch": "x86_64",
@@ -135726,9 +135891,9 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
-        "unmet": false
+        "unmet": true
       },
       "source": {
         "evr": "16.2.1-2.fc45",
@@ -138344,7 +138509,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -142658,7 +142823,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -146368,7 +146533,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -146627,7 +146792,6 @@
         "diffutils": "diffutils",
         "fedora-release-common": "fedora-release-common",
         "findutils": "findutils",
-        "fipscheck": "libkcapi-fipscheck",
         "gawk": "gawk",
         "gcc": "gcc",
         "gcc-c++": "gcc-c++",
@@ -146666,24 +146830,6 @@
           "repo": "binary-releases",
           "sha256": "f0ee9e834a22708fcd0a08b2d505c43c94c8374080fb1df21c0ae85a1fd50109",
           "source": "audit"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.8.0-1.fc45",
-          "location": "Packages/a/authselect-1.8.0-1.fc45.x86_64.rpm",
-          "name": "authselect",
-          "repo": "binary-releases",
-          "sha256": "28803e04a21e50acdc9b86450f898cbd54d96f1453d67343e8dcc211a2172252",
-          "source": "authselect"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.8.0-1.fc45",
-          "location": "Packages/a/authselect-libs-1.8.0-1.fc45.x86_64.rpm",
-          "name": "authselect-libs",
-          "repo": "binary-releases",
-          "sha256": "acd40ae11bc3633e3adc100c9a409fe332ba3b2db69bd03e30c7bbd5b45c0a79",
-          "source": "authselect"
         },
         {
           "arch": "x86_64",
@@ -146756,15 +146902,6 @@
           "repo": "binary-releases",
           "sha256": "3b47f2d7197b5d52a8ce30e18b967d99b0a09ac8087c968b2e8e0673555acd23",
           "source": "gcc"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "2.10.3-2.fc45",
-          "location": "Packages/c/cracklib-2.10.3-2.fc45.x86_64.rpm",
-          "name": "cracklib",
-          "repo": "binary-releases",
-          "sha256": "246c33cb796037a5e31c3d0cebe111a9b40592439a7b55802157a398a2a393a6",
-          "source": "cracklib"
         },
         {
           "arch": "noarch",
@@ -146963,15 +147100,6 @@
           "repo": "binary-releases",
           "sha256": "e8200b747fc9416e525b2f85f67bd7b7c5da890db36df6fccd231eec857c5dc9",
           "source": "gcc"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1:1.23-12.fc45",
-          "location": "Packages/g/gdbm-1.23-12.fc45.x86_64.rpm",
-          "name": "gdbm",
-          "repo": "binary-releases",
-          "sha256": "03f4940788382467ec5ee9af3962dc6cfe6082d24f4b29713eded06f3fc80c2c",
-          "source": "gdbm"
         },
         {
           "arch": "x86_64",
@@ -147254,33 +147382,6 @@
         },
         {
           "arch": "x86_64",
-          "evr": "1.5.1-2.fc45",
-          "location": "Packages/l/libkcapi-1.5.1-2.fc45.x86_64.rpm",
-          "name": "libkcapi",
-          "repo": "binary-releases",
-          "sha256": "d5167435ec8aa1f46a3b41c659ea9c4e856c0972e29566578237ad4b9ef9dfbc",
-          "source": "libkcapi"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.5.1-2.fc45",
-          "location": "Packages/l/libkcapi-fipscheck-1.5.1-2.fc45.x86_64.rpm",
-          "name": "libkcapi-fipscheck",
-          "repo": "binary-releases",
-          "sha256": "89967e22f6e34795e9f1dfd937cfc0e3f78097bbc92d5782074134b18ac54be4",
-          "source": "libkcapi"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.5.1-2.fc45",
-          "location": "Packages/l/libkcapi-hasher-1.5.1-2.fc45.x86_64.rpm",
-          "name": "libkcapi-hasher",
-          "repo": "binary-releases",
-          "sha256": "61fd39248581807e2e012a291328283b03dcc7e3e91b736d8b6d3099fdc768db",
-          "source": "libkcapi"
-        },
-        {
-          "arch": "x86_64",
           "evr": "2.42.2-3.fc45",
           "location": "Packages/l/liblastlog2-2.42.2-3.fc45.x86_64.rpm",
           "name": "liblastlog2",
@@ -147308,39 +147409,12 @@
         },
         {
           "arch": "x86_64",
-          "evr": "2.0.1-6.fc45",
-          "location": "Packages/l/libnsl2-2.0.1-6.fc45.x86_64.rpm",
-          "name": "libnsl2",
-          "repo": "binary-releases",
-          "sha256": "7c21b2909435905a9ed80f0ba7a50c05c0e751546e345b3aac27cc967732ea1d",
-          "source": "libnsl2"
-        },
-        {
-          "arch": "x86_64",
           "evr": "2.5.1-2.fc45",
           "location": "Packages/l/libpkgconf-2.5.1-2.fc45.x86_64.rpm",
           "name": "libpkgconf",
           "repo": "binary-releases",
           "sha256": "cfe3f1989193d1bdb3785cf9621eb5b100c16671c37bbad7928b41e9f30053f5",
           "source": "pkgconf"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.4.5-18.fc45",
-          "location": "Packages/l/libpwquality-1.4.5-18.fc45.x86_64.rpm",
-          "name": "libpwquality",
-          "repo": "binary-releases",
-          "sha256": "0fe60546b6001e747544de26aeaa16882bfce7726d7da2b78435326368a5a5d5",
-          "source": "libpwquality"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "2.6.1-3.fc45",
-          "location": "Packages/l/libseccomp-2.6.1-3.fc45.x86_64.rpm",
-          "name": "libseccomp",
-          "repo": "binary-releases",
-          "sha256": "a10e3b932cb5eb364ec5123af8cec38ae05a8b5bde9c620f1f631c88dcc71c27",
-          "source": "libseccomp"
         },
         {
           "arch": "x86_64",
@@ -147413,15 +147487,6 @@
           "repo": "binary-releases",
           "sha256": "d61fcf0d0690a5ab8de48578e5e5d09356c8cf7ae0d729704f680b090ecfdc78",
           "source": "libtasn1"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.3.7-3.fc45",
-          "location": "Packages/l/libtirpc-1.3.7-3.fc45.x86_64.rpm",
-          "name": "libtirpc",
-          "repo": "binary-releases",
-          "sha256": "330406aa239c04508ed2bb4a94f4e1a26264fff1211f96da4798e3df1007382f",
-          "source": "libtirpc"
         },
         {
           "arch": "x86_64",
@@ -147629,15 +147694,6 @@
           "repo": "binary-releases",
           "sha256": "63116ad0816a57eedf8387956161e408526dfcd8867bafe283d8fa73329ef972",
           "source": "p11-kit"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.7.2-4.fc45",
-          "location": "Packages/p/pam-1.7.2-4.fc45.x86_64.rpm",
-          "name": "pam",
-          "repo": "binary-releases",
-          "sha256": "f03b9c9e0080861846dcda1bf828b076724df85274d193842c17fa42e07d8943",
-          "source": "pam"
         },
         {
           "arch": "x86_64",
@@ -147858,37 +147914,10 @@
         {
           "arch": "x86_64",
           "evr": "261.2-1.fc45",
-          "location": "Packages/s/systemd-261.2-1.fc45.x86_64.rpm",
-          "name": "systemd",
-          "repo": "binary-releases",
-          "sha256": "96884b77543838a905c07a8ab0c2db276aa5b4dd6eebc841b2e4de3b1932e41d",
-          "source": "systemd"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "261.2-1.fc45",
           "location": "Packages/s/systemd-libs-261.2-1.fc45.x86_64.rpm",
           "name": "systemd-libs",
           "repo": "binary-releases",
           "sha256": "e5d58e85cbbb15c904fe9bd7a7da34e34c700c8db380127210e24e5bdd6bb6e4",
-          "source": "systemd"
-        },
-        {
-          "arch": "noarch",
-          "evr": "261.2-1.fc45",
-          "location": "Packages/s/systemd-rpm-macros-261.2-1.fc45.noarch.rpm",
-          "name": "systemd-rpm-macros",
-          "repo": "binary-releases",
-          "sha256": "55877255dae227c67e848a661a74ab708471970ccfb03b03244b23948939007b",
-          "source": "systemd"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "261.2-1.fc45",
-          "location": "Packages/s/systemd-shared-261.2-1.fc45.x86_64.rpm",
-          "name": "systemd-shared",
-          "repo": "binary-releases",
-          "sha256": "9d9781872b905d984fed7be461436724db37d9209bb688c76f4d468762eb47b5",
           "source": "systemd"
         },
         {
@@ -149381,7 +149410,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -151264,7 +151293,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -151313,22 +151342,6 @@
         "libzstd-devel": "libzstd-devel",
         "make": "make",
         "meson": "meson",
-        "mingw32-cpp": "mingw32-cpp",
-        "mingw32-filesystem": "mingw32-filesystem",
-        "mingw32-gcc": "mingw32-gcc",
-        "mingw32-gcc-c++": "mingw32-gcc-c++",
-        "mingw32-libtasn1": "mingw32-libtasn1",
-        "mingw32-nettle": "mingw32-nettle",
-        "mingw32-readline": "mingw32-readline",
-        "mingw32-zlib": "mingw32-zlib",
-        "mingw64-cpp": "mingw64-cpp",
-        "mingw64-filesystem": "mingw64-filesystem",
-        "mingw64-gcc": "mingw64-gcc",
-        "mingw64-gcc-c++": "mingw64-gcc-c++",
-        "mingw64-libtasn1": "mingw64-libtasn1",
-        "mingw64-nettle": "mingw64-nettle",
-        "mingw64-readline": "mingw64-readline",
-        "mingw64-zlib": "mingw64-zlib",
         "net-tools": "net-tools",
         "nettle-devel": "nettle-devel",
         "p11-kit-devel": "p11-kit-devel",
@@ -153095,15 +153108,6 @@
         {
           "arch": "noarch",
           "evr": "4.3.0-5.fc45",
-          "location": "Packages/c/cmake-rpm-macros-4.3.0-5.fc45.noarch.rpm",
-          "name": "cmake-rpm-macros",
-          "repo": "binary-releases",
-          "sha256": "3b2bc0b348d94f35587148ecb968042ea2e027e62e3da238cef03d8ca1ad8509",
-          "source": "cmake"
-        },
-        {
-          "arch": "noarch",
-          "evr": "4.3.0-5.fc45",
           "location": "Packages/c/cmake-srpm-macros-4.3.0-5.fc45.noarch.rpm",
           "name": "cmake-srpm-macros",
           "repo": "binary-releases",
@@ -153730,330 +153734,6 @@
           "repo": "binary-releases",
           "sha256": "2031f41d348978b9260ed7b06c80116e1cbc73fbca55b145b2bff6d72b589141",
           "source": "meson"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "2.46.0-2.fc45",
-          "location": "Packages/m/mingw-binutils-generic-2.46.0-2.fc45.x86_64.rpm",
-          "name": "mingw-binutils-generic",
-          "repo": "binary-releases",
-          "sha256": "ab1ad7b0f2172d231a21b1a28eb31d695db2b546f062d6177daf955ddcac8dcd",
-          "source": "mingw-binutils"
-        },
-        {
-          "arch": "noarch",
-          "evr": "152-1.fc45",
-          "location": "Packages/m/mingw-filesystem-base-152-1.fc45.noarch.rpm",
-          "name": "mingw-filesystem-base",
-          "repo": "binary-releases",
-          "sha256": "32e8202d0e2c817eb66eae4522cd301ea341ca3e80c412d82b3f43972c7e7d04",
-          "source": "mingw-filesystem"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "2.46.0-2.fc45",
-          "location": "Packages/m/mingw32-binutils-2.46.0-2.fc45.x86_64.rpm",
-          "name": "mingw32-binutils",
-          "repo": "binary-releases",
-          "sha256": "97b7bc148bd5b1948466278f3efec0bff967db247bba28774a7654cd65cdc845",
-          "source": "mingw-binutils"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw32-cpp-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw32-cpp",
-          "repo": "binary-releases",
-          "sha256": "58a61afa187037b035dbdbfb937bb1b68936805d46f97fc69aff00ab5a5b1f3e",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-3.fc45",
-          "location": "Packages/m/mingw32-crt-14.0.0-3.fc45.noarch.rpm",
-          "name": "mingw32-crt",
-          "repo": "binary-releases",
-          "sha256": "b65153f80f2b566bf19e46762c5b5bb48233ce9dbd0fb6d777fc3a0b4200b14b",
-          "source": "mingw-crt"
-        },
-        {
-          "arch": "noarch",
-          "evr": "152-1.fc45",
-          "location": "Packages/m/mingw32-filesystem-152-1.fc45.noarch.rpm",
-          "name": "mingw32-filesystem",
-          "repo": "binary-releases",
-          "sha256": "e3ba3910911a6eba007aa6bde42d7c2fd67a549ec6eabf5d6305e778ed8ea991",
-          "source": "mingw-filesystem"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw32-gcc-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw32-gcc",
-          "repo": "binary-releases",
-          "sha256": "4548571b0d6a747fc39cdbc1ea0452c4a9beecc2a3017f3f87875bf576643cb6",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw32-gcc-c++-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw32-gcc-c++",
-          "repo": "binary-releases",
-          "sha256": "88dd3b82f97e8d69d5a2312d12ede6ff5f6def20efcfdf8a38abb8cb45c4e846",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "6.3.0-6.fc45",
-          "location": "Packages/m/mingw32-gmp-6.3.0-6.fc45.noarch.rpm",
-          "name": "mingw32-gmp",
-          "repo": "binary-releases",
-          "sha256": "b9fd6acf9dffbd56df7fbd1363fc5dca5b66a756de1b36533dbf027cbaec3594",
-          "source": "mingw-gmp"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw32-headers-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw32-headers",
-          "repo": "binary-releases",
-          "sha256": "3b2aa66a3ec4609f812c9d173655ebaa3160c64107a2a98dd3fa97b32e513de4",
-          "source": "mingw-headers"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw32-libgcc-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw32-libgcc",
-          "repo": "binary-releases",
-          "sha256": "4b26cc360da63234e1eb91ec7fb1ce7c00ea0260df39609b8b2014c0bd169f85",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw32-libstdc++-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw32-libstdc++",
-          "repo": "binary-releases",
-          "sha256": "859d02036d2a895e15f4f78d849c5b7ef244423e5e466bfbba1f43fbbf4c8590",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "4.21.0-3.fc45",
-          "location": "Packages/m/mingw32-libtasn1-4.21.0-3.fc45.noarch.rpm",
-          "name": "mingw32-libtasn1",
-          "repo": "binary-releases",
-          "sha256": "7a090901d62a99d0f248b7cdf55dd2d1fab59db136b7cd16a6a498f77d3103e7",
-          "source": "mingw-libtasn1"
-        },
-        {
-          "arch": "noarch",
-          "evr": "3.10.2-3.fc45",
-          "location": "Packages/m/mingw32-nettle-3.10.2-3.fc45.noarch.rpm",
-          "name": "mingw32-nettle",
-          "repo": "binary-releases",
-          "sha256": "afa2c604f28d6499d5ad33c2fc9b3dd485876a20078c1716e4844f8961748a6a",
-          "source": "mingw-nettle"
-        },
-        {
-          "arch": "noarch",
-          "evr": "8.3-4.fc45",
-          "location": "Packages/m/mingw32-readline-8.3-4.fc45.noarch.rpm",
-          "name": "mingw32-readline",
-          "repo": "binary-releases",
-          "sha256": "3537109526de240080e1940e6530915bf3a039ff89bcd903e2e69253e6a54bc3",
-          "source": "mingw-readline"
-        },
-        {
-          "arch": "noarch",
-          "evr": "1.3.1-41.fc45",
-          "location": "Packages/m/mingw32-termcap-1.3.1-41.fc45.noarch.rpm",
-          "name": "mingw32-termcap",
-          "repo": "binary-releases",
-          "sha256": "f59bd6849c8e0b8a3e02addb9ed9e227c400e6a8a54e2db141c821f5c5807820",
-          "source": "mingw-termcap"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw32-winpthreads-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw32-winpthreads",
-          "repo": "binary-releases",
-          "sha256": "93982f7144ff3428433f55d5b48c739ae75416a248c64cab1c9522e3b6889c27",
-          "source": "mingw-winpthreads"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw32-winpthreads-static-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw32-winpthreads-static",
-          "repo": "binary-releases",
-          "sha256": "c0acb2251cdb37b03699d35cd163afe2b774e0b02238f6b082c39046e71121f2",
-          "source": "mingw-winpthreads"
-        },
-        {
-          "arch": "noarch",
-          "evr": "1.3.2-2.fc45",
-          "location": "Packages/m/mingw32-zlib-1.3.2-2.fc45.noarch.rpm",
-          "name": "mingw32-zlib",
-          "repo": "binary-releases",
-          "sha256": "b40077e1ceec41e2383494df527ae382281e932cac709faa004acb54539cbc6e",
-          "source": "mingw-zlib"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "2.46.0-2.fc45",
-          "location": "Packages/m/mingw64-binutils-2.46.0-2.fc45.x86_64.rpm",
-          "name": "mingw64-binutils",
-          "repo": "binary-releases",
-          "sha256": "ff53f08fe60fcb1152f978b83e344ab9da62ba1822f366ab9c99d1cc501d33eb",
-          "source": "mingw-binutils"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw64-cpp-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw64-cpp",
-          "repo": "binary-releases",
-          "sha256": "4c5d22f10a4f0a407fd2ea7c092b98c050c847984b2b8075804673665bfcc688",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-3.fc45",
-          "location": "Packages/m/mingw64-crt-14.0.0-3.fc45.noarch.rpm",
-          "name": "mingw64-crt",
-          "repo": "binary-releases",
-          "sha256": "ef7ec99f135bb872a8a4be233fc71df18a5b39245454109a33537a13c34b8f2d",
-          "source": "mingw-crt"
-        },
-        {
-          "arch": "noarch",
-          "evr": "152-1.fc45",
-          "location": "Packages/m/mingw64-filesystem-152-1.fc45.noarch.rpm",
-          "name": "mingw64-filesystem",
-          "repo": "binary-releases",
-          "sha256": "e02dd4c52b363553b95297767ea6631db9f97c4a4218f8db2fa29fb6389d35b6",
-          "source": "mingw-filesystem"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw64-gcc-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw64-gcc",
-          "repo": "binary-releases",
-          "sha256": "83e1dba4446744f39dd7823179551afa7cf88d1d1824a630da97be392e8ad3f1",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw64-gcc-c++-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw64-gcc-c++",
-          "repo": "binary-releases",
-          "sha256": "e894d8571b4c7f2310148e4e83bdc5915ac9b334caaac7ffc509b1ba5d5ea6a9",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "6.3.0-6.fc45",
-          "location": "Packages/m/mingw64-gmp-6.3.0-6.fc45.noarch.rpm",
-          "name": "mingw64-gmp",
-          "repo": "binary-releases",
-          "sha256": "e1a3fd80eff6c8075cbb3faaf12762b109ea266a7f0afec27174c7a42e5d0b7e",
-          "source": "mingw-gmp"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw64-headers-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw64-headers",
-          "repo": "binary-releases",
-          "sha256": "9e7b07fefb247b6889685b834560820b1f9a06ca769fb82a96e6abe5a71ef063",
-          "source": "mingw-headers"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw64-libgcc-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw64-libgcc",
-          "repo": "binary-releases",
-          "sha256": "d1db1d60a4d82ea673beb88daf08af97cbcc735539fbb7888363579ab79ca949",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw64-libstdc++-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw64-libstdc++",
-          "repo": "binary-releases",
-          "sha256": "ade4d51ef79c0f5e703a3cfd37fc8ae43d92249ce0756c1bc22ce27575221735",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "4.21.0-3.fc45",
-          "location": "Packages/m/mingw64-libtasn1-4.21.0-3.fc45.noarch.rpm",
-          "name": "mingw64-libtasn1",
-          "repo": "binary-releases",
-          "sha256": "0f92d10b05ed57ec7f6dbf11c1a3483123a61d7d80278da260311c45decd2e2f",
-          "source": "mingw-libtasn1"
-        },
-        {
-          "arch": "noarch",
-          "evr": "3.10.2-3.fc45",
-          "location": "Packages/m/mingw64-nettle-3.10.2-3.fc45.noarch.rpm",
-          "name": "mingw64-nettle",
-          "repo": "binary-releases",
-          "sha256": "5abc1a5ed75c79a9de06ea1d4b5144a99bfa2df17a9ceb55a55db6f4eb076ac1",
-          "source": "mingw-nettle"
-        },
-        {
-          "arch": "noarch",
-          "evr": "8.3-4.fc45",
-          "location": "Packages/m/mingw64-readline-8.3-4.fc45.noarch.rpm",
-          "name": "mingw64-readline",
-          "repo": "binary-releases",
-          "sha256": "7248956ab4f12c8edd04c86f3db84d903813205ecae2141eb142843f62801b96",
-          "source": "mingw-readline"
-        },
-        {
-          "arch": "noarch",
-          "evr": "1.3.1-41.fc45",
-          "location": "Packages/m/mingw64-termcap-1.3.1-41.fc45.noarch.rpm",
-          "name": "mingw64-termcap",
-          "repo": "binary-releases",
-          "sha256": "10f79eadc2d44fe99d8be5fd3f7a6d8840adc88c54866236897a58c31e5418ac",
-          "source": "mingw-termcap"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw64-winpthreads-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw64-winpthreads",
-          "repo": "binary-releases",
-          "sha256": "abc461a3453b525a3c585d4e2eb9a46e53e46db6bb26ce5f0511a8fac5ba4288",
-          "source": "mingw-winpthreads"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw64-winpthreads-static-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw64-winpthreads-static",
-          "repo": "binary-releases",
-          "sha256": "1d4a77aa12259baf88896dc59f990952fb01fddc0431187e47dacf93b99ffdc1",
-          "source": "mingw-winpthreads"
-        },
-        {
-          "arch": "noarch",
-          "evr": "1.3.2-2.fc45",
-          "location": "Packages/m/mingw64-zlib-1.3.2-2.fc45.noarch.rpm",
-          "name": "mingw64-zlib",
-          "repo": "binary-releases",
-          "sha256": "37defe8374b81adc0b6e62e6dea5834cd1b34d5c852c13743c99c6b35bb77e38",
-          "source": "mingw-zlib"
         },
         {
           "arch": "x86_64",
@@ -155138,7 +154818,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -157788,7 +157468,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -160399,7 +160079,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -162395,7 +162075,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -166888,7 +166568,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -170963,7 +170643,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -173664,7 +173344,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -181299,7 +180979,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -184034,7 +183714,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -187337,7 +187017,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -190012,7 +189692,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -192679,7 +192359,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -194501,7 +194181,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -196332,7 +196012,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -196354,11 +196034,14 @@
     },
     "libcap-ng": {
       "build_requires_resolved": {
+        "audit-libs-devel": "audit-libs-devel",
         "autoconf": "autoconf",
         "automake": "automake",
         "bash": "bash",
         "binutils": "binutils",
+        "bpftool": "bpftool",
         "bzip2": "bzip2",
+        "clang": "clang",
         "coreutils": "coreutils",
         "cpio": "cpio",
         "diffutils": "diffutils",
@@ -196370,8 +196053,10 @@
         "grep": "grep",
         "gzip": "gzip",
         "info": "info",
+        "kernel-devel": "kernel-devel",
         "kernel-headers": "kernel-headers",
         "libattr-devel": "libattr-devel",
+        "libbpf-devel": "libbpf-devel",
         "libtool": "libtool",
         "make": "make",
         "patch": "patch",
@@ -196405,6 +196090,15 @@
           "name": "audit-libs",
           "repo": "binary-releases",
           "sha256": "f0ee9e834a22708fcd0a08b2d505c43c94c8374080fb1df21c0ae85a1fd50109",
+          "source": "audit"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.2.1-2.fc45",
+          "location": "Packages/a/audit-libs-devel-4.2.1-2.fc45.x86_64.rpm",
+          "name": "audit-libs-devel",
+          "repo": "binary-releases",
+          "sha256": "9889ffcaa523b40ef61f2d393a8bc8103e68716f2015afc55a8cf2a11d429fad",
           "source": "audit"
         },
         {
@@ -196540,6 +196234,15 @@
           "name": "elfutils-libelf",
           "repo": "binary-releases",
           "sha256": "d3ce1645856f608637d2b9cabdb223e402179aa7bf1403830bf9f93aeb4d5fd8",
+          "source": "elfutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.195-3.fc45",
+          "location": "Packages/e/elfutils-libelf-devel-0.195-3.fc45.x86_64.rpm",
+          "name": "elfutils-libelf-devel",
+          "repo": "binary-releases",
+          "sha256": "234987dc6a9fb5a24b218452875a52675daee97318ef56fd9dd8efee833f68a3",
           "source": "elfutils"
         },
         {
@@ -196787,6 +196490,15 @@
         },
         {
           "arch": "x86_64",
+          "evr": "7.2.0-61.fc45",
+          "location": "Packages/k/kernel-devel-7.2.0-61.fc45.x86_64.rpm",
+          "name": "kernel-devel",
+          "repo": "binary-releases",
+          "sha256": "0012d0d15114dcca475c4ee92abbabe214945bc3f6c01cc3de7a4c28e252808d",
+          "source": "kernel"
+        },
+        {
+          "arch": "x86_64",
           "evr": "1.6.3-8.fc45",
           "location": "Packages/k/keyutils-libs-1.6.3-8.fc45.x86_64.rpm",
           "name": "keyutils-libs",
@@ -196859,6 +196571,24 @@
         },
         {
           "arch": "x86_64",
+          "evr": "2:1.7.0-2.fc45",
+          "location": "Packages/l/libbpf-1.7.0-2.fc45.x86_64.rpm",
+          "name": "libbpf",
+          "repo": "binary-releases",
+          "sha256": "4c578ab0705da8dbeb72cdc9937360cf685c4ac012e728fc49c40a2000a45f69",
+          "source": "libbpf"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2:1.7.0-2.fc45",
+          "location": "Packages/l/libbpf-devel-1.7.0-2.fc45.x86_64.rpm",
+          "name": "libbpf-devel",
+          "repo": "binary-releases",
+          "sha256": "2688189b84708e59875795f8209126384286e326ac9636512f330270f6a83f8a",
+          "source": "libbpf"
+        },
+        {
+          "arch": "x86_64",
           "evr": "2.78-2.fc45",
           "location": "Packages/l/libcap-2.78-2.fc45.x86_64.rpm",
           "name": "libcap",
@@ -196873,6 +196603,15 @@
           "name": "libcap-ng",
           "repo": "binary-releases",
           "sha256": "bc530296d1384b914e2625ee4ec36ec7f363a7084e7f401f0fa82ad040cbbdae",
+          "source": "libcap-ng"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.9.5-1.fc45",
+          "location": "Packages/l/libcap-ng-devel-0.9.5-1.fc45.x86_64.rpm",
+          "name": "libcap-ng-devel",
+          "repo": "binary-releases",
+          "sha256": "276d2e79d88bb2d0ef89988c1d1171a87f4291b4fcc88b17f12c62741ac6a1a7",
           "source": "libcap-ng"
         },
         {
@@ -197156,6 +196895,15 @@
         },
         {
           "arch": "x86_64",
+          "evr": "1.5.7-6.fc45",
+          "location": "Packages/l/libzstd-devel-1.5.7-6.fc45.x86_64.rpm",
+          "name": "libzstd-devel",
+          "repo": "binary-releases",
+          "sha256": "4854cbbe6e60f126418c5d722cde8c0b9cd2ade9d0fd8a5052fa330121050db4",
+          "source": "zstd"
+        },
+        {
+          "arch": "x86_64",
           "evr": "5.5.1-1.fc45",
           "location": "Packages/l/lua-libs-5.5.1-1.fc45.x86_64.rpm",
           "name": "lua-libs",
@@ -197225,6 +196973,15 @@
           "repo": "binary-releases",
           "sha256": "722660671ef6b710e847e4098e2eb4bc2c3e00d6a828eb70441e4484f88c90a1",
           "source": "openldap"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:4.0.1-5.fc45",
+          "location": "Packages/o/openssl-devel-4.0.1-5.fc45.x86_64.rpm",
+          "name": "openssl-devel",
+          "repo": "binary-releases",
+          "sha256": "fe5a95cdea712a2eb633775c9d49a9e95e81a76edbfbee76c5261ceb36a98479",
+          "source": "openssl"
         },
         {
           "arch": "x86_64",
@@ -197561,6 +197318,15 @@
         },
         {
           "arch": "x86_64",
+          "evr": "2.3.3-6.fc45",
+          "location": "Packages/z/zlib-ng-compat-devel-2.3.3-6.fc45.x86_64.rpm",
+          "name": "zlib-ng-compat-devel",
+          "repo": "binary-releases",
+          "sha256": "ea3cf02979f8726e00f27b62e17d54668e5142bd8095be406f179380258f73fb",
+          "source": "zlib-ng"
+        },
+        {
+          "arch": "x86_64",
           "evr": "1.5.7-6.fc45",
           "location": "Packages/z/zstd-1.5.7-6.fc45.x86_64.rpm",
           "name": "zstd",
@@ -197643,6 +197409,24 @@
           "source": "binutils"
         },
         {
+          "arch": "x86_64",
+          "evr": "3.8.2-16.fc45",
+          "location": "Packages/b/bison-3.8.2-16.fc45.x86_64.rpm",
+          "name": "bison",
+          "repo": "binary-releases",
+          "sha256": "603b2b190957e4398fff2a125aef4ad8d0130b5e7b21b6529a13f553a53f3c9b",
+          "source": "bison"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "7.7.0-3.fc45",
+          "location": "Packages/b/bpftool-7.7.0-3.fc45.x86_64.rpm",
+          "name": "bpftool",
+          "repo": "binary-releases",
+          "sha256": "473e1a8aadc941378d423a414b279c55a786b5ad8e2607d26c99c53ceec0d545",
+          "source": "bpftool"
+        },
+        {
           "arch": "noarch",
           "evr": "0.7.3-3.fc45",
           "location": "Packages/b/build-reproducibility-srpm-macros-0.7.3-3.fc45.noarch.rpm",
@@ -197650,6 +197434,42 @@
           "repo": "binary-releases",
           "sha256": "9476c29390c8c5c41507382bfc4ad65b263cc7ac52a7e6b4773e5969a72f455e",
           "source": "rust-add-determinism"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-20.fc45",
+          "location": "Packages/c/clang-22.1.8-20.fc45.x86_64.rpm",
+          "name": "clang",
+          "repo": "binary-releases",
+          "sha256": "e5bdcb79106721bb2219d6480b408f8b49aca2876858a98ce150050eecbc4e60",
+          "source": "llvm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-20.fc45",
+          "location": "Packages/c/clang-libs-22.1.8-20.fc45.x86_64.rpm",
+          "name": "clang-libs",
+          "repo": "binary-releases",
+          "sha256": "5724ff28b4ca85b6f38a0b03cecd3b0dec84deacfbf6fc3474495a399328776d",
+          "source": "llvm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-20.fc45",
+          "location": "Packages/c/clang-resource-filesystem-22.1.8-20.fc45.x86_64.rpm",
+          "name": "clang-resource-filesystem",
+          "repo": "binary-releases",
+          "sha256": "adce7bb27bea841d3c7b72a7b8eed3fd4f4d788bfc52975f1c989075e2ea0443",
+          "source": "llvm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.3.0-5.fc45",
+          "location": "Packages/c/cmake-filesystem-4.3.0-5.fc45.x86_64.rpm",
+          "name": "cmake-filesystem",
+          "repo": "binary-releases",
+          "sha256": "4d4f5a8fac4af836b9c5b57a26f9a496ddb1adb70f7bbdf05bf3ba51cd086ceb",
+          "source": "cmake"
         },
         {
           "arch": "noarch",
@@ -197731,6 +197551,15 @@
           "repo": "binary-releases",
           "sha256": "7120c238fc231fa08e562236c9561880378a5fba9cee8069189f8eacf6315d69",
           "source": "file"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.6.4-25.fc45",
+          "location": "Packages/f/flex-2.6.4-25.fc45.x86_64.rpm",
+          "name": "flex",
+          "repo": "binary-releases",
+          "sha256": "651a2fd103ab9c9055f0dfc9c377ae6ac9dc457840e278b8b47618d55167ebf4",
+          "source": "flex"
         },
         {
           "arch": "noarch",
@@ -198004,6 +197833,15 @@
         },
         {
           "arch": "x86_64",
+          "evr": "3.1-60.20260512cvs.fc45",
+          "location": "Packages/l/libedit-3.1-60.20260512cvs.fc45.x86_64.rpm",
+          "name": "libedit",
+          "repo": "binary-releases",
+          "sha256": "90141313c7c0d632574ac138786c2a1fff7d9bbe70e881ff3ea858b58511fcbe",
+          "source": "libedit"
+        },
+        {
+          "arch": "x86_64",
           "evr": "1.7-4.fc45",
           "location": "Packages/l/libfsverity-1.7-4.fc45.x86_64.rpm",
           "name": "libfsverity",
@@ -198064,6 +197902,24 @@
           "repo": "binary-releases",
           "sha256": "98559f70930cc1c414e4ea28f778bc1e7b21f0f87b321dc870a6a299f53ac4e2",
           "source": "rust-add-determinism"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-20.fc45",
+          "location": "Packages/l/llvm-filesystem-22.1.8-20.fc45.x86_64.rpm",
+          "name": "llvm-filesystem",
+          "repo": "binary-releases",
+          "sha256": "a307bee55b1d8dea22399cc6c57fdce0500387d3e693026f0a2b054b903ed45b",
+          "source": "llvm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-20.fc45",
+          "location": "Packages/l/llvm-libs-22.1.8-20.fc45.x86_64.rpm",
+          "name": "llvm-libs",
+          "repo": "binary-releases",
+          "sha256": "af9acf79426487c495ac5f95966000491ccdd862be15723f72a4628fcec20b04",
+          "source": "llvm"
         },
         {
           "arch": "noarch",
@@ -198950,9 +198806,9 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
-        "unmet": false
+        "unmet": true
       },
       "source": {
         "evr": "0.9.5-1.fc45",
@@ -200859,7 +200715,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -204877,7 +204733,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -206677,7 +206533,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -209208,7 +209064,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -212052,7 +211908,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -213821,7 +213677,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -216801,7 +216657,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -221114,7 +220970,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -223902,7 +223758,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -225860,7 +225716,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -230401,7 +230257,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -232313,7 +232169,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -234476,7 +234332,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -236478,7 +236334,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -238262,7 +238118,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -241184,7 +241040,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -243897,7 +243753,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -246520,7 +246376,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -249170,7 +249026,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -250933,7 +250789,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -255323,7 +255179,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -258131,7 +257987,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -260875,7 +260731,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -263632,7 +263488,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -265564,7 +265420,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -269766,7 +269622,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -272327,7 +272183,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -274678,7 +274534,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -276532,7 +276388,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -278315,7 +278171,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -280755,7 +280611,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -282575,7 +282431,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -282611,7 +282467,6 @@
         "diffutils": "diffutils",
         "fedora-release-common": "fedora-release-common",
         "findutils": "findutils",
-        "fipscheck": "libkcapi-fipscheck",
         "gawk": "gawk",
         "gcc": "gcc",
         "gcc-c++": "gcc-c++",
@@ -282653,24 +282508,6 @@
           "repo": "binary-releases",
           "sha256": "f0ee9e834a22708fcd0a08b2d505c43c94c8374080fb1df21c0ae85a1fd50109",
           "source": "audit"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.8.0-1.fc45",
-          "location": "Packages/a/authselect-1.8.0-1.fc45.x86_64.rpm",
-          "name": "authselect",
-          "repo": "binary-releases",
-          "sha256": "28803e04a21e50acdc9b86450f898cbd54d96f1453d67343e8dcc211a2172252",
-          "source": "authselect"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.8.0-1.fc45",
-          "location": "Packages/a/authselect-libs-1.8.0-1.fc45.x86_64.rpm",
-          "name": "authselect-libs",
-          "repo": "binary-releases",
-          "sha256": "acd40ae11bc3633e3adc100c9a409fe332ba3b2db69bd03e30c7bbd5b45c0a79",
-          "source": "authselect"
         },
         {
           "arch": "x86_64",
@@ -282743,15 +282580,6 @@
           "repo": "binary-releases",
           "sha256": "3b47f2d7197b5d52a8ce30e18b967d99b0a09ac8087c968b2e8e0673555acd23",
           "source": "gcc"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "2.10.3-2.fc45",
-          "location": "Packages/c/cracklib-2.10.3-2.fc45.x86_64.rpm",
-          "name": "cracklib",
-          "repo": "binary-releases",
-          "sha256": "246c33cb796037a5e31c3d0cebe111a9b40592439a7b55802157a398a2a393a6",
-          "source": "cracklib"
         },
         {
           "arch": "noarch",
@@ -282950,15 +282778,6 @@
           "repo": "binary-releases",
           "sha256": "e8200b747fc9416e525b2f85f67bd7b7c5da890db36df6fccd231eec857c5dc9",
           "source": "gcc"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1:1.23-12.fc45",
-          "location": "Packages/g/gdbm-1.23-12.fc45.x86_64.rpm",
-          "name": "gdbm",
-          "repo": "binary-releases",
-          "sha256": "03f4940788382467ec5ee9af3962dc6cfe6082d24f4b29713eded06f3fc80c2c",
-          "source": "gdbm"
         },
         {
           "arch": "x86_64",
@@ -283250,33 +283069,6 @@
         },
         {
           "arch": "x86_64",
-          "evr": "1.5.1-2.fc45",
-          "location": "Packages/l/libkcapi-1.5.1-2.fc45.x86_64.rpm",
-          "name": "libkcapi",
-          "repo": "binary-releases",
-          "sha256": "d5167435ec8aa1f46a3b41c659ea9c4e856c0972e29566578237ad4b9ef9dfbc",
-          "source": "libkcapi"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.5.1-2.fc45",
-          "location": "Packages/l/libkcapi-fipscheck-1.5.1-2.fc45.x86_64.rpm",
-          "name": "libkcapi-fipscheck",
-          "repo": "binary-releases",
-          "sha256": "89967e22f6e34795e9f1dfd937cfc0e3f78097bbc92d5782074134b18ac54be4",
-          "source": "libkcapi"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.5.1-2.fc45",
-          "location": "Packages/l/libkcapi-hasher-1.5.1-2.fc45.x86_64.rpm",
-          "name": "libkcapi-hasher",
-          "repo": "binary-releases",
-          "sha256": "61fd39248581807e2e012a291328283b03dcc7e3e91b736d8b6d3099fdc768db",
-          "source": "libkcapi"
-        },
-        {
-          "arch": "x86_64",
           "evr": "2.42.2-3.fc45",
           "location": "Packages/l/liblastlog2-2.42.2-3.fc45.x86_64.rpm",
           "name": "liblastlog2",
@@ -283304,39 +283096,12 @@
         },
         {
           "arch": "x86_64",
-          "evr": "2.0.1-6.fc45",
-          "location": "Packages/l/libnsl2-2.0.1-6.fc45.x86_64.rpm",
-          "name": "libnsl2",
-          "repo": "binary-releases",
-          "sha256": "7c21b2909435905a9ed80f0ba7a50c05c0e751546e345b3aac27cc967732ea1d",
-          "source": "libnsl2"
-        },
-        {
-          "arch": "x86_64",
           "evr": "2.5.1-2.fc45",
           "location": "Packages/l/libpkgconf-2.5.1-2.fc45.x86_64.rpm",
           "name": "libpkgconf",
           "repo": "binary-releases",
           "sha256": "cfe3f1989193d1bdb3785cf9621eb5b100c16671c37bbad7928b41e9f30053f5",
           "source": "pkgconf"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.4.5-18.fc45",
-          "location": "Packages/l/libpwquality-1.4.5-18.fc45.x86_64.rpm",
-          "name": "libpwquality",
-          "repo": "binary-releases",
-          "sha256": "0fe60546b6001e747544de26aeaa16882bfce7726d7da2b78435326368a5a5d5",
-          "source": "libpwquality"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "2.6.1-3.fc45",
-          "location": "Packages/l/libseccomp-2.6.1-3.fc45.x86_64.rpm",
-          "name": "libseccomp",
-          "repo": "binary-releases",
-          "sha256": "a10e3b932cb5eb364ec5123af8cec38ae05a8b5bde9c620f1f631c88dcc71c27",
-          "source": "libseccomp"
         },
         {
           "arch": "x86_64",
@@ -283409,15 +283174,6 @@
           "repo": "binary-releases",
           "sha256": "d61fcf0d0690a5ab8de48578e5e5d09356c8cf7ae0d729704f680b090ecfdc78",
           "source": "libtasn1"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.3.7-3.fc45",
-          "location": "Packages/l/libtirpc-1.3.7-3.fc45.x86_64.rpm",
-          "name": "libtirpc",
-          "repo": "binary-releases",
-          "sha256": "330406aa239c04508ed2bb4a94f4e1a26264fff1211f96da4798e3df1007382f",
-          "source": "libtirpc"
         },
         {
           "arch": "x86_64",
@@ -283607,15 +283363,6 @@
           "repo": "binary-releases",
           "sha256": "63116ad0816a57eedf8387956161e408526dfcd8867bafe283d8fa73329ef972",
           "source": "p11-kit"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "1.7.2-4.fc45",
-          "location": "Packages/p/pam-1.7.2-4.fc45.x86_64.rpm",
-          "name": "pam",
-          "repo": "binary-releases",
-          "sha256": "f03b9c9e0080861846dcda1bf828b076724df85274d193842c17fa42e07d8943",
-          "source": "pam"
         },
         {
           "arch": "x86_64",
@@ -283836,37 +283583,10 @@
         {
           "arch": "x86_64",
           "evr": "261.2-1.fc45",
-          "location": "Packages/s/systemd-261.2-1.fc45.x86_64.rpm",
-          "name": "systemd",
-          "repo": "binary-releases",
-          "sha256": "96884b77543838a905c07a8ab0c2db276aa5b4dd6eebc841b2e4de3b1932e41d",
-          "source": "systemd"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "261.2-1.fc45",
           "location": "Packages/s/systemd-libs-261.2-1.fc45.x86_64.rpm",
           "name": "systemd-libs",
           "repo": "binary-releases",
           "sha256": "e5d58e85cbbb15c904fe9bd7a7da34e34c700c8db380127210e24e5bdd6bb6e4",
-          "source": "systemd"
-        },
-        {
-          "arch": "noarch",
-          "evr": "261.2-1.fc45",
-          "location": "Packages/s/systemd-rpm-macros-261.2-1.fc45.noarch.rpm",
-          "name": "systemd-rpm-macros",
-          "repo": "binary-releases",
-          "sha256": "55877255dae227c67e848a661a74ab708471970ccfb03b03244b23948939007b",
-          "source": "systemd"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "261.2-1.fc45",
-          "location": "Packages/s/systemd-shared-261.2-1.fc45.x86_64.rpm",
-          "name": "systemd-shared",
-          "repo": "binary-releases",
-          "sha256": "9d9781872b905d984fed7be461436724db37d9209bb688c76f4d468762eb47b5",
           "source": "systemd"
         },
         {
@@ -285269,7 +284989,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -288400,7 +288120,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -292898,7 +292618,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -295946,7 +295666,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -301020,7 +300740,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -303739,7 +303459,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -306839,7 +306559,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -309753,7 +309473,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -315465,7 +315185,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -318092,7 +317812,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -320471,7 +320191,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -322340,7 +322060,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -325650,7 +325370,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -328355,7 +328075,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -330180,7 +329900,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -331961,7 +331681,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -333734,7 +333454,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -339971,7 +339691,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -345568,11 +345288,22 @@
         }
       ],
       "dynamic_buildrequires": {
-        "capabilities": [],
-        "source": "repodata",
-        "suspected": [
-          "cargo-rpm-macros"
+        "capabilities": [
+          "(crate(anyhow/default) >= 1.0.0 with crate(anyhow/default) < 2.0.0~)",
+          "(crate(assert_cmd/default) >= 2.0.0 with crate(assert_cmd/default) < 3.0.0~)",
+          "(crate(cdylib-link-lines/default) >= 0.1.4 with crate(cdylib-link-lines/default) < 0.2.0~)",
+          "(crate(chrono) >= 0.4.0 with crate(chrono) < 0.5.0~)",
+          "(crate(chrono/std) >= 0.4.0 with crate(chrono/std) < 0.5.0~)",
+          "(crate(lazy_static/default) >= 1.0.0 with crate(lazy_static/default) < 2.0.0~)",
+          "(crate(libc/default) >= 0.2.0 with crate(libc/default) < 0.3.0~)",
+          "(crate(sequoia-openpgp) >= 2.0.0 with crate(sequoia-openpgp) < 3.0.0~)",
+          "(crate(sequoia-openpgp/crypto-openssl) >= 2.0.0 with crate(sequoia-openpgp/crypto-openssl) < 3.0.0~)",
+          "(crate(sequoia-policy-config/default) >= 0.8.0 with crate(sequoia-policy-config/default) < 0.9.0~)",
+          "(crate(thiserror/default) >= 1.0.0 with crate(thiserror/default) < 3.0.0~)",
+          "rust >= 1.85"
         ],
+        "source": "probe",
+        "suspected": [],
         "unmet": false
       },
       "source": {
@@ -349516,7 +349247,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -352138,7 +351869,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -354166,7 +353897,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -356504,7 +356235,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -359456,7 +359187,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -361336,7 +361067,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -366511,6 +366242,7 @@
         "audit-libs-devel": "audit-libs-devel",
         "bash": "bash",
         "binutils": "binutils",
+        "bpftool": "bpftool",
         "bzip2": "bzip2",
         "bzip2-devel": "bzip2-devel",
         "clang": "clang",
@@ -366519,6 +366251,7 @@
         "cryptsetup-devel": "cryptsetup-devel",
         "dbus-devel": "dbus-devel",
         "diffutils": "diffutils",
+        "docbook-style-xsl": "docbook-style-xsl",
         "elfutils-devel": "elfutils-devel",
         "fedora-release-common": "fedora-release-common",
         "findutils": "findutils",
@@ -366535,6 +366268,7 @@
         "hostname": "hostname",
         "info": "info",
         "iptables-devel": "iptables-devel",
+        "kernel-devel": "kernel-devel",
         "kmod-devel": "kmod-devel",
         "libacl-devel": "libacl-devel",
         "libblkid-devel": "libblkid-devel",
@@ -366548,6 +366282,7 @@
         "libselinux-devel": "libselinux-devel",
         "libxcrypt-devel": "libxcrypt-devel",
         "libxkbcommon-devel": "libxkbcommon-devel",
+        "libxslt": "libxslt",
         "libzstd-devel": "libzstd-devel",
         "lz4": "lz4",
         "lz4-devel": "lz4-devel",
@@ -366587,6 +366322,7 @@
         "util-linux": "util-linux",
         "valgrind-devel": "valgrind-devel",
         "which": "which",
+        "xen-devel": "xen-devel",
         "xz": "xz",
         "xz-devel": "xz-devel"
       },
@@ -366833,6 +366569,15 @@
           "repo": "binary-releases",
           "sha256": "1d6cdb50ce52554f71eb700dfeaf6cc7233dfac8e05b3350296ebb7466c6f83c",
           "source": "diffutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1.47.4-2.fc45",
+          "location": "Packages/e/e2fsprogs-libs-1.47.4-2.fc45.x86_64.rpm",
+          "name": "e2fsprogs-libs",
+          "repo": "binary-releases",
+          "sha256": "bd2c58c5dfec94ac9663b7f543bc9eba534d7a3c4b23dab769b8aa720dd41d03",
+          "source": "e2fsprogs"
         },
         {
           "arch": "x86_64",
@@ -367202,6 +366947,15 @@
           "repo": "binary-releases",
           "sha256": "da20134d9cb5aa93b490811364d39f8c9d0efebfe603840631a878daaf12257a",
           "source": "json-c"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "7.2.0-61.fc45",
+          "location": "Packages/k/kernel-devel-7.2.0-61.fc45.x86_64.rpm",
+          "name": "kernel-devel",
+          "repo": "binary-releases",
+          "sha256": "0012d0d15114dcca475c4ee92abbabe214945bc3f6c01cc3de7a4c28e252808d",
+          "source": "kernel"
         },
         {
           "arch": "x86_64",
@@ -368611,6 +368365,24 @@
         },
         {
           "arch": "x86_64",
+          "evr": "3.8.2-16.fc45",
+          "location": "Packages/b/bison-3.8.2-16.fc45.x86_64.rpm",
+          "name": "bison",
+          "repo": "binary-releases",
+          "sha256": "603b2b190957e4398fff2a125aef4ad8d0130b5e7b21b6529a13f553a53f3c9b",
+          "source": "bison"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "7.7.0-3.fc45",
+          "location": "Packages/b/bpftool-7.7.0-3.fc45.x86_64.rpm",
+          "name": "bpftool",
+          "repo": "binary-releases",
+          "sha256": "473e1a8aadc941378d423a414b279c55a786b5ad8e2607d26c99c53ceec0d545",
+          "source": "bpftool"
+        },
+        {
+          "arch": "x86_64",
           "evr": "1.2.0-6.fc45",
           "location": "Packages/b/brotli-1.2.0-6.fc45.x86_64.rpm",
           "name": "brotli",
@@ -368698,6 +368470,24 @@
           "repo": "binary-releases",
           "sha256": "ce616e5fa0075b4ee6150b96f35532ef87fce6bead6a170cffdae5ad5e4b9b7f",
           "source": "dns-root-data"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.0-92.fc45",
+          "location": "Packages/d/docbook-dtds-1.0-92.fc45.noarch.rpm",
+          "name": "docbook-dtds",
+          "repo": "binary-releases",
+          "sha256": "232e1f232fe957b379e12f01f0872b0bcc7a7431bf256adf37c3a95cd0948377",
+          "source": "docbook-dtds"
+        },
+        {
+          "arch": "noarch",
+          "evr": "1.79.2-28.fc45",
+          "location": "Packages/d/docbook-style-xsl-1.79.2-28.fc45.noarch.rpm",
+          "name": "docbook-style-xsl",
+          "repo": "binary-releases",
+          "sha256": "3c59a7a8f156b307ef119478ca6231c23918f96285144b14a0ae1f4b423a6bbd",
+          "source": "docbook-style-xsl"
         },
         {
           "arch": "x86_64",
@@ -368788,6 +368578,15 @@
           "repo": "binary-releases",
           "sha256": "df971c41b0c7913e8d7bba01d4436664c0d635ac9f8f612a522a249ebac0104f",
           "source": "firewalld"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.6.4-25.fc45",
+          "location": "Packages/f/flex-2.6.4-25.fc45.x86_64.rpm",
+          "name": "flex",
+          "repo": "binary-releases",
+          "sha256": "651a2fd103ab9c9055f0dfc9c377ae6ac9dc457840e278b8b47618d55167ebf4",
+          "source": "flex"
         },
         {
           "arch": "noarch",
@@ -369373,6 +369172,15 @@
           "repo": "binary-releases",
           "sha256": "5fedd6d2fee79dffbd4bb575fe88028c5d2155354d0a60bc5959400992fba1a4",
           "source": "nghttp3"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "3.12.0-4.fc45",
+          "location": "Packages/l/libnl3-3.12.0-4.fc45.x86_64.rpm",
+          "name": "libnl3",
+          "repo": "binary-releases",
+          "sha256": "08e22099a12b2c3e532a15e2b8ecdef95f96a653a2c053f1e3c601359387ea2f",
+          "source": "libnl3"
         },
         {
           "arch": "x86_64",
@@ -370617,6 +370425,15 @@
           "source": "cargo-rpm-macros"
         },
         {
+          "arch": "noarch",
+          "evr": "0.6.3-69.fc45",
+          "location": "Packages/s/sgml-common-0.6.3-69.fc45.noarch.rpm",
+          "name": "sgml-common",
+          "repo": "binary-releases",
+          "sha256": "e6906f29fc5d6b8941537a4360068484e37221566638f5b7c40672c0da7449a9",
+          "source": "sgml-common"
+        },
+        {
           "arch": "x86_64",
           "evr": "51~alpha-2.fc45",
           "location": "Packages/s/sysprof-capture-devel-51~alpha-2.fc45.x86_64.rpm",
@@ -370680,6 +370497,33 @@
           "source": "valgrind"
         },
         {
+          "arch": "x86_64",
+          "evr": "4.21.1-10.fc45",
+          "location": "Packages/x/xen-devel-4.21.1-10.fc45.x86_64.rpm",
+          "name": "xen-devel",
+          "repo": "binary-releases",
+          "sha256": "e4ec8fa2598d14186e8efeee7e39f2fd977cf57d5f57ed7d32205cda6ea20202",
+          "source": "xen"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.21.1-10.fc45",
+          "location": "Packages/x/xen-libs-4.21.1-10.fc45.x86_64.rpm",
+          "name": "xen-libs",
+          "repo": "binary-releases",
+          "sha256": "8eeff78e4e8340886fe9951407b03c7c4d09786051ac8a53977e971e75f94e03",
+          "source": "xen"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "4.21.1-10.fc45",
+          "location": "Packages/x/xen-licenses-4.21.1-10.fc45.x86_64.rpm",
+          "name": "xen-licenses",
+          "repo": "binary-releases",
+          "sha256": "88a5836a67f87b0a4737e3bbb0e8b1a8ee97c579321c38184cced54df2b2ffff",
+          "source": "xen"
+        },
+        {
           "arch": "noarch",
           "evr": "0.6.3-69.fc45",
           "location": "Packages/x/xml-common-0.6.3-69.fc45.noarch.rpm",
@@ -370718,9 +370562,9 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
-        "unmet": false
+        "unmet": true
       },
       "source": {
         "evr": "261.2-1.fc45",
@@ -374965,7 +374809,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -377677,7 +377521,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -381267,7 +381111,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -386753,7 +386597,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -388549,7 +388393,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -391764,7 +391608,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -394297,7 +394141,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -396461,7 +396305,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -398515,7 +398359,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -400493,7 +400337,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -402547,6 +402391,194 @@
         "acl",
         "attr",
         "audit",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "crypto-policies",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "keyutils",
+        "krb5",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxml2",
+        "lua",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "util-linux",
+        "vim",
+        "which",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "seed",
+      "ships": false,
+      "source": "dosfstools",
+      "stage": 1,
+      "target": "dosfstools-stage1"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
+        "authselect",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "cracklib",
+        "crypto-policies",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "expat",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "keyutils",
+        "kmod",
+        "krb5",
+        "less",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libnsl2",
+        "libpwquality",
+        "libseccomp",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtirpc",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxml2",
+        "libyaml",
+        "lua",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssh",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "util-linux",
+        "which",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "seed",
+      "ships": false,
+      "source": "dracut",
+      "stage": 1,
+      "target": "dracut-stage1"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
         "authselect",
         "bash",
         "bzip2",
@@ -403461,6 +403493,108 @@
         "tpm2-tss",
         "tzdata",
         "util-linux",
+        "which",
+        "xkeyboard-config",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "seed",
+      "ships": false,
+      "source": "fuse",
+      "stage": 1,
+      "target": "fuse-stage1"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
+        "authselect",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "cracklib",
+        "crypto-policies",
+        "cryptsetup",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "expat",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "kbd",
+        "keyutils",
+        "kmod",
+        "krb5",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libnsl2",
+        "libpwquality",
+        "libseccomp",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtirpc",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxkbcommon",
+        "libxml2",
+        "lua",
+        "lvm2",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "tzdata",
+        "util-linux",
         "vim",
         "which",
         "xkeyboard-config",
@@ -403943,14 +404077,12 @@
         "acl",
         "attr",
         "audit",
-        "authselect",
         "bash",
         "bzip2",
         "ca-certificates",
         "chkconfig",
         "coreutils",
         "cpio",
-        "cracklib",
         "crypto-policies",
         "curl",
         "cyrus-sasl",
@@ -403982,15 +404114,10 @@
         "libevent",
         "libffi",
         "libidn2",
-        "libkcapi",
-        "libnsl2",
-        "libpwquality",
-        "libseccomp",
         "libselinux",
         "libsemanage",
         "libsepol",
         "libtasn1",
-        "libtirpc",
         "libtool",
         "libunistring",
         "libusb1",
@@ -404776,6 +404903,123 @@
         "acl",
         "attr",
         "audit",
+        "authselect",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "cracklib",
+        "crypto-policies",
+        "cryptsetup",
+        "curl",
+        "cyrus-sasl",
+        "dbus",
+        "diffutils",
+        "dosfstools",
+        "dracut",
+        "e2fsprogs",
+        "elfutils",
+        "expat",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "fuse",
+        "fuse3",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glib2",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "kbd",
+        "keyutils",
+        "kmod",
+        "krb5",
+        "less",
+        "libarchive",
+        "libbpf",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libkcapi",
+        "libmnl",
+        "libnsl2",
+        "libpwquality",
+        "libseccomp",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtirpc",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxkbcommon",
+        "libxml2",
+        "libyaml",
+        "lua",
+        "lvm2",
+        "lz4",
+        "lzo",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssh",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "procps-ng",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "tzdata",
+        "util-linux",
+        "vim",
+        "which",
+        "xkeyboard-config",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "seed",
+      "ships": false,
+      "source": "kernel",
+      "stage": 1,
+      "target": "kernel-stage1"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
         "bash",
         "bzip2",
         "ca-certificates",
@@ -405435,9 +405679,11 @@
         "grep",
         "gzip",
         "json-c",
+        "kernel",
         "keyutils",
         "krb5",
         "libarchive",
+        "libbpf",
         "libcap",
         "libeconf",
         "libevent",
@@ -408421,14 +408667,12 @@
         "acl",
         "attr",
         "audit",
-        "authselect",
         "bash",
         "bzip2",
         "ca-certificates",
         "chkconfig",
         "coreutils",
         "cpio",
-        "cracklib",
         "crypto-policies",
         "curl",
         "cyrus-sasl",
@@ -408460,15 +408704,10 @@
         "libevent",
         "libffi",
         "libidn2",
-        "libkcapi",
-        "libnsl2",
-        "libpwquality",
-        "libseccomp",
         "libselinux",
         "libsemanage",
         "libsepol",
         "libtasn1",
-        "libtirpc",
         "libtool",
         "libunistring",
         "libusb1",
@@ -410765,6 +411004,7 @@
         "grep",
         "gzip",
         "json-c",
+        "kernel",
         "keyutils",
         "kmod",
         "krb5",
@@ -413573,6 +413813,194 @@
         "acl",
         "attr",
         "audit",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "crypto-policies",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "keyutils",
+        "krb5",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxml2",
+        "lua",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "util-linux",
+        "vim",
+        "which",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "stage1",
+      "ships": false,
+      "source": "dosfstools",
+      "stage": 2,
+      "target": "dosfstools-stage2"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
+        "authselect",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "cracklib",
+        "crypto-policies",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "expat",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "keyutils",
+        "kmod",
+        "krb5",
+        "less",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libnsl2",
+        "libpwquality",
+        "libseccomp",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtirpc",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxml2",
+        "libyaml",
+        "lua",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssh",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "util-linux",
+        "which",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "stage1",
+      "ships": false,
+      "source": "dracut",
+      "stage": 2,
+      "target": "dracut-stage2"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
         "authselect",
         "bash",
         "bzip2",
@@ -414487,6 +414915,108 @@
         "tpm2-tss",
         "tzdata",
         "util-linux",
+        "which",
+        "xkeyboard-config",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "stage1",
+      "ships": false,
+      "source": "fuse",
+      "stage": 2,
+      "target": "fuse-stage2"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
+        "authselect",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "cracklib",
+        "crypto-policies",
+        "cryptsetup",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "expat",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "kbd",
+        "keyutils",
+        "kmod",
+        "krb5",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libnsl2",
+        "libpwquality",
+        "libseccomp",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtirpc",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxkbcommon",
+        "libxml2",
+        "lua",
+        "lvm2",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "tzdata",
+        "util-linux",
         "vim",
         "which",
         "xkeyboard-config",
@@ -414969,14 +415499,12 @@
         "acl",
         "attr",
         "audit",
-        "authselect",
         "bash",
         "bzip2",
         "ca-certificates",
         "chkconfig",
         "coreutils",
         "cpio",
-        "cracklib",
         "crypto-policies",
         "curl",
         "cyrus-sasl",
@@ -415008,15 +415536,10 @@
         "libevent",
         "libffi",
         "libidn2",
-        "libkcapi",
-        "libnsl2",
-        "libpwquality",
-        "libseccomp",
         "libselinux",
         "libsemanage",
         "libsepol",
         "libtasn1",
-        "libtirpc",
         "libtool",
         "libunistring",
         "libusb1",
@@ -415802,6 +416325,123 @@
         "acl",
         "attr",
         "audit",
+        "authselect",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "cracklib",
+        "crypto-policies",
+        "cryptsetup",
+        "curl",
+        "cyrus-sasl",
+        "dbus",
+        "diffutils",
+        "dosfstools",
+        "dracut",
+        "e2fsprogs",
+        "elfutils",
+        "expat",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "fuse",
+        "fuse3",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glib2",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "kbd",
+        "keyutils",
+        "kmod",
+        "krb5",
+        "less",
+        "libarchive",
+        "libbpf",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libkcapi",
+        "libmnl",
+        "libnsl2",
+        "libpwquality",
+        "libseccomp",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtirpc",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxkbcommon",
+        "libxml2",
+        "libyaml",
+        "lua",
+        "lvm2",
+        "lz4",
+        "lzo",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssh",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "procps-ng",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "tzdata",
+        "util-linux",
+        "vim",
+        "which",
+        "xkeyboard-config",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "stage1",
+      "ships": false,
+      "source": "kernel",
+      "stage": 2,
+      "target": "kernel-stage2"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
         "bash",
         "bzip2",
         "ca-certificates",
@@ -416461,9 +417101,11 @@
         "grep",
         "gzip",
         "json-c",
+        "kernel",
         "keyutils",
         "krb5",
         "libarchive",
+        "libbpf",
         "libcap",
         "libeconf",
         "libevent",
@@ -419447,14 +420089,12 @@
         "acl",
         "attr",
         "audit",
-        "authselect",
         "bash",
         "bzip2",
         "ca-certificates",
         "chkconfig",
         "coreutils",
         "cpio",
-        "cracklib",
         "crypto-policies",
         "curl",
         "cyrus-sasl",
@@ -419486,15 +420126,10 @@
         "libevent",
         "libffi",
         "libidn2",
-        "libkcapi",
-        "libnsl2",
-        "libpwquality",
-        "libseccomp",
         "libselinux",
         "libsemanage",
         "libsepol",
         "libtasn1",
-        "libtirpc",
         "libtool",
         "libunistring",
         "libusb1",
@@ -421791,6 +422426,7 @@
         "grep",
         "gzip",
         "json-c",
+        "kernel",
         "keyutils",
         "kmod",
         "krb5",
@@ -424599,6 +425235,194 @@
         "acl",
         "attr",
         "audit",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "crypto-policies",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "keyutils",
+        "krb5",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxml2",
+        "lua",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "util-linux",
+        "vim",
+        "which",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "stage2",
+      "ships": true,
+      "source": "dosfstools",
+      "stage": 3,
+      "target": "dosfstools-stage3"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
+        "authselect",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "cracklib",
+        "crypto-policies",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "expat",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "keyutils",
+        "kmod",
+        "krb5",
+        "less",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libnsl2",
+        "libpwquality",
+        "libseccomp",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtirpc",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxml2",
+        "libyaml",
+        "lua",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssh",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "util-linux",
+        "which",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "stage2",
+      "ships": true,
+      "source": "dracut",
+      "stage": 3,
+      "target": "dracut-stage3"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
         "authselect",
         "bash",
         "bzip2",
@@ -425513,6 +426337,108 @@
         "tpm2-tss",
         "tzdata",
         "util-linux",
+        "which",
+        "xkeyboard-config",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "stage2",
+      "ships": true,
+      "source": "fuse",
+      "stage": 3,
+      "target": "fuse-stage3"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
+        "authselect",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "cracklib",
+        "crypto-policies",
+        "cryptsetup",
+        "curl",
+        "cyrus-sasl",
+        "diffutils",
+        "e2fsprogs",
+        "elfutils",
+        "expat",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "kbd",
+        "keyutils",
+        "kmod",
+        "krb5",
+        "libarchive",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libnsl2",
+        "libpwquality",
+        "libseccomp",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtirpc",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxkbcommon",
+        "libxml2",
+        "lua",
+        "lvm2",
+        "lz4",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "tzdata",
+        "util-linux",
         "vim",
         "which",
         "xkeyboard-config",
@@ -425995,14 +426921,12 @@
         "acl",
         "attr",
         "audit",
-        "authselect",
         "bash",
         "bzip2",
         "ca-certificates",
         "chkconfig",
         "coreutils",
         "cpio",
-        "cracklib",
         "crypto-policies",
         "curl",
         "cyrus-sasl",
@@ -426034,15 +426958,10 @@
         "libevent",
         "libffi",
         "libidn2",
-        "libkcapi",
-        "libnsl2",
-        "libpwquality",
-        "libseccomp",
         "libselinux",
         "libsemanage",
         "libsepol",
         "libtasn1",
-        "libtirpc",
         "libtool",
         "libunistring",
         "libusb1",
@@ -426828,6 +427747,123 @@
         "acl",
         "attr",
         "audit",
+        "authselect",
+        "bash",
+        "bzip2",
+        "ca-certificates",
+        "chkconfig",
+        "coreutils",
+        "cpio",
+        "cracklib",
+        "crypto-policies",
+        "cryptsetup",
+        "curl",
+        "cyrus-sasl",
+        "dbus",
+        "diffutils",
+        "dosfstools",
+        "dracut",
+        "e2fsprogs",
+        "elfutils",
+        "expat",
+        "fedora-release",
+        "fedora-repos",
+        "filesystem",
+        "findutils",
+        "fips-provider",
+        "fuse",
+        "fuse3",
+        "gawk",
+        "gcc",
+        "gdbm",
+        "glib2",
+        "glibc",
+        "gmp",
+        "gnulib-l10n",
+        "gnutls",
+        "grep",
+        "gzip",
+        "json-c",
+        "kbd",
+        "keyutils",
+        "kmod",
+        "krb5",
+        "less",
+        "libarchive",
+        "libbpf",
+        "libcap",
+        "libcap-ng",
+        "libeconf",
+        "libevent",
+        "libffi",
+        "libidn2",
+        "libkcapi",
+        "libmnl",
+        "libnsl2",
+        "libpwquality",
+        "libseccomp",
+        "libselinux",
+        "libsemanage",
+        "libsepol",
+        "libtasn1",
+        "libtirpc",
+        "libtool",
+        "libunistring",
+        "libusb1",
+        "libverto",
+        "libxcrypt",
+        "libxkbcommon",
+        "libxml2",
+        "libyaml",
+        "lua",
+        "lvm2",
+        "lz4",
+        "lzo",
+        "mpfr",
+        "ncurses",
+        "nettle",
+        "nghttp2",
+        "openldap",
+        "openssh",
+        "openssl",
+        "p11-kit",
+        "pam",
+        "pcre2",
+        "pkgconf",
+        "policycoreutils",
+        "popt",
+        "procps-ng",
+        "readline",
+        "redhat-systemd-presets",
+        "rpm",
+        "rust-rpm-sequoia",
+        "sed",
+        "selinux-policy",
+        "setup",
+        "shadow-utils",
+        "sqlite",
+        "systemd",
+        "tpm2-tss",
+        "tzdata",
+        "util-linux",
+        "vim",
+        "which",
+        "xkeyboard-config",
+        "xz",
+        "zlib-ng",
+        "zstd"
+      ],
+      "cycle_deps_from": "stage2",
+      "ships": true,
+      "source": "kernel",
+      "stage": 3,
+      "target": "kernel-stage3"
+    },
+    {
+      "cycle_deps": [
+        "acl",
+        "attr",
+        "audit",
         "bash",
         "bzip2",
         "ca-certificates",
@@ -427487,9 +428523,11 @@
         "grep",
         "gzip",
         "json-c",
+        "kernel",
         "keyutils",
         "krb5",
         "libarchive",
+        "libbpf",
         "libcap",
         "libeconf",
         "libevent",
@@ -430473,14 +431511,12 @@
         "acl",
         "attr",
         "audit",
-        "authselect",
         "bash",
         "bzip2",
         "ca-certificates",
         "chkconfig",
         "coreutils",
         "cpio",
-        "cracklib",
         "crypto-policies",
         "curl",
         "cyrus-sasl",
@@ -430512,15 +431548,10 @@
         "libevent",
         "libffi",
         "libidn2",
-        "libkcapi",
-        "libnsl2",
-        "libpwquality",
-        "libseccomp",
         "libselinux",
         "libsemanage",
         "libsepol",
         "libtasn1",
-        "libtirpc",
         "libtool",
         "libunistring",
         "libusb1",
@@ -432817,6 +433848,7 @@
         "grep",
         "gzip",
         "json-c",
+        "kernel",
         "keyutils",
         "kmod",
         "krb5",
@@ -433821,26 +434853,26 @@
     }
   ],
   "summary": {
-    "built_from_source": 357,
+    "built_from_source": 358,
     "cycles": 1,
-    "dynamic_buildrequires": 0,
-    "dynamic_unmet": 0,
-    "dynamic_unprobed": 2,
-    "fraction_built": 0.1472,
-    "from_seed": 2069,
+    "dynamic_buildrequires": 2,
+    "dynamic_unmet": 5,
+    "dynamic_unprobed": 0,
+    "fraction_built": 0.1474,
+    "from_seed": 2070,
     "image_sets": {
       "image-tools": 160,
       "live": 193
     },
     "pins_by_repo": {
-      "binary-releases": 43464,
+      "binary-releases": 43442,
       "source-releases": 131
     },
     "problems": 0,
     "source_packages_built": 131,
-    "staged_targets": 357,
+    "staged_targets": 369,
     "superseded": 0,
-    "total_build_deps": 2426
+    "total_build_deps": 2428
   },
   "target_cpu": "x86_64",
   "variant_seed": []
