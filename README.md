@@ -92,6 +92,28 @@ Each release receives suffixed targets such as:
 //flavors/fedora:iso-live-43
 ```
 
+Every bootable image set is built two ways from the same package list. The
+unsuffixed name is the source build — each package comes from the recipe
+that produces it wherever one exists — and a `-prebuilt` sibling takes the
+whole set from pinned upstream binaries instead:
+
+```text
+//flavors/fedora:iso-live-43             182 of 187 packages built here
+//flavors/fedora:iso-live-prebuilt-43    187 of 187 pinned upstream
+```
+
+Both exist because they are most useful side by side: the same image built
+both ways is the direct evidence that replaying a distro's sources
+reproduces the distro, and the pinned image is what to boot when a source
+build is broken somewhere unrelated to what is being tested. The prebuilt
+variant consults no recipe at all, including for packages the host could
+build, so a half-source image cannot be mistaken for the pinned one it is
+being compared against.
+
+`rootfs-seed-<release>` is a third thing and not an image: it installs the
+`@buildsys-build` closure, which is the environment packages are built in
+rather than a set anyone would ship.
+
 The default release also receives unsuffixed targets. Release-specific target platforms, such as `//platforms:fedora-43-x86_64`, carry the release as a constraint value.
 
 Fedora 45 has branched from rawhide but has not reached GA, which changes where it is served from rather than how it is built. Upstream publishes a branched release under `development/<release>/` and gives it no `updates/` tree, because there have been no post-GA pushes. `tools/relock.py --branched 45` selects that layout:

@@ -121,7 +121,9 @@ Hyperscale inherits the CentOS build-system package group, adds the release's EP
 
 ## Root filesystem and media pipeline
 
-`rootfs` gives pinned RPMs to the target release's RPM implementation as one transaction. RPM writes the database, checks dependencies, and runs scriptlets after the payload trees have been staged. Triggers remain disabled because staging all payloads before one transaction does not preserve ordinary inter-package trigger timing.
+Each bootable image set produces two target families from one package list. The unsuffixed family resolves every package that has a source recipe to that recipe's output; the `-prebuilt` family resolves the whole set to pinned upstream binaries and consults no recipe. Both run the same rootfs, boot, and image rules. The variant appears in the ISO volume label, which is also the live-root kernel argument, so the two images cannot be confused at boot.
+
+`rootfs` gives RPMs to the target release's RPM implementation as one transaction. RPM writes the database, checks dependencies, and runs scriptlets after the payload trees have been staged. Triggers remain disabled because staging all payloads before one transaction does not preserve ordinary inter-package trigger timing.
 
 The rootfs output is a tar archive. The archive preserves ownership, capabilities, and RPM filenames without requiring Buck to own or represent every unpacked path.
 
