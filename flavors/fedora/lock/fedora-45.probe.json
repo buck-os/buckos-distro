@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "flavor": "fedora",
+  "release": "45",
+  "buildroot": null,
+  "packages": {}
+}
