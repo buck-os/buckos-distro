@@ -37,7 +37,7 @@ BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 | [Ubuntu](flavors/ubuntu/README.md) | Source replay | DEBs and install roots |
 | [BuckOS](flavors/buckos/README.md) | Stub | None |
 
-The Fedora lockfiles currently replay `gzip`, `xz`, and `zlib-ng` from source. Fedora, CentOS Stream, and CentOS Hyperscale live image package sets are pinned upstream binary RPMs. The source-replay pipeline and image package sets are separate inputs.
+Fedora 43 solves its live image entirely from source: 127 source packages covering all 187 binary packages in the image, with 0 unresolved capabilities and 354 staged build targets across one bootstrap cycle. Solving and building are separate milestones — the solve is complete, and packages are still being built through it. Fedora 44, CentOS Stream, and CentOS Hyperscale live image package sets remain pinned upstream binary RPMs; for those flavors the source-replay pipeline and the image package set are still separate inputs.
 
 ## Build model
 
@@ -91,7 +91,27 @@ The binary seed cuts bootstrap cycles that Buck cannot represent directly. The s
 
 A package builds in a base plus its own overlay, not in the union of everyone's build dependencies. The base is the flavor's implicit build group — `@buildsys-build` — closed over its runtime `Requires`, which is fixed per release rather than derived from the build set; each package then installs what its own `BuildRequires` closed over on top of it. That distinction is not cosmetic. A union is not a buildroot, it is every tool any package asked for handed to all of them, and autoconf-era build systems feature-detect: `libmnl` declares `gcc`, `gnupg2` and `make`, the union handed it 311 packages including `doxygen`, and it emitted man pages its `%files` does not list. Under base-plus-overlay it builds in 166 packages. The mirror-image failure — a *missing* tool, `libcap` finding no Go and silently omitting a program — is the same fault seen from the other side: the buildroot did not match what the spec expects.
 
-The overlay is installed, not merely unpacked, because rpmbuild resolves `BuildRequires` against the rpmdb rather than the filesystem. It uses `--replacepkgs --replacefiles`, since a bootstrap stage rebuilding something the base already carries at the same NEVRA is both a reinstall and a file conflict against the copy the overlay just wrote.
+The overlay is installed, not merely unpacked, because rpmbuild resolves `BuildRequires` against the rpmdb rather than the filesystem. It uses `--replacepkgs --replacefiles --oldpackage`, since a bootstrap stage rebuilding something the base already carries at the same NEVRA is both a reinstall and a file conflict against the copy the overlay just wrote — and a version variant deliberately supersedes the base with something *older*, which rpm otherwise refuses.
+
+### Multilib
+
+A spec that asks for a 32-bit dependency gets one. `gcc` requires `(glibc32 or glibc-devel(x86-32))` on every 64-bit arch, and the solver resolves it without an override: the discarded i686 builds are indexed under an arch-qualified name — `glibc-devel.i686`, spelled the way rpm and every Fedora bug report spell it — and their capabilities are registered wherever the collapsed universe has no answer at all.
+
+That restriction is the whole safety argument: it cannot introduce an ambiguity, because it only ever fills an empty slot. Registering every i686 `Provides` was measured first — 9,230 builds offer 59,078 capabilities, 30,790 already answered, and 21,556 of those become ambiguities the exact-name rule cannot settle, `/bin/awk` between `gawk` and `gawk.i686`. It also lands on rpm's own answer without hardcoding rpm's spelling of it: the capabilities with no collapsed provider are exactly the ones rpm marks unambiguously 32-bit, while the contested ones are arch-neutral names where the 64-bit build is right anyway.
+
+Arch-specificity therefore lives in the capability, not in a per-arch preference. `glibc-devel.i686` requires unmarked `libm.so.6`, which only the 32-bit build provides, and plain `kernel-headers`, which is arch-neutral and answered by whatever the base already has. Preferring i686 for both — an earlier attempt — pulled in `kernel-headers.i686` and rpm refused the transaction outright, since a newer `kernel-headers.x86_64` was installed and the two are one package with one name. gcc's 32-bit slice is six packages.
+
+### Version variants
+
+One source package can be built twice, at two versions, when the distro genuinely needs both:
+
+```ini
+--source-variant acl-compat=acl@2.3.2-4.fc43:tar
+```
+
+Fedora 43 needs exactly that. `acl` 2.4.0 added a versioned symbol `rsync` requires, and `rsync` is a build dependency of the kernel; the same release's header change broke `tar` 1.35, whose source declares its own three-argument `acl_get_file_at` where 2.4.0 declares four. Fedora resolves this by not rebuilding `tar` — its shipped binary predates the header — which a repo that builds everything from source cannot do. So it builds both, and only `tar` is routed to the older one.
+
+This is modelled on the staging machinery rather than beside it. A stage is already "this source package, built more than once, with consumers routed to the right one"; a variant differs only in that the copies differ by version rather than by position in a cycle. A variant is an ordinary recipe with its own srpm, kept out of the binary-to-recipe map so it reroutes only the consumers that named it, and its routed edges are visible to the cycle planner — without that the planner stages nothing and Buck rejects the target graph at analysis over a cycle the solver said did not exist.
 
 ## Image pipeline
 
@@ -276,12 +296,50 @@ Stated plainly, because each one is load-bearing:
   `coreutils-single` is not a real question in a buildroot that has had
   `coreutils` in it since `@buildsys-build`.
 
-  What survives is 51 distinct decisions, and they are real ones —
-  `text-www-browser` between elinks, lynx and w3m; `crate(regex-syntax)`
-  between the current and the 0.6 compat package; `libfofi.so.4()(64bit)`
-  between `xpdf` and `xpdf-libs`. Each is reported once with its
-  candidates and the packages that asked, rather than once per asker.
-- **Rich/boolean dependencies are parsed, but `or` still needs a human.**
+  What survives is **20** distinct decisions, and they are real ones —
+  `text-www-browser` between elinks, lynx and w3m; `libfofi.so.4()(64bit)`
+  between `xpdf` and `xpdf-libs`; `java-devel` between the JDKs. Each is
+  reported once with its candidates and the packages that asked, rather
+  than once per asker.
+- **A version constraint picks the provider.** Fedora keeps several majors
+  of a Rust crate side by side — `rust-base64-devel` is the current one,
+  `rust-base64_0.21-devel` and friends are compat packages — and every one
+  of them provides `crate(base64)`. The range is the only thing that tells
+  them apart, and it is stated in the requirement:
+
+  ```
+  (crate(base64) >= 0.21 with crate(base64) < 0.23)
+  ```
+
+  Repodata puts that in attributes — `flags="LT" ver="0.23"` — rather than
+  in the capability name, so a parser reading only `@name` turns every
+  constrained dependency into an unconstrained one. That is what this did,
+  and the cost was 120 hand-written `--override crate(...)=...` entries
+  saying "pick the current major", plus one package that needed the
+  opposite and failed several minutes into `%build`:
+
+  ```
+  error: failed to select a version for the requirement `base64 = ">=0.21, <0.23"`
+  candidate versions found which didn't match: 0.23.1
+  ```
+
+  Constraints now reach the resolver, from repodata and from a probe
+  alike, and providers that cannot satisfy them are dropped before the
+  ambiguity is even considered. Where several satisfy, the newest wins —
+  what rpm, dnf and cargo all do, and not the judgement call an
+  unconstrained ambiguity is. All 120 crate overrides went away and
+  exactly one package's buildroot changed: `rust-rpm-sequoia`, which now
+  gets the 54 compat crates its constraints actually name.
+
+  Three details are rpm's rules rather than obvious ones, and each was a
+  wrong answer first. Comparison happens at the precision the *constraint*
+  states, so `Requires: automake = 1.18.1` is satisfied by 1.18.1-2.fc43.
+  A requirement stating no epoch is read as epoch 0 while the provider
+  keeps its own, so `emacs-filesystem >= 30.2` is satisfied by 1:30.0 —
+  which is what an epoch is for. And one package can provide a capability
+  at more than one version: `texlive-kpathsea` carries both its NEVR and
+  the upstream svn revision.
+- **Rich/boolean dependencies are parsed; a genuine `or` still needs a human.**
   `tools/depgraph.py` implements rpm's boolean grammar — `and`, `or`,
   `with`, `without`, `if`/`else`, `unless`/`else`, nested to any depth —
   and evaluates it against the buildroot closure, iterating to a fixed

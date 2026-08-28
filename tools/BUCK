@@ -29,6 +29,9 @@ python_library(
     name = "depgraph",
     srcs = ["depgraph.py"],
     base_module = "",
+    # For compare_evr: a capability's version constraint is compared with
+    # rpm's rules, not Python's, or 0.10 sorts below 0.9.
+    deps = [":rpmvercmp"],
     visibility = ["PUBLIC"],
 )
 

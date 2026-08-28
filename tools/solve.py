@@ -401,6 +401,13 @@ def _parse_package_elem(elem):
 
     fmt = elem.find("{{{}}}format".format(COMMON_NS))
     provides, requires, sourcerpm = [], [], None
+    # What version of each capability this package supplies, and what range
+    # each requirement will accept.  Both live in attributes on the entry --
+    # flags="GE" epoch="0" ver="0.21" -- rather than in the name, so reading
+    # only @name silently turns every constrained dependency into an
+    # unconstrained one.  That is how a buildroot ends up with the newest
+    # build of a crate whose consumer asked for an older major.
+    provide_evr, require_ranges = [], []
     if fmt is not None:
         sourcerpm = _text(fmt, "sourcerpm", ns=RPM_NS)
         for kind, sink in (("provides", provides), ("requires", requires)):
@@ -412,6 +419,13 @@ def _parse_package_elem(elem):
                 if not cap:
                     continue
                 sink.append(cap)
+                evr = (entry.get("epoch"), entry.get("ver"), entry.get("rel"))
+                if entry.get("ver") is None:
+                    continue
+                if kind == "provides":
+                    provide_evr.append((cap, evr))
+                else:
+                    require_ranges.append((cap, entry.get("flags"), evr))
 
         # A package also provides every file it ships, and specs lean on
         # that constantly -- `BuildRequires: /usr/bin/perl` is idiomatic,
@@ -435,6 +449,8 @@ def _parse_package_elem(elem):
         "checksum": checksum,
         "checksum_type": checksum_type,
         "provides": provides,
+        "provide_evr": provide_evr,
+        "require_ranges": require_ranges,
         "requires": requires,
         "sourcerpm": sourcerpm,
     }
@@ -601,97 +617,32 @@ def add_source_variants(variants, universe, source_superseded,
     return problems, subpackages, routes
 
 
-def apply_source_pins(pins, binary_pkgs, source_pkgs,
-                      binary_superseded, source_superseded):
-    """Build a source package from an older srpm than newest-wins picked.
+_RPM_FLAG_OPS = {"EQ": "=", "GE": ">=", "GT": ">", "LE": "<=", "LT": "<"}
 
-    Newest-wins is right for an image and wrong for a rebuild, and the two
-    cannot be reconciled by choosing better: an update is published for the
-    package it updates, not for everything that was built against it.  tar
-    is the case.  Fedora shipped acl 2.4.0 as an update and never rebuilt
-    tar, whose 1.35 source declares its own three-argument
-    `acl_get_file_at` -- the one 2.4.0's header now declares with four:
 
-        xattrs.c:142:14: error: conflicting types for 'acl_get_file_at'
+def constrained_requires(pkg):
+    """A package's Requires with their version ranges spelled out.
 
-    Fedora's tar binary is fine, because it predates the header.  Rebuilding
-    it against the current buildroot fails, and would fail in Fedora's own
-    buildroot too.  What makes it buildable is the acl it was actually
-    built against, which is still in releases/ and still pinned by digest.
+    Repodata puts the constraint in attributes -- flags="LT" ver="0.23" --
+    while everything downstream reasons about the textual form rpm itself
+    uses, `crate(base64) < 0.23`.  Rendering it here means one
+    representation reaches the resolver, whether the requirement came from
+    repodata or from a probe running rpmspec.
 
-    Pins the *source* package rather than a build dependency, because acl
-    is in the build set: tar's libacl-devel is something this repo compiles,
-    not something it downloads, so there is no seed entry to redirect.  The
-    binary builds of the same EVR move with it, so the graph stays coherent
-    -- a lockfile naming acl 2.3.2-4's srpm and 2.4.0-1's libacl would
-    describe a build nobody can reproduce.
-
-    Blast radius is the pinned package and whatever builds against it,
-    stated plainly: everything now gets acl 2.3.2, which is what Fedora 43
-    shipped at GA.  That is a real cost and the honest alternative is worse
-    -- an update nobody can rebuild against is not a version anyone has.
+    A requirement with no version is passed through untouched, which is
+    most of them.
     """
-    problems = []
-    if not pins:
-        return binary_pkgs, source_pkgs, problems
-
-    source_by_name = {p["name"]: p for p in source_pkgs}
-    chosen = {}
-    for name, evr in sorted(pins.items()):
-        current = source_by_name.get(name)
-        if current is None:
-            problems.append(
-                ("pin", "no source package named {!r} to pin".format(name),
-                 name))
+    ranges = {}
+    for cap, flags, evr in pkg.get("require_ranges", ()):
+        op = _RPM_FLAG_OPS.get(flags)
+        if op is None:
             continue
-        if _evr_string(current) == evr:
-            # Already the winner.  Not an error -- an update can land that
-            # makes a pin redundant, and saying so is more useful than
-            # either failing or silently doing nothing.
-            print("buckos-distro: --source-pin {}={} matches the newest "
-                  "build; no change".format(name, evr), file=sys.stderr)
-            continue
-        older = source_superseded.get((name, current["arch"]), {}).get(evr)
-        if older is None:
-            available = sorted(
-                source_superseded.get((name, current["arch"]), {}))
-            problems.append((
-                "pin",
-                "{} pinned to {}, which this repodata does not carry "
-                "(newest is {}; superseded: {})".format(
-                    name, evr, _evr_string(current),
-                    ", ".join(available) or "none"),
-                name))
-            continue
-        chosen[name] = (older, evr)
-
-    if not chosen:
-        return binary_pkgs, source_pkgs, problems
-
-    source_pkgs = [
-        chosen[p["name"]][0] if p["name"] in chosen else p
-        for p in source_pkgs
-    ]
-
-    # The binary side has to follow, or the lockfile describes a source at
-    # one version and its outputs at another.
-    moved = []
-    for pkg in binary_pkgs:
-        src = source_name_from_sourcerpm(pkg["sourcerpm"])
-        want = chosen.get(src)
-        if want is None:
-            moved.append(pkg)
-            continue
-        older = binary_superseded.get((pkg["name"], pkg["arch"]), {}).get(
-            want[1])
-        if older is None:
-            # A subpackage that did not change between the two builds keeps
-            # its entry, which is correct: repodata carries one build of it
-            # and both srpms produce it.
-            moved.append(pkg)
-            continue
-        moved.append(older)
-    return moved, source_pkgs, problems
+        epoch, version, release = evr
+        text = version if not release else "{}-{}".format(version, release)
+        if epoch and epoch != "0":
+            text = "{}:{}".format(epoch, text)
+        ranges.setdefault(cap, "{} {} {}".format(cap, op, text))
+    return [ranges.get(cap, cap) for cap in pkg["requires"]]
 
 
 def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
@@ -705,6 +656,7 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
     closure.
     """
     provides = {}
+    provide_evr = {}
     requires = {}
     source_of = {}
     subpackages = {}
@@ -730,7 +682,8 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
 
     for name, pkg in binary_index.items():
         requires[name] = [
-            c for c in pkg["requires"] if not is_pseudo_capability(c)
+            c for c in constrained_requires(pkg)
+            if not is_pseudo_capability(c)
         ]
         for cap in pkg["provides"]:
             if is_pseudo_capability(cap):
@@ -738,6 +691,12 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
             provides.setdefault(cap, []).append(name)
         # A package always provides its own name, even if repodata is odd.
         provides.setdefault(name, []).append(name)
+        # And at what version, so a constrained requirement can tell the
+        # compat build of a crate from the current one.
+        for cap, evr in pkg.get("provide_evr", ()):
+            if is_pseudo_capability(cap):
+                continue
+            provide_evr.setdefault(cap, {}).setdefault(name, []).append(evr)
 
         src = source_name_from_sourcerpm(pkg["sourcerpm"])
         if src:
@@ -791,7 +750,8 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
         # putting it here is what lets the ordinary closure walk a foreign
         # package's dependencies like anything else's.
         requires[key] = [
-            c for c in pkg["requires"] if not is_pseudo_capability(c)
+            c for c in constrained_requires(pkg)
+            if not is_pseudo_capability(c)
         ]
         caps = foreign_provides.setdefault(pkg["arch"], {})
         for cap in pkg["provides"]:
@@ -855,6 +815,10 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
 
     return {
         "provides": provides,
+        # {capability: {package: (epoch, version, release)}} -- only where
+        # repodata states one, which is why resolve_capability treats a
+        # missing entry as "satisfies anything".
+        "provide_evr": provide_evr,
         "requires": requires,
         "source_of": source_of,
         "subpackages": subpackages,
@@ -1115,7 +1079,8 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None,
                 continue
             try:
                 provider = resolve_capability(
-                    base, universe["provides"], src, overrides
+                    cap, universe["provides"], src, overrides,
+                    universe["provide_evr"],
                 )
             except AmbiguousProvider:
                 # Handed to the closure for the same reason the boolean
@@ -1134,7 +1099,7 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None,
         # or the compiler will not actually find the libraries.
         closure, closure_problems = runtime_closure(
             direct, universe["requires"], universe["provides"], overrides,
-            extra=conditional,
+            extra=conditional, provide_evr=universe["provide_evr"],
         )
         problems.extend(closure_problems)
         build_deps[src] = closure
@@ -1176,7 +1141,8 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None,
         except (AmbiguousProvider, UnresolvedCapability) as exc:
             problems.append(("unresolved", str(exc), "@buildsys-build"))
     base_closure, base_problems = runtime_closure(
-        base_direct, universe["requires"], universe["provides"], overrides
+        base_direct, universe["requires"], universe["provides"], overrides,
+        provide_evr=universe["provide_evr"],
     )
     problems.extend(base_problems)
 
@@ -1203,6 +1169,7 @@ def solve_package_set(universe, roots, overrides=None, scope="package-set"):
     closure, closure_problems = runtime_closure(
         [root for root in roots if root not in missing],
         universe["requires"], universe["provides"], overrides,
+        provide_evr=universe["provide_evr"],
     )
     problems.extend(
         (kind, detail, "{} ({})".format(scope, who))
@@ -1472,8 +1439,6 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
                                      ",".join(v["consumers"]))
                 for k, v in sorted(args.source_variant.items())
             ],
-            "source_pins": ["{}={}".format(k, v)
-                            for k, v in sorted(args.source_pin.items())],
             "stages": args.stages,
             "images": sorted(args.image),
             "image_overrides": sorted(args.image_override),
@@ -1611,11 +1576,6 @@ def main(argv=None):
                     help="build SOURCE a second time at EVR under NAME, and "
                          "route the named consumers' build deps to it "
                          "(repeatable)")
-    ap.add_argument("--source-pin", action="append", default=[],
-                    metavar="SOURCE=EVR",
-                    help="build this source package from an older srpm than "
-                         "newest-wins would pick, for a package that cannot "
-                         "compile against a later dependency (repeatable)")
     ap.add_argument("--image", action="append", default=[], metavar="NAME=PKGS",
                     help="named image set: comma-separated *binary* package "
                          "names, closed over their runtime Requires "
@@ -1666,13 +1626,6 @@ def main(argv=None):
     source_variants = parse_source_variants(args.source_variant)
     args.source_variant = source_variants
 
-    source_pins = {}
-    for item in args.source_pin:
-        if "=" not in item:
-            sys.exit("--source-pin expects source=evr, got {!r}".format(item))
-        name, evr = item.split("=", 1)
-        source_pins[name.strip()] = evr.strip()
-    args.source_pin = source_pins
 
     image_roots = {}
     for item in args.image:
@@ -1726,10 +1679,6 @@ def main(argv=None):
         file=sys.stderr,
     )
 
-    binary_pkgs, source_pkgs, pin_problems = apply_source_pins(
-        args.source_pin, binary_pkgs, source_pkgs,
-        binary_superseded, source_superseded)
-
     universe = build_universe(binary_pkgs, source_pkgs,
                               target_cpu=args.target_cpu,
                               superseded=binary_superseded)
@@ -1745,7 +1694,6 @@ def main(argv=None):
     # A rotted pin is reported with everything else rather than fatally:
     # it means the build it protected will fail later, which the reviewer
     # should see alongside the rest of the run.
-    problems.extend(pin_problems)
     problems.extend(variant_problems)
     plan = plan_build_order(
         build_deps, universe["source_of"], build_set, stages=args.stages,

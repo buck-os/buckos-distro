@@ -12417,30 +12417,21 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.12.16-1.fc43",
-      "location": "Packages/r/rust-annotate-snippets+default-devel-0.12.16-1.fc43.noarch.rpm",
-      "name": "rust-annotate-snippets+default-devel",
+      "evr": "0.11.5-1.fc43",
+      "location": "Packages/r/rust-annotate-snippets0.11+default-devel-0.11.5-1.fc43.noarch.rpm",
+      "name": "rust-annotate-snippets0.11+default-devel",
       "repo": "binary-updates",
-      "sha256": "b099ada97723f886f7b37c5d09e97e38451601368805a785cf65898dd38cfcae",
-      "source": "rust-annotate-snippets"
+      "sha256": "0ce2d3fe8993bed3984467c18157f05d68bbf6400266ea9fa5d1d34ac6f7da21",
+      "source": "rust-annotate-snippets0.11"
     },
     {
       "arch": "noarch",
-      "evr": "0.12.16-1.fc43",
-      "location": "Packages/r/rust-annotate-snippets+std-devel-0.12.16-1.fc43.noarch.rpm",
-      "name": "rust-annotate-snippets+std-devel",
+      "evr": "0.11.5-1.fc43",
+      "location": "Packages/r/rust-annotate-snippets0.11-devel-0.11.5-1.fc43.noarch.rpm",
+      "name": "rust-annotate-snippets0.11-devel",
       "repo": "binary-updates",
-      "sha256": "21cf27493b277b673dadb6fa9bfb957fa6493f17c9589ffa8c3e6322e684b2a4",
-      "source": "rust-annotate-snippets"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.12.16-1.fc43",
-      "location": "Packages/r/rust-annotate-snippets-devel-0.12.16-1.fc43.noarch.rpm",
-      "name": "rust-annotate-snippets-devel",
-      "repo": "binary-updates",
-      "sha256": "03e5352d94133474352e9daec066ccb949b7750b5094566c5fc740f67d33269d",
-      "source": "rust-annotate-snippets"
+      "sha256": "9d201c75a158b1ebcb165328f86310eda79f45af75ffc2a55eceb361ab50062e",
+      "source": "rust-annotate-snippets0.11"
     },
     {
       "arch": "noarch",
@@ -12750,21 +12741,21 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.12.1-1.fc43",
-      "location": "Packages/r/rust-block-buffer+default-devel-0.12.1-1.fc43.noarch.rpm",
-      "name": "rust-block-buffer+default-devel",
+      "evr": "0.10.4-1.fc43",
+      "location": "Packages/r/rust-block-buffer0.10+default-devel-0.10.4-1.fc43.noarch.rpm",
+      "name": "rust-block-buffer0.10+default-devel",
       "repo": "binary-updates",
-      "sha256": "d1824e2474ecb9b8fe979d83704e4fbefb79dafafd483b4441364f85c577549a",
-      "source": "rust-block-buffer"
+      "sha256": "4e8c1eab5b71e79cbef3ed06fafcb93ed91baf67709cc5d04201ba8ee69053d5",
+      "source": "rust-block-buffer0.10"
     },
     {
       "arch": "noarch",
-      "evr": "0.12.1-1.fc43",
-      "location": "Packages/r/rust-block-buffer-devel-0.12.1-1.fc43.noarch.rpm",
-      "name": "rust-block-buffer-devel",
+      "evr": "0.10.4-1.fc43",
+      "location": "Packages/r/rust-block-buffer0.10-devel-0.10.4-1.fc43.noarch.rpm",
+      "name": "rust-block-buffer0.10-devel",
       "repo": "binary-updates",
-      "sha256": "95355390a4d7ab7b77157a49d6cac6463fcc6a83da1070af6c9f49a2afb4c89c",
-      "source": "rust-block-buffer"
+      "sha256": "e47b16a32a2dbcc60b840d55db537d4aafeab7d7bf368bf764200693a33bfa75",
+      "source": "rust-block-buffer0.10"
     },
     {
       "arch": "noarch",
@@ -13119,84 +13110,48 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.5.4-1.fc43",
-      "location": "Packages/r/rust-cmov+default-devel-0.5.4-1.fc43.noarch.rpm",
-      "name": "rust-cmov+default-devel",
+      "evr": "0.2.17-1.fc43",
+      "location": "Packages/r/rust-cpufeatures0.2+default-devel-0.2.17-1.fc43.noarch.rpm",
+      "name": "rust-cpufeatures0.2+default-devel",
       "repo": "binary-updates",
-      "sha256": "bb81d81fa79ac0a065747368e5524ca35db1ea602374b09686036cec4b6211ad",
-      "source": "rust-cmov"
+      "sha256": "ad96792202fb38c8921fb83bb41750e1c94bc03aabece75eef9dacb7f9d7b5be",
+      "source": "rust-cpufeatures0.2"
     },
     {
       "arch": "noarch",
-      "evr": "0.5.4-1.fc43",
-      "location": "Packages/r/rust-cmov-devel-0.5.4-1.fc43.noarch.rpm",
-      "name": "rust-cmov-devel",
+      "evr": "0.2.17-1.fc43",
+      "location": "Packages/r/rust-cpufeatures0.2-devel-0.2.17-1.fc43.noarch.rpm",
+      "name": "rust-cpufeatures0.2-devel",
       "repo": "binary-updates",
-      "sha256": "08cb871423afc9ba02d54eb3b625d3c2023a0f77aace042004298e44354ea787",
-      "source": "rust-cmov"
+      "sha256": "1f76ea220be2759859c4addecd554affc61a41db7925b18ea16449df07e26ccf",
+      "source": "rust-cpufeatures0.2"
     },
     {
       "arch": "noarch",
-      "evr": "0.3.0-1.fc43",
-      "location": "Packages/r/rust-cpufeatures+default-devel-0.3.0-1.fc43.noarch.rpm",
-      "name": "rust-cpufeatures+default-devel",
+      "evr": "0.1.7-1.fc43",
+      "location": "Packages/r/rust-crypto-common0.1+default-devel-0.1.7-1.fc43.noarch.rpm",
+      "name": "rust-crypto-common0.1+default-devel",
       "repo": "binary-updates",
-      "sha256": "521cd6e47a0486aebc45d58a8c2a40f5dad68f38833d3c9583316070ef0c9af1",
-      "source": "rust-cpufeatures"
+      "sha256": "a37a365e67a86d00bd825683c503e27fa80bba6d23813a51f23f7f97a90a01d3",
+      "source": "rust-crypto-common0.1"
     },
     {
       "arch": "noarch",
-      "evr": "0.3.0-1.fc43",
-      "location": "Packages/r/rust-cpufeatures-devel-0.3.0-1.fc43.noarch.rpm",
-      "name": "rust-cpufeatures-devel",
+      "evr": "0.1.7-1.fc43",
+      "location": "Packages/r/rust-crypto-common0.1+std-devel-0.1.7-1.fc43.noarch.rpm",
+      "name": "rust-crypto-common0.1+std-devel",
       "repo": "binary-updates",
-      "sha256": "002acc40053bc0d42bccb283fbfff43d8dca9ce460243832ab5cd471414a1d85",
-      "source": "rust-cpufeatures"
+      "sha256": "8de8dacc29cd2fbbab3da28a084f001d94830cb35f07c7e2eed2e3b217b05491",
+      "source": "rust-crypto-common0.1"
     },
     {
       "arch": "noarch",
-      "evr": "0.2.2-1.fc43",
-      "location": "Packages/r/rust-crypto-common+default-devel-0.2.2-1.fc43.noarch.rpm",
-      "name": "rust-crypto-common+default-devel",
+      "evr": "0.1.7-1.fc43",
+      "location": "Packages/r/rust-crypto-common0.1-devel-0.1.7-1.fc43.noarch.rpm",
+      "name": "rust-crypto-common0.1-devel",
       "repo": "binary-updates",
-      "sha256": "a6237d0baa6c75ecd86e85fbffe22da7566b395dad73246951ffe37ff2116b22",
-      "source": "rust-crypto-common"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.1.6-6.fc43",
-      "location": "Packages/r/rust-crypto-common+std-devel-0.1.6-6.fc43.noarch.rpm",
-      "name": "rust-crypto-common+std-devel",
-      "repo": "binary-releases",
-      "sha256": "88bca23ea1b1b9716a67893d1f44e5c91a65f1f33ef04ff61dc177b1770cea31",
-      "source": "rust-crypto-common"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.2.2-1.fc43",
-      "location": "Packages/r/rust-crypto-common-devel-0.2.2-1.fc43.noarch.rpm",
-      "name": "rust-crypto-common-devel",
-      "repo": "binary-updates",
-      "sha256": "1058553c4114398de3e9adc33b099cd13b9f24c83d3e51c0d6e84e603f5e03c3",
-      "source": "rust-crypto-common"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.4.2-1.fc43",
-      "location": "Packages/r/rust-ctutils+default-devel-0.4.2-1.fc43.noarch.rpm",
-      "name": "rust-ctutils+default-devel",
-      "repo": "binary-updates",
-      "sha256": "4d49be0870629f38c02c81b6adda9d9449001e9ad54ea5f81c8dc6ac8a23bdb5",
-      "source": "rust-ctutils"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.4.2-1.fc43",
-      "location": "Packages/r/rust-ctutils-devel-0.4.2-1.fc43.noarch.rpm",
-      "name": "rust-ctutils-devel",
-      "repo": "binary-updates",
-      "sha256": "bb9e494686a526811beba78b378dc58193e572eb5334a9f43261700eba6d526d",
-      "source": "rust-ctutils"
+      "sha256": "3388da68fdcdd1a803e2f0955716928badc26f9822767372a7f777d437e4a7c7",
+      "source": "rust-crypto-common0.1"
     },
     {
       "arch": "noarch",
@@ -13218,38 +13173,20 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.11.3-1.fc43",
-      "location": "Packages/r/rust-digest+alloc-devel-0.11.3-1.fc43.noarch.rpm",
-      "name": "rust-digest+alloc-devel",
-      "repo": "binary-updates",
-      "sha256": "004bff49e02f88b9d11fa5c4830a1187f0795f8024135ef0ce0798702f4adf64",
+      "evr": "0.10.7-6.fc43",
+      "location": "Packages/r/rust-digest+block-buffer-devel-0.10.7-6.fc43.noarch.rpm",
+      "name": "rust-digest+block-buffer-devel",
+      "repo": "binary-releases",
+      "sha256": "686aae536c0f8254bfe34528eddd322693059830362563314661a60b2dc8b933",
       "source": "rust-digest"
     },
     {
       "arch": "noarch",
-      "evr": "0.11.3-1.fc43",
-      "location": "Packages/r/rust-digest+block-api-devel-0.11.3-1.fc43.noarch.rpm",
-      "name": "rust-digest+block-api-devel",
-      "repo": "binary-updates",
-      "sha256": "7d1c49c52cbca71fbfb026c79007b917f2becab8935de3023ea4745cc890a613",
-      "source": "rust-digest"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.11.3-1.fc43",
-      "location": "Packages/r/rust-digest+default-devel-0.11.3-1.fc43.noarch.rpm",
-      "name": "rust-digest+default-devel",
-      "repo": "binary-updates",
-      "sha256": "11f247413126363f562839575d63156275cfa6e612b53ca5b0ac27bddbe7ab1b",
-      "source": "rust-digest"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.11.3-1.fc43",
-      "location": "Packages/r/rust-digest+mac-devel-0.11.3-1.fc43.noarch.rpm",
-      "name": "rust-digest+mac-devel",
-      "repo": "binary-updates",
-      "sha256": "c15b6a42c23e49b0e2911dfeec9a2fff2315265340e84dccfb6a216e5c1686b4",
+      "evr": "0.10.7-6.fc43",
+      "location": "Packages/r/rust-digest+core-api-devel-0.10.7-6.fc43.noarch.rpm",
+      "name": "rust-digest+core-api-devel",
+      "repo": "binary-releases",
+      "sha256": "14ecb061a8aeb3d93bcb7fa0937bf40c075f3fb11e7ffc581e97af29da682a5c",
       "source": "rust-digest"
     },
     {
@@ -13263,12 +13200,48 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.11.3-1.fc43",
-      "location": "Packages/r/rust-digest-devel-0.11.3-1.fc43.noarch.rpm",
-      "name": "rust-digest-devel",
-      "repo": "binary-updates",
-      "sha256": "9de323f846f8e420374304332644a672e8735ea2457f09b62df82b4951f2ff97",
+      "evr": "0.10.7-6.fc43",
+      "location": "Packages/r/rust-digest+subtle-devel-0.10.7-6.fc43.noarch.rpm",
+      "name": "rust-digest+subtle-devel",
+      "repo": "binary-releases",
+      "sha256": "838820e14c2981e4bdffdc077172994b96ee933b13d1f0964f251168ba6dfc81",
       "source": "rust-digest"
+    },
+    {
+      "arch": "noarch",
+      "evr": "0.10.7-1.fc43",
+      "location": "Packages/r/rust-digest0.10+alloc-devel-0.10.7-1.fc43.noarch.rpm",
+      "name": "rust-digest0.10+alloc-devel",
+      "repo": "binary-updates",
+      "sha256": "3ef514574991e8e86d783026e8f974839f3b8e95f1712f54ccfafe8e8e44b11e",
+      "source": "rust-digest0.10"
+    },
+    {
+      "arch": "noarch",
+      "evr": "0.10.7-1.fc43",
+      "location": "Packages/r/rust-digest0.10+default-devel-0.10.7-1.fc43.noarch.rpm",
+      "name": "rust-digest0.10+default-devel",
+      "repo": "binary-updates",
+      "sha256": "90302d5a35c0a51c956d3935d8c0f473828c6bedf968fe3577f1d1282e7faeca",
+      "source": "rust-digest0.10"
+    },
+    {
+      "arch": "noarch",
+      "evr": "0.10.7-1.fc43",
+      "location": "Packages/r/rust-digest0.10+mac-devel-0.10.7-1.fc43.noarch.rpm",
+      "name": "rust-digest0.10+mac-devel",
+      "repo": "binary-updates",
+      "sha256": "be8f90e2a30030d9412f45389c849844379463e49ee87fa08e2f76159773ced3",
+      "source": "rust-digest0.10"
+    },
+    {
+      "arch": "noarch",
+      "evr": "0.10.7-1.fc43",
+      "location": "Packages/r/rust-digest0.10-devel-0.10.7-1.fc43.noarch.rpm",
+      "name": "rust-digest0.10-devel",
+      "repo": "binary-updates",
+      "sha256": "78d66b735462ac5e5888d5c8bf136415f5eb62fac186de49872d4e28e88cc5ce",
+      "source": "rust-digest0.10"
     },
     {
       "arch": "noarch",
@@ -13371,20 +13344,20 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.2.0-1.fc43",
-      "location": "Packages/r/rust-foldhash-devel-0.2.0-1.fc43.noarch.rpm",
-      "name": "rust-foldhash-devel",
-      "repo": "binary-releases",
-      "sha256": "d1e2fe85ffcc426d376641a02a1ccf2983ce5a75a264121aba8bf07f302252ed",
-      "source": "rust-foldhash"
-    },
-    {
-      "arch": "noarch",
       "evr": "0.14.9-1.fc43",
       "location": "Packages/r/rust-generic-array+default-devel-0.14.9-1.fc43.noarch.rpm",
       "name": "rust-generic-array+default-devel",
       "repo": "binary-updates",
       "sha256": "1d54970524ce6cbcb21409f101ead2a1393c07919d9bf7d3c47ca9c553cabc72",
+      "source": "rust-generic-array"
+    },
+    {
+      "arch": "noarch",
+      "evr": "0.14.9-1.fc43",
+      "location": "Packages/r/rust-generic-array+more_lengths-devel-0.14.9-1.fc43.noarch.rpm",
+      "name": "rust-generic-array+more_lengths-devel",
+      "repo": "binary-updates",
+      "sha256": "0fd562a6e356865891a9854e431a4ff0eb8a02514e7e2f53f110caac37bf73a1",
       "source": "rust-generic-array"
     },
     {
@@ -13417,47 +13390,11 @@
     {
       "arch": "noarch",
       "evr": "0.17.0-1.fc43",
-      "location": "Packages/r/rust-hashbrown+default-hasher-devel-0.17.0-1.fc43.noarch.rpm",
-      "name": "rust-hashbrown+default-hasher-devel",
-      "repo": "binary-updates",
-      "sha256": "7c6d9b2f7f7277c7fc92581060ab0597a5b3050f9ea49c3d6be20e0b63fe57fa",
-      "source": "rust-hashbrown"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.17.0-1.fc43",
-      "location": "Packages/r/rust-hashbrown+inline-more-devel-0.17.0-1.fc43.noarch.rpm",
-      "name": "rust-hashbrown+inline-more-devel",
-      "repo": "binary-updates",
-      "sha256": "30fc3e0dc36c4e94dc568ea48128b61e03e79cceaccc3c711bb980c232bf297c",
-      "source": "rust-hashbrown"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.17.0-1.fc43",
       "location": "Packages/r/rust-hashbrown-devel-0.17.0-1.fc43.noarch.rpm",
       "name": "rust-hashbrown-devel",
       "repo": "binary-updates",
       "sha256": "85bd7bf65d41f095a15bc5918dab5219f7cbff72b73189c4c0795ed9afaeb159",
       "source": "rust-hashbrown"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.4.13-1.fc43",
-      "location": "Packages/r/rust-hybrid-array+default-devel-0.4.13-1.fc43.noarch.rpm",
-      "name": "rust-hybrid-array+default-devel",
-      "repo": "binary-updates",
-      "sha256": "32f14bb6d79315de308f77ef3d58bf1199657d66f878d6050a9f008b1f2be612",
-      "source": "rust-hybrid-array"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.4.13-1.fc43",
-      "location": "Packages/r/rust-hybrid-array-devel-0.4.13-1.fc43.noarch.rpm",
-      "name": "rust-hybrid-array-devel",
-      "repo": "binary-updates",
-      "sha256": "bff259205c9b076e517ef5a38fc87a8c03f2682029d95020a9c58d8ff8124b4f",
-      "source": "rust-hybrid-array"
     },
     {
       "arch": "noarch",
@@ -13660,6 +13597,15 @@
     {
       "arch": "noarch",
       "evr": "2.14.0-1.fc43",
+      "location": "Packages/r/rust-indexmap+default-devel-2.14.0-1.fc43.noarch.rpm",
+      "name": "rust-indexmap+default-devel",
+      "repo": "binary-updates",
+      "sha256": "aa1d48dbd2ccf781410bb6779df2388d095eb84350810041266d7daa6291cb95",
+      "source": "rust-indexmap"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.14.0-1.fc43",
       "location": "Packages/r/rust-indexmap+std-devel-2.14.0-1.fc43.noarch.rpm",
       "name": "rust-indexmap+std-devel",
       "repo": "binary-updates",
@@ -13677,30 +13623,39 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.15.0-1.fc43",
-      "location": "Packages/r/rust-itertools+use_alloc-devel-0.15.0-1.fc43.noarch.rpm",
-      "name": "rust-itertools+use_alloc-devel",
-      "repo": "binary-updates",
-      "sha256": "3ac2c5e727789a6e8e309048973a9963901f14584ae1ca27eaa2f06a23c76a2b",
-      "source": "rust-itertools"
+      "evr": "0.13.0-2.fc43",
+      "location": "Packages/r/rust-itertools0.13-devel-0.13.0-2.fc43.noarch.rpm",
+      "name": "rust-itertools0.13-devel",
+      "repo": "binary-releases",
+      "sha256": "cc24431c253284d98adcfb3c9f7601d8f49c968b6100bf824791f43022b97f24",
+      "source": "rust-itertools0.13"
     },
     {
       "arch": "noarch",
-      "evr": "0.15.0-1.fc43",
-      "location": "Packages/r/rust-itertools+use_std-devel-0.15.0-1.fc43.noarch.rpm",
-      "name": "rust-itertools+use_std-devel",
+      "evr": "0.14.0-1.fc43",
+      "location": "Packages/r/rust-itertools0.14+use_alloc-devel-0.14.0-1.fc43.noarch.rpm",
+      "name": "rust-itertools0.14+use_alloc-devel",
       "repo": "binary-updates",
-      "sha256": "447b46a01422563607be68302c9404cd3c3635f3a05880c9fd281c969d2f1d64",
-      "source": "rust-itertools"
+      "sha256": "9f6ee07576bc1bd8de386f5d232fdb66922224dde1ebf08be992d3cca35f458e",
+      "source": "rust-itertools0.14"
     },
     {
       "arch": "noarch",
-      "evr": "0.15.0-1.fc43",
-      "location": "Packages/r/rust-itertools-devel-0.15.0-1.fc43.noarch.rpm",
-      "name": "rust-itertools-devel",
+      "evr": "0.14.0-1.fc43",
+      "location": "Packages/r/rust-itertools0.14+use_std-devel-0.14.0-1.fc43.noarch.rpm",
+      "name": "rust-itertools0.14+use_std-devel",
       "repo": "binary-updates",
-      "sha256": "1ba40138262d833f455b41f7a0939492949693452984200acc4d40cbcee3eb01",
-      "source": "rust-itertools"
+      "sha256": "47a7cc3cade7cbf8e338918fbabfcd0c3f875f713595ebd230130b9d68eb675e",
+      "source": "rust-itertools0.14"
+    },
+    {
+      "arch": "noarch",
+      "evr": "0.14.0-1.fc43",
+      "location": "Packages/r/rust-itertools0.14-devel-0.14.0-1.fc43.noarch.rpm",
+      "name": "rust-itertools0.14-devel",
+      "repo": "binary-updates",
+      "sha256": "80f149c32a86f222979fa90067a01394403621959e5dcd76277ee8cb1e798550",
+      "source": "rust-itertools0.14"
     },
     {
       "arch": "noarch",
@@ -13812,30 +13767,21 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.9.0-1.fc43",
-      "location": "Packages/r/rust-libloading+default-devel-0.9.0-1.fc43.noarch.rpm",
-      "name": "rust-libloading+default-devel",
+      "evr": "0.8.9-1.fc43",
+      "location": "Packages/r/rust-libloading0.8+default-devel-0.8.9-1.fc43.noarch.rpm",
+      "name": "rust-libloading0.8+default-devel",
       "repo": "binary-updates",
-      "sha256": "3386202a09bc8d80f0c1f441b8c03dc464f59e9720bbe732a255b8bca5d9ced8",
-      "source": "rust-libloading"
+      "sha256": "72a9586ee6aaa4a917ac815215b3e459b918739426c97acc5076945a02efb9f3",
+      "source": "rust-libloading0.8"
     },
     {
       "arch": "noarch",
-      "evr": "0.9.0-1.fc43",
-      "location": "Packages/r/rust-libloading+std-devel-0.9.0-1.fc43.noarch.rpm",
-      "name": "rust-libloading+std-devel",
+      "evr": "0.8.9-1.fc43",
+      "location": "Packages/r/rust-libloading0.8-devel-0.8.9-1.fc43.noarch.rpm",
+      "name": "rust-libloading0.8-devel",
       "repo": "binary-updates",
-      "sha256": "7a812bba25a800cfb3d9def0e56c123793c567d9ef24d7c3eeac6bf9c1383a3c",
-      "source": "rust-libloading"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.9.0-1.fc43",
-      "location": "Packages/r/rust-libloading-devel-0.9.0-1.fc43.noarch.rpm",
-      "name": "rust-libloading-devel",
-      "repo": "binary-updates",
-      "sha256": "6803689682f8502b2d4865d06a4e07950eb69902f71be5ee2c5f8f26219c0fe3",
-      "source": "rust-libloading"
+      "sha256": "57e2ed531323c2bfa6fa73ae0d240127812ca011e65439b89b74b74e2e51c841",
+      "source": "rust-libloading0.8"
     },
     {
       "arch": "noarch",
@@ -13929,6 +13875,24 @@
     },
     {
       "arch": "noarch",
+      "evr": "0.2.1-10.fc43",
+      "location": "Packages/r/rust-minimal-lexical+std-devel-0.2.1-10.fc43.noarch.rpm",
+      "name": "rust-minimal-lexical+std-devel",
+      "repo": "binary-releases",
+      "sha256": "f56f2b1a5b2f92891d149e6d3a1255af5a0152de1fc2efb16b916766e3608184",
+      "source": "rust-minimal-lexical"
+    },
+    {
+      "arch": "noarch",
+      "evr": "0.2.1-10.fc43",
+      "location": "Packages/r/rust-minimal-lexical-devel-0.2.1-10.fc43.noarch.rpm",
+      "name": "rust-minimal-lexical-devel",
+      "repo": "binary-releases",
+      "sha256": "f295963a238d6eab2542d20b9b58af9303b8f16bf214c315086904475da09451",
+      "source": "rust-minimal-lexical"
+    },
+    {
+      "arch": "noarch",
       "evr": "1.0.6-4.fc43",
       "location": "Packages/r/rust-new_debug_unreachable+default-devel-1.0.6-4.fc43.noarch.rpm",
       "name": "rust-new_debug_unreachable+default-devel",
@@ -13947,30 +13911,30 @@
     },
     {
       "arch": "noarch",
-      "evr": "8.0.0-2.fc43",
-      "location": "Packages/r/rust-nom+alloc-devel-8.0.0-2.fc43.noarch.rpm",
-      "name": "rust-nom+alloc-devel",
+      "evr": "7.1.3-2.fc43",
+      "location": "Packages/r/rust-nom7+alloc-devel-7.1.3-2.fc43.noarch.rpm",
+      "name": "rust-nom7+alloc-devel",
       "repo": "binary-releases",
-      "sha256": "3d0fae5fc5565813e77ca767e7b166bb5535d7a513b1b679612fdd427cace195",
-      "source": "rust-nom"
+      "sha256": "34764aab73f7eb5dd52417e712482917e1ff422dd11be5b10271ac57961d7b98",
+      "source": "rust-nom7"
     },
     {
       "arch": "noarch",
-      "evr": "8.0.0-2.fc43",
-      "location": "Packages/r/rust-nom+std-devel-8.0.0-2.fc43.noarch.rpm",
-      "name": "rust-nom+std-devel",
+      "evr": "7.1.3-2.fc43",
+      "location": "Packages/r/rust-nom7+std-devel-7.1.3-2.fc43.noarch.rpm",
+      "name": "rust-nom7+std-devel",
       "repo": "binary-releases",
-      "sha256": "5e68d5523ce36a90518c85dfd1d147e56c096fd2bbb6813469ab81840efc0f1f",
-      "source": "rust-nom"
+      "sha256": "32dd35de8853db93878d7a4a8589a190f111235416d5c698b3dd93fbefcbe19c",
+      "source": "rust-nom7"
     },
     {
       "arch": "noarch",
-      "evr": "8.0.0-2.fc43",
-      "location": "Packages/r/rust-nom-devel-8.0.0-2.fc43.noarch.rpm",
-      "name": "rust-nom-devel",
+      "evr": "7.1.3-2.fc43",
+      "location": "Packages/r/rust-nom7-devel-7.1.3-2.fc43.noarch.rpm",
+      "name": "rust-nom7-devel",
       "repo": "binary-releases",
-      "sha256": "0248354f71db189abdfcf0ff7ed8c5a5a5fe93f12903e0886803728d15e27106",
-      "source": "rust-nom"
+      "sha256": "59f7bb5ad98b358418b0f5a5057a21a47b98c1d8cfe639630861b3a2621b5e9e",
+      "source": "rust-nom7"
     },
     {
       "arch": "noarch",
@@ -14073,102 +14037,75 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.6.1-1.fc43",
-      "location": "Packages/r/rust-password-hash+alloc-devel-0.6.1-1.fc43.noarch.rpm",
-      "name": "rust-password-hash+alloc-devel",
+      "evr": "0.5.0-1.fc43",
+      "location": "Packages/r/rust-password-hash0.5+alloc-devel-0.5.0-1.fc43.noarch.rpm",
+      "name": "rust-password-hash0.5+alloc-devel",
       "repo": "binary-updates",
-      "sha256": "7a48b24c7c95bd839cc2b00734006f5ee5d42b6ab9aa873cbd07944dd82495b9",
-      "source": "rust-password-hash"
+      "sha256": "0849b31c13d2e76884940907e802bd698ba14656732125599c90c704707694c0",
+      "source": "rust-password-hash0.5"
     },
     {
       "arch": "noarch",
-      "evr": "0.6.1-1.fc43",
-      "location": "Packages/r/rust-password-hash+default-devel-0.6.1-1.fc43.noarch.rpm",
-      "name": "rust-password-hash+default-devel",
+      "evr": "0.5.0-1.fc43",
+      "location": "Packages/r/rust-password-hash0.5+default-devel-0.5.0-1.fc43.noarch.rpm",
+      "name": "rust-password-hash0.5+default-devel",
       "repo": "binary-updates",
-      "sha256": "83676d3470dcd6c6044e645d785de302dc3a4eb3ca59fae8fb6dde19d81f244c",
-      "source": "rust-password-hash"
+      "sha256": "3bf22c449cde0a8010768da8414f0eae6aff7ec6c41174c59295601eeaf320c6",
+      "source": "rust-password-hash0.5"
     },
     {
       "arch": "noarch",
-      "evr": "0.6.1-1.fc43",
-      "location": "Packages/r/rust-password-hash+rand_core-devel-0.6.1-1.fc43.noarch.rpm",
-      "name": "rust-password-hash+rand_core-devel",
+      "evr": "0.5.0-1.fc43",
+      "location": "Packages/r/rust-password-hash0.5+rand_core-devel-0.5.0-1.fc43.noarch.rpm",
+      "name": "rust-password-hash0.5+rand_core-devel",
       "repo": "binary-updates",
-      "sha256": "8fedb300f7eafbada3554fdfee616c4dd20026e8951f5bae58145b7f04e1f7d6",
-      "source": "rust-password-hash"
+      "sha256": "f63bd96921dd988b9e5dc5e00ad409a1a921b3c0e4d6f93d89b7c9a4d9298ac2",
+      "source": "rust-password-hash0.5"
     },
     {
       "arch": "noarch",
-      "evr": "0.6.1-1.fc43",
-      "location": "Packages/r/rust-password-hash-devel-0.6.1-1.fc43.noarch.rpm",
-      "name": "rust-password-hash-devel",
+      "evr": "0.5.0-1.fc43",
+      "location": "Packages/r/rust-password-hash0.5-devel-0.5.0-1.fc43.noarch.rpm",
+      "name": "rust-password-hash0.5-devel",
       "repo": "binary-updates",
-      "sha256": "4da5815df11c49bf289e3ab1636ac2acf66d514851328788fcfe51f345a7204f",
-      "source": "rust-password-hash"
+      "sha256": "bf5b875fc67d1aaf6406abd2a96a57bfdfa145949edb8f1eea4e06144d2c2165",
+      "source": "rust-password-hash0.5"
     },
     {
       "arch": "noarch",
-      "evr": "0.8.3-1.fc43",
-      "location": "Packages/r/rust-petgraph-devel-0.8.3-1.fc43.noarch.rpm",
-      "name": "rust-petgraph-devel",
-      "repo": "binary-updates",
-      "sha256": "f39409f85d8c310e728a07b2e3326310809b8b733d42a3a17e6ad9fa7d9a7fde",
-      "source": "rust-petgraph"
+      "evr": "0.7.1-2.fc43",
+      "location": "Packages/r/rust-petgraph0.7-devel-0.7.1-2.fc43.noarch.rpm",
+      "name": "rust-petgraph0.7-devel",
+      "repo": "binary-releases",
+      "sha256": "f5ac66cbb277630b03b660c10f37c9d9778e8f0027261329a25aaeb86d038506",
+      "source": "rust-petgraph0.7"
     },
     {
       "arch": "noarch",
-      "evr": "0.6.1-1.fc43",
-      "location": "Packages/r/rust-phc+alloc-devel-0.6.1-1.fc43.noarch.rpm",
-      "name": "rust-phc+alloc-devel",
+      "evr": "0.11.3-1.fc43",
+      "location": "Packages/r/rust-phf_shared0.11+default-devel-0.11.3-1.fc43.noarch.rpm",
+      "name": "rust-phf_shared0.11+default-devel",
       "repo": "binary-updates",
-      "sha256": "02973e9c029d8d706f6c2c7527c4b3347c0eb2040ff17065cbb51a102d04a6fc",
-      "source": "rust-phc"
+      "sha256": "ed25045668d96f5a81741a30eb4d417bed29bd93e8a33a3a8d8b0705c1da1339",
+      "source": "rust-phf_shared0.11"
     },
     {
       "arch": "noarch",
-      "evr": "0.6.1-1.fc43",
-      "location": "Packages/r/rust-phc+rand_core-devel-0.6.1-1.fc43.noarch.rpm",
-      "name": "rust-phc+rand_core-devel",
+      "evr": "0.11.3-1.fc43",
+      "location": "Packages/r/rust-phf_shared0.11+std-devel-0.11.3-1.fc43.noarch.rpm",
+      "name": "rust-phf_shared0.11+std-devel",
       "repo": "binary-updates",
-      "sha256": "1d91ad64a3352f4001688bb871c5de63ce15aafe1fbaf9817ee2c07619a13a06",
-      "source": "rust-phc"
+      "sha256": "9ccccc449e37d554d9a30bac94198b906389e8b5cfcdccc7a9a8be758de906a9",
+      "source": "rust-phf_shared0.11"
     },
     {
       "arch": "noarch",
-      "evr": "0.6.1-1.fc43",
-      "location": "Packages/r/rust-phc-devel-0.6.1-1.fc43.noarch.rpm",
-      "name": "rust-phc-devel",
+      "evr": "0.11.3-1.fc43",
+      "location": "Packages/r/rust-phf_shared0.11-devel-0.11.3-1.fc43.noarch.rpm",
+      "name": "rust-phf_shared0.11-devel",
       "repo": "binary-updates",
-      "sha256": "cefe54b23a841c916c02b3e6d3139d7e5679ec3c7f04add2b4c37fe02cae4f24",
-      "source": "rust-phc"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.13.1-1.fc43",
-      "location": "Packages/r/rust-phf_shared+default-devel-0.13.1-1.fc43.noarch.rpm",
-      "name": "rust-phf_shared+default-devel",
-      "repo": "binary-updates",
-      "sha256": "f6748662be1d4db07b6922695e27f457dfd695ab5bc1bfc56ef7a13ea3e66145",
-      "source": "rust-phf_shared"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.13.1-1.fc43",
-      "location": "Packages/r/rust-phf_shared+std-devel-0.13.1-1.fc43.noarch.rpm",
-      "name": "rust-phf_shared+std-devel",
-      "repo": "binary-updates",
-      "sha256": "bb84daac3a4e7f466ac1c53584ea8b81e7cd99ae7f08752244d8538a6b06d451",
-      "source": "rust-phf_shared"
-    },
-    {
-      "arch": "noarch",
-      "evr": "0.13.1-1.fc43",
-      "location": "Packages/r/rust-phf_shared-devel-0.13.1-1.fc43.noarch.rpm",
-      "name": "rust-phf_shared-devel",
-      "repo": "binary-updates",
-      "sha256": "fd068a8f3084e3a66f7968d16534215980f466001204b60c04b03e7c788c07f2",
-      "source": "rust-phf_shared"
+      "sha256": "680edcf37d8e33255896623eed58bc0c1b56dd2aa92a498e18a90a1ffaf45849",
+      "source": "rust-phf_shared0.11"
     },
     {
       "arch": "noarch",
@@ -14361,12 +14298,12 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.10.1-1.fc43",
-      "location": "Packages/r/rust-rand_core-devel-0.10.1-1.fc43.noarch.rpm",
-      "name": "rust-rand_core-devel",
-      "repo": "binary-updates",
-      "sha256": "5a4bb4b77af9573ade0d77f7518ed0ac153d2372f87eb08000f9c8a518c1b98d",
-      "source": "rust-rand_core"
+      "evr": "0.6.4-2.fc43",
+      "location": "Packages/r/rust-rand_core0.6-devel-0.6.4-2.fc43.noarch.rpm",
+      "name": "rust-rand_core0.6-devel",
+      "repo": "binary-releases",
+      "sha256": "487e73451d3b9065df1f5b38465874dd1ce5e4453c3d0f294e309854baa00435",
+      "source": "rust-rand_core0.6"
     },
     {
       "arch": "noarch",
@@ -15225,12 +15162,21 @@
     },
     {
       "arch": "noarch",
-      "evr": "0.9.0-1.fc43",
-      "location": "Packages/r/rust-string_cache-devel-0.9.0-1.fc43.noarch.rpm",
-      "name": "rust-string_cache-devel",
+      "evr": "0.8.9-1.fc43",
+      "location": "Packages/r/rust-string_cache0.8-devel-0.8.9-1.fc43.noarch.rpm",
+      "name": "rust-string_cache0.8-devel",
       "repo": "binary-updates",
-      "sha256": "bb499b42a35084ee47db1d78d113a6401fe6d32dba6c406dbc7218f3b5544ae6",
-      "source": "rust-string_cache"
+      "sha256": "c4df65ec8bba78a17ad3aa1855fdc7be0c311b71eaee132954b12fb3f934be40",
+      "source": "rust-string_cache0.8"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.6.1-4.fc43",
+      "location": "Packages/r/rust-subtle-devel-2.6.1-4.fc43.noarch.rpm",
+      "name": "rust-subtle-devel",
+      "repo": "binary-releases",
+      "sha256": "6bd965b323a7c7ae875a4b30cac83636b28a1e58f5ad9eabac607a0d492bc3b0",
+      "source": "rust-subtle"
     },
     {
       "arch": "noarch",
@@ -15257,33 +15203,6 @@
       "name": "rust-syn+derive-devel",
       "repo": "binary-updates",
       "sha256": "7b7a140ede6598c9f95475228c8a4c3b586ca77091515bee4f0972e30160cdfe",
-      "source": "rust-syn"
-    },
-    {
-      "arch": "noarch",
-      "evr": "3.0.3-1.fc43",
-      "location": "Packages/r/rust-syn+extra-traits-devel-3.0.3-1.fc43.noarch.rpm",
-      "name": "rust-syn+extra-traits-devel",
-      "repo": "binary-updates",
-      "sha256": "13be58e2172e436fc6cb390be660e241a272d7992e5b4dba209b4dfa467e1402",
-      "source": "rust-syn"
-    },
-    {
-      "arch": "noarch",
-      "evr": "3.0.3-1.fc43",
-      "location": "Packages/r/rust-syn+fold-devel-3.0.3-1.fc43.noarch.rpm",
-      "name": "rust-syn+fold-devel",
-      "repo": "binary-updates",
-      "sha256": "a3d51fdbe7705e1c923bebd3d0bb58c675c727822f282e494a87708a8b07aa21",
-      "source": "rust-syn"
-    },
-    {
-      "arch": "noarch",
-      "evr": "3.0.3-1.fc43",
-      "location": "Packages/r/rust-syn+full-devel-3.0.3-1.fc43.noarch.rpm",
-      "name": "rust-syn+full-devel",
-      "repo": "binary-updates",
-      "sha256": "8e4ed312d9a1caa35b44e34d324a4d53ee9761018262ba544a888757a5588be1",
       "source": "rust-syn"
     },
     {
@@ -15316,29 +15235,119 @@
     {
       "arch": "noarch",
       "evr": "3.0.3-1.fc43",
-      "location": "Packages/r/rust-syn+visit-devel-3.0.3-1.fc43.noarch.rpm",
-      "name": "rust-syn+visit-devel",
-      "repo": "binary-updates",
-      "sha256": "4ecdb0e04075b2c9be41e2b5ede8f31fdbf4be846febd12ee2f04912087b914c",
-      "source": "rust-syn"
-    },
-    {
-      "arch": "noarch",
-      "evr": "3.0.3-1.fc43",
-      "location": "Packages/r/rust-syn+visit-mut-devel-3.0.3-1.fc43.noarch.rpm",
-      "name": "rust-syn+visit-mut-devel",
-      "repo": "binary-updates",
-      "sha256": "1754dbb14eb352c40f5a6788ae00eed1706802cdeaec6da2c3d22ca0eeeb32cb",
-      "source": "rust-syn"
-    },
-    {
-      "arch": "noarch",
-      "evr": "3.0.3-1.fc43",
       "location": "Packages/r/rust-syn-devel-3.0.3-1.fc43.noarch.rpm",
       "name": "rust-syn-devel",
       "repo": "binary-updates",
       "sha256": "0c763103d0a538ebdb450cb8e60fb744dd82eea642c6def88468e739fc60b6e5",
       "source": "rust-syn"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+clone-impls-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+clone-impls-devel",
+      "repo": "binary-updates",
+      "sha256": "c3eac9e9857ff3cfd105825d90e6de48956fbbce4d6ac0a6c779711e76e538df",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+default-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+default-devel",
+      "repo": "binary-updates",
+      "sha256": "668d860f9841e92704d953ed8b810b080828125f31fa9c934e9fb64964ece37c",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+derive-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+derive-devel",
+      "repo": "binary-updates",
+      "sha256": "1d94a3d0b42ac96a1ff002ee4b4a1d2025a82b72bb21eb9d3a62c9a858fa947c",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+extra-traits-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+extra-traits-devel",
+      "repo": "binary-updates",
+      "sha256": "9e19abd1c853bf5dd00d847fdccd008b61d54ca952103d707e39e8c0ab2088b1",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+fold-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+fold-devel",
+      "repo": "binary-updates",
+      "sha256": "4c7a2de918207907bd0857245b9f224c2a26d03b5db465ee0c168beea7e89d05",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+full-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+full-devel",
+      "repo": "binary-updates",
+      "sha256": "138da624e9f26d3a5bf67d993a98c7ebea1c3c088c83e834c6b72402dcfac67b",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+parsing-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+parsing-devel",
+      "repo": "binary-updates",
+      "sha256": "99c973555ebb68d4c969cdb3d17f965541779e06bb6d2e29d4e3c1bd8c76ba0e",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+printing-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+printing-devel",
+      "repo": "binary-updates",
+      "sha256": "45543837c8440d7e7cdcd6c5b32d95be473567bbcc63b526ba2fa162072f43d6",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+proc-macro-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+proc-macro-devel",
+      "repo": "binary-updates",
+      "sha256": "b6e07439171db3207f947ce6e4c54d485d1591b3989b12bc49425d888f1a5c90",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+visit-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+visit-devel",
+      "repo": "binary-updates",
+      "sha256": "2a8f2c830dd14a4a58c150467213f71073039046fc7cdc0fb807ad6e27ae90e6",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2+visit-mut-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2+visit-mut-devel",
+      "repo": "binary-updates",
+      "sha256": "db623f2f536bc21e22aceacf45c98dcd5a881b6b67b5374dcdf1ea3a836aee2b",
+      "source": "rust-syn2"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.0.119-1.fc43",
+      "location": "Packages/r/rust-syn2-devel-2.0.119-1.fc43.noarch.rpm",
+      "name": "rust-syn2-devel",
+      "repo": "binary-updates",
+      "sha256": "27f6acb18b32ed00cd5aa40ab0528ff4f9bf524b305686138f0a30ff4238b52b",
+      "source": "rust-syn2"
     },
     {
       "arch": "noarch",
@@ -15387,21 +15396,21 @@
     },
     {
       "arch": "noarch",
-      "evr": "1.0.0-1.fc43",
-      "location": "Packages/r/rust-termtree+default-devel-1.0.0-1.fc43.noarch.rpm",
-      "name": "rust-termtree+default-devel",
+      "evr": "0.5.1-1.fc43",
+      "location": "Packages/r/rust-termtree0.5+default-devel-0.5.1-1.fc43.noarch.rpm",
+      "name": "rust-termtree0.5+default-devel",
       "repo": "binary-updates",
-      "sha256": "09b6471254d0f9b337a5089b123a95492ccaf4738449eebbc6a7d009cda0b099",
-      "source": "rust-termtree"
+      "sha256": "268f05cab33f2a081696b61e6e95f762be79dcc28443f3c645ea6402da587c07",
+      "source": "rust-termtree0.5"
     },
     {
       "arch": "noarch",
-      "evr": "1.0.0-1.fc43",
-      "location": "Packages/r/rust-termtree-devel-1.0.0-1.fc43.noarch.rpm",
-      "name": "rust-termtree-devel",
+      "evr": "0.5.1-1.fc43",
+      "location": "Packages/r/rust-termtree0.5-devel-0.5.1-1.fc43.noarch.rpm",
+      "name": "rust-termtree0.5-devel",
       "repo": "binary-updates",
-      "sha256": "06cc437e9822032635c6087ad0cbc16bc017a354fa735f3c4c728745c007caaf",
-      "source": "rust-termtree"
+      "sha256": "4ada47e23e144d9b716e51578eebd75aa55d7a0f86cb9ae35bc1bfa9e5d3d696",
+      "source": "rust-termtree0.5"
     },
     {
       "arch": "noarch",
@@ -15609,15 +15618,6 @@
       "repo": "binary-updates",
       "sha256": "39de8786e86db45802ec4173ebc7761b2d9b6ff56836fc932702d6785f47ae23",
       "source": "rust-toml_writer"
-    },
-    {
-      "arch": "noarch",
-      "evr": "1.20.1-1.fc43",
-      "location": "Packages/r/rust-typenum+const-generics-devel-1.20.1-1.fc43.noarch.rpm",
-      "name": "rust-typenum+const-generics-devel",
-      "repo": "binary-updates",
-      "sha256": "dcb7fd2186ea3cbc98afc0e45ba726093769881c6c6348774f567fcb832476aa",
-      "source": "rust-typenum"
     },
     {
       "arch": "noarch",
@@ -322054,30 +322054,21 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.12.16-1.fc43",
-          "location": "Packages/r/rust-annotate-snippets+default-devel-0.12.16-1.fc43.noarch.rpm",
-          "name": "rust-annotate-snippets+default-devel",
+          "evr": "0.11.5-1.fc43",
+          "location": "Packages/r/rust-annotate-snippets0.11+default-devel-0.11.5-1.fc43.noarch.rpm",
+          "name": "rust-annotate-snippets0.11+default-devel",
           "repo": "binary-updates",
-          "sha256": "b099ada97723f886f7b37c5d09e97e38451601368805a785cf65898dd38cfcae",
-          "source": "rust-annotate-snippets"
+          "sha256": "0ce2d3fe8993bed3984467c18157f05d68bbf6400266ea9fa5d1d34ac6f7da21",
+          "source": "rust-annotate-snippets0.11"
         },
         {
           "arch": "noarch",
-          "evr": "0.12.16-1.fc43",
-          "location": "Packages/r/rust-annotate-snippets+std-devel-0.12.16-1.fc43.noarch.rpm",
-          "name": "rust-annotate-snippets+std-devel",
+          "evr": "0.11.5-1.fc43",
+          "location": "Packages/r/rust-annotate-snippets0.11-devel-0.11.5-1.fc43.noarch.rpm",
+          "name": "rust-annotate-snippets0.11-devel",
           "repo": "binary-updates",
-          "sha256": "21cf27493b277b673dadb6fa9bfb957fa6493f17c9589ffa8c3e6322e684b2a4",
-          "source": "rust-annotate-snippets"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.12.16-1.fc43",
-          "location": "Packages/r/rust-annotate-snippets-devel-0.12.16-1.fc43.noarch.rpm",
-          "name": "rust-annotate-snippets-devel",
-          "repo": "binary-updates",
-          "sha256": "03e5352d94133474352e9daec066ccb949b7750b5094566c5fc740f67d33269d",
-          "source": "rust-annotate-snippets"
+          "sha256": "9d201c75a158b1ebcb165328f86310eda79f45af75ffc2a55eceb361ab50062e",
+          "source": "rust-annotate-snippets0.11"
         },
         {
           "arch": "noarch",
@@ -322387,21 +322378,21 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.12.1-1.fc43",
-          "location": "Packages/r/rust-block-buffer+default-devel-0.12.1-1.fc43.noarch.rpm",
-          "name": "rust-block-buffer+default-devel",
+          "evr": "0.10.4-1.fc43",
+          "location": "Packages/r/rust-block-buffer0.10+default-devel-0.10.4-1.fc43.noarch.rpm",
+          "name": "rust-block-buffer0.10+default-devel",
           "repo": "binary-updates",
-          "sha256": "d1824e2474ecb9b8fe979d83704e4fbefb79dafafd483b4441364f85c577549a",
-          "source": "rust-block-buffer"
+          "sha256": "4e8c1eab5b71e79cbef3ed06fafcb93ed91baf67709cc5d04201ba8ee69053d5",
+          "source": "rust-block-buffer0.10"
         },
         {
           "arch": "noarch",
-          "evr": "0.12.1-1.fc43",
-          "location": "Packages/r/rust-block-buffer-devel-0.12.1-1.fc43.noarch.rpm",
-          "name": "rust-block-buffer-devel",
+          "evr": "0.10.4-1.fc43",
+          "location": "Packages/r/rust-block-buffer0.10-devel-0.10.4-1.fc43.noarch.rpm",
+          "name": "rust-block-buffer0.10-devel",
           "repo": "binary-updates",
-          "sha256": "95355390a4d7ab7b77157a49d6cac6463fcc6a83da1070af6c9f49a2afb4c89c",
-          "source": "rust-block-buffer"
+          "sha256": "e47b16a32a2dbcc60b840d55db537d4aafeab7d7bf368bf764200693a33bfa75",
+          "source": "rust-block-buffer0.10"
         },
         {
           "arch": "noarch",
@@ -322756,84 +322747,48 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.5.4-1.fc43",
-          "location": "Packages/r/rust-cmov+default-devel-0.5.4-1.fc43.noarch.rpm",
-          "name": "rust-cmov+default-devel",
+          "evr": "0.2.17-1.fc43",
+          "location": "Packages/r/rust-cpufeatures0.2+default-devel-0.2.17-1.fc43.noarch.rpm",
+          "name": "rust-cpufeatures0.2+default-devel",
           "repo": "binary-updates",
-          "sha256": "bb81d81fa79ac0a065747368e5524ca35db1ea602374b09686036cec4b6211ad",
-          "source": "rust-cmov"
+          "sha256": "ad96792202fb38c8921fb83bb41750e1c94bc03aabece75eef9dacb7f9d7b5be",
+          "source": "rust-cpufeatures0.2"
         },
         {
           "arch": "noarch",
-          "evr": "0.5.4-1.fc43",
-          "location": "Packages/r/rust-cmov-devel-0.5.4-1.fc43.noarch.rpm",
-          "name": "rust-cmov-devel",
+          "evr": "0.2.17-1.fc43",
+          "location": "Packages/r/rust-cpufeatures0.2-devel-0.2.17-1.fc43.noarch.rpm",
+          "name": "rust-cpufeatures0.2-devel",
           "repo": "binary-updates",
-          "sha256": "08cb871423afc9ba02d54eb3b625d3c2023a0f77aace042004298e44354ea787",
-          "source": "rust-cmov"
+          "sha256": "1f76ea220be2759859c4addecd554affc61a41db7925b18ea16449df07e26ccf",
+          "source": "rust-cpufeatures0.2"
         },
         {
           "arch": "noarch",
-          "evr": "0.3.0-1.fc43",
-          "location": "Packages/r/rust-cpufeatures+default-devel-0.3.0-1.fc43.noarch.rpm",
-          "name": "rust-cpufeatures+default-devel",
+          "evr": "0.1.7-1.fc43",
+          "location": "Packages/r/rust-crypto-common0.1+default-devel-0.1.7-1.fc43.noarch.rpm",
+          "name": "rust-crypto-common0.1+default-devel",
           "repo": "binary-updates",
-          "sha256": "521cd6e47a0486aebc45d58a8c2a40f5dad68f38833d3c9583316070ef0c9af1",
-          "source": "rust-cpufeatures"
+          "sha256": "a37a365e67a86d00bd825683c503e27fa80bba6d23813a51f23f7f97a90a01d3",
+          "source": "rust-crypto-common0.1"
         },
         {
           "arch": "noarch",
-          "evr": "0.3.0-1.fc43",
-          "location": "Packages/r/rust-cpufeatures-devel-0.3.0-1.fc43.noarch.rpm",
-          "name": "rust-cpufeatures-devel",
+          "evr": "0.1.7-1.fc43",
+          "location": "Packages/r/rust-crypto-common0.1+std-devel-0.1.7-1.fc43.noarch.rpm",
+          "name": "rust-crypto-common0.1+std-devel",
           "repo": "binary-updates",
-          "sha256": "002acc40053bc0d42bccb283fbfff43d8dca9ce460243832ab5cd471414a1d85",
-          "source": "rust-cpufeatures"
+          "sha256": "8de8dacc29cd2fbbab3da28a084f001d94830cb35f07c7e2eed2e3b217b05491",
+          "source": "rust-crypto-common0.1"
         },
         {
           "arch": "noarch",
-          "evr": "0.2.2-1.fc43",
-          "location": "Packages/r/rust-crypto-common+default-devel-0.2.2-1.fc43.noarch.rpm",
-          "name": "rust-crypto-common+default-devel",
+          "evr": "0.1.7-1.fc43",
+          "location": "Packages/r/rust-crypto-common0.1-devel-0.1.7-1.fc43.noarch.rpm",
+          "name": "rust-crypto-common0.1-devel",
           "repo": "binary-updates",
-          "sha256": "a6237d0baa6c75ecd86e85fbffe22da7566b395dad73246951ffe37ff2116b22",
-          "source": "rust-crypto-common"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.1.6-6.fc43",
-          "location": "Packages/r/rust-crypto-common+std-devel-0.1.6-6.fc43.noarch.rpm",
-          "name": "rust-crypto-common+std-devel",
-          "repo": "binary-releases",
-          "sha256": "88bca23ea1b1b9716a67893d1f44e5c91a65f1f33ef04ff61dc177b1770cea31",
-          "source": "rust-crypto-common"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.2.2-1.fc43",
-          "location": "Packages/r/rust-crypto-common-devel-0.2.2-1.fc43.noarch.rpm",
-          "name": "rust-crypto-common-devel",
-          "repo": "binary-updates",
-          "sha256": "1058553c4114398de3e9adc33b099cd13b9f24c83d3e51c0d6e84e603f5e03c3",
-          "source": "rust-crypto-common"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.4.2-1.fc43",
-          "location": "Packages/r/rust-ctutils+default-devel-0.4.2-1.fc43.noarch.rpm",
-          "name": "rust-ctutils+default-devel",
-          "repo": "binary-updates",
-          "sha256": "4d49be0870629f38c02c81b6adda9d9449001e9ad54ea5f81c8dc6ac8a23bdb5",
-          "source": "rust-ctutils"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.4.2-1.fc43",
-          "location": "Packages/r/rust-ctutils-devel-0.4.2-1.fc43.noarch.rpm",
-          "name": "rust-ctutils-devel",
-          "repo": "binary-updates",
-          "sha256": "bb9e494686a526811beba78b378dc58193e572eb5334a9f43261700eba6d526d",
-          "source": "rust-ctutils"
+          "sha256": "3388da68fdcdd1a803e2f0955716928badc26f9822767372a7f777d437e4a7c7",
+          "source": "rust-crypto-common0.1"
         },
         {
           "arch": "noarch",
@@ -322855,38 +322810,20 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.11.3-1.fc43",
-          "location": "Packages/r/rust-digest+alloc-devel-0.11.3-1.fc43.noarch.rpm",
-          "name": "rust-digest+alloc-devel",
-          "repo": "binary-updates",
-          "sha256": "004bff49e02f88b9d11fa5c4830a1187f0795f8024135ef0ce0798702f4adf64",
+          "evr": "0.10.7-6.fc43",
+          "location": "Packages/r/rust-digest+block-buffer-devel-0.10.7-6.fc43.noarch.rpm",
+          "name": "rust-digest+block-buffer-devel",
+          "repo": "binary-releases",
+          "sha256": "686aae536c0f8254bfe34528eddd322693059830362563314661a60b2dc8b933",
           "source": "rust-digest"
         },
         {
           "arch": "noarch",
-          "evr": "0.11.3-1.fc43",
-          "location": "Packages/r/rust-digest+block-api-devel-0.11.3-1.fc43.noarch.rpm",
-          "name": "rust-digest+block-api-devel",
-          "repo": "binary-updates",
-          "sha256": "7d1c49c52cbca71fbfb026c79007b917f2becab8935de3023ea4745cc890a613",
-          "source": "rust-digest"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.11.3-1.fc43",
-          "location": "Packages/r/rust-digest+default-devel-0.11.3-1.fc43.noarch.rpm",
-          "name": "rust-digest+default-devel",
-          "repo": "binary-updates",
-          "sha256": "11f247413126363f562839575d63156275cfa6e612b53ca5b0ac27bddbe7ab1b",
-          "source": "rust-digest"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.11.3-1.fc43",
-          "location": "Packages/r/rust-digest+mac-devel-0.11.3-1.fc43.noarch.rpm",
-          "name": "rust-digest+mac-devel",
-          "repo": "binary-updates",
-          "sha256": "c15b6a42c23e49b0e2911dfeec9a2fff2315265340e84dccfb6a216e5c1686b4",
+          "evr": "0.10.7-6.fc43",
+          "location": "Packages/r/rust-digest+core-api-devel-0.10.7-6.fc43.noarch.rpm",
+          "name": "rust-digest+core-api-devel",
+          "repo": "binary-releases",
+          "sha256": "14ecb061a8aeb3d93bcb7fa0937bf40c075f3fb11e7ffc581e97af29da682a5c",
           "source": "rust-digest"
         },
         {
@@ -322900,12 +322837,48 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.11.3-1.fc43",
-          "location": "Packages/r/rust-digest-devel-0.11.3-1.fc43.noarch.rpm",
-          "name": "rust-digest-devel",
-          "repo": "binary-updates",
-          "sha256": "9de323f846f8e420374304332644a672e8735ea2457f09b62df82b4951f2ff97",
+          "evr": "0.10.7-6.fc43",
+          "location": "Packages/r/rust-digest+subtle-devel-0.10.7-6.fc43.noarch.rpm",
+          "name": "rust-digest+subtle-devel",
+          "repo": "binary-releases",
+          "sha256": "838820e14c2981e4bdffdc077172994b96ee933b13d1f0964f251168ba6dfc81",
           "source": "rust-digest"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.10.7-1.fc43",
+          "location": "Packages/r/rust-digest0.10+alloc-devel-0.10.7-1.fc43.noarch.rpm",
+          "name": "rust-digest0.10+alloc-devel",
+          "repo": "binary-updates",
+          "sha256": "3ef514574991e8e86d783026e8f974839f3b8e95f1712f54ccfafe8e8e44b11e",
+          "source": "rust-digest0.10"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.10.7-1.fc43",
+          "location": "Packages/r/rust-digest0.10+default-devel-0.10.7-1.fc43.noarch.rpm",
+          "name": "rust-digest0.10+default-devel",
+          "repo": "binary-updates",
+          "sha256": "90302d5a35c0a51c956d3935d8c0f473828c6bedf968fe3577f1d1282e7faeca",
+          "source": "rust-digest0.10"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.10.7-1.fc43",
+          "location": "Packages/r/rust-digest0.10+mac-devel-0.10.7-1.fc43.noarch.rpm",
+          "name": "rust-digest0.10+mac-devel",
+          "repo": "binary-updates",
+          "sha256": "be8f90e2a30030d9412f45389c849844379463e49ee87fa08e2f76159773ced3",
+          "source": "rust-digest0.10"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.10.7-1.fc43",
+          "location": "Packages/r/rust-digest0.10-devel-0.10.7-1.fc43.noarch.rpm",
+          "name": "rust-digest0.10-devel",
+          "repo": "binary-updates",
+          "sha256": "78d66b735462ac5e5888d5c8bf136415f5eb62fac186de49872d4e28e88cc5ce",
+          "source": "rust-digest0.10"
         },
         {
           "arch": "noarch",
@@ -323008,20 +322981,20 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.2.0-1.fc43",
-          "location": "Packages/r/rust-foldhash-devel-0.2.0-1.fc43.noarch.rpm",
-          "name": "rust-foldhash-devel",
-          "repo": "binary-releases",
-          "sha256": "d1e2fe85ffcc426d376641a02a1ccf2983ce5a75a264121aba8bf07f302252ed",
-          "source": "rust-foldhash"
-        },
-        {
-          "arch": "noarch",
           "evr": "0.14.9-1.fc43",
           "location": "Packages/r/rust-generic-array+default-devel-0.14.9-1.fc43.noarch.rpm",
           "name": "rust-generic-array+default-devel",
           "repo": "binary-updates",
           "sha256": "1d54970524ce6cbcb21409f101ead2a1393c07919d9bf7d3c47ca9c553cabc72",
+          "source": "rust-generic-array"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.14.9-1.fc43",
+          "location": "Packages/r/rust-generic-array+more_lengths-devel-0.14.9-1.fc43.noarch.rpm",
+          "name": "rust-generic-array+more_lengths-devel",
+          "repo": "binary-updates",
+          "sha256": "0fd562a6e356865891a9854e431a4ff0eb8a02514e7e2f53f110caac37bf73a1",
           "source": "rust-generic-array"
         },
         {
@@ -323054,47 +323027,11 @@
         {
           "arch": "noarch",
           "evr": "0.17.0-1.fc43",
-          "location": "Packages/r/rust-hashbrown+default-hasher-devel-0.17.0-1.fc43.noarch.rpm",
-          "name": "rust-hashbrown+default-hasher-devel",
-          "repo": "binary-updates",
-          "sha256": "7c6d9b2f7f7277c7fc92581060ab0597a5b3050f9ea49c3d6be20e0b63fe57fa",
-          "source": "rust-hashbrown"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.17.0-1.fc43",
-          "location": "Packages/r/rust-hashbrown+inline-more-devel-0.17.0-1.fc43.noarch.rpm",
-          "name": "rust-hashbrown+inline-more-devel",
-          "repo": "binary-updates",
-          "sha256": "30fc3e0dc36c4e94dc568ea48128b61e03e79cceaccc3c711bb980c232bf297c",
-          "source": "rust-hashbrown"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.17.0-1.fc43",
           "location": "Packages/r/rust-hashbrown-devel-0.17.0-1.fc43.noarch.rpm",
           "name": "rust-hashbrown-devel",
           "repo": "binary-updates",
           "sha256": "85bd7bf65d41f095a15bc5918dab5219f7cbff72b73189c4c0795ed9afaeb159",
           "source": "rust-hashbrown"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.4.13-1.fc43",
-          "location": "Packages/r/rust-hybrid-array+default-devel-0.4.13-1.fc43.noarch.rpm",
-          "name": "rust-hybrid-array+default-devel",
-          "repo": "binary-updates",
-          "sha256": "32f14bb6d79315de308f77ef3d58bf1199657d66f878d6050a9f008b1f2be612",
-          "source": "rust-hybrid-array"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.4.13-1.fc43",
-          "location": "Packages/r/rust-hybrid-array-devel-0.4.13-1.fc43.noarch.rpm",
-          "name": "rust-hybrid-array-devel",
-          "repo": "binary-updates",
-          "sha256": "bff259205c9b076e517ef5a38fc87a8c03f2682029d95020a9c58d8ff8124b4f",
-          "source": "rust-hybrid-array"
         },
         {
           "arch": "noarch",
@@ -323297,6 +323234,15 @@
         {
           "arch": "noarch",
           "evr": "2.14.0-1.fc43",
+          "location": "Packages/r/rust-indexmap+default-devel-2.14.0-1.fc43.noarch.rpm",
+          "name": "rust-indexmap+default-devel",
+          "repo": "binary-updates",
+          "sha256": "aa1d48dbd2ccf781410bb6779df2388d095eb84350810041266d7daa6291cb95",
+          "source": "rust-indexmap"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.14.0-1.fc43",
           "location": "Packages/r/rust-indexmap+std-devel-2.14.0-1.fc43.noarch.rpm",
           "name": "rust-indexmap+std-devel",
           "repo": "binary-updates",
@@ -323314,30 +323260,39 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.15.0-1.fc43",
-          "location": "Packages/r/rust-itertools+use_alloc-devel-0.15.0-1.fc43.noarch.rpm",
-          "name": "rust-itertools+use_alloc-devel",
-          "repo": "binary-updates",
-          "sha256": "3ac2c5e727789a6e8e309048973a9963901f14584ae1ca27eaa2f06a23c76a2b",
-          "source": "rust-itertools"
+          "evr": "0.13.0-2.fc43",
+          "location": "Packages/r/rust-itertools0.13-devel-0.13.0-2.fc43.noarch.rpm",
+          "name": "rust-itertools0.13-devel",
+          "repo": "binary-releases",
+          "sha256": "cc24431c253284d98adcfb3c9f7601d8f49c968b6100bf824791f43022b97f24",
+          "source": "rust-itertools0.13"
         },
         {
           "arch": "noarch",
-          "evr": "0.15.0-1.fc43",
-          "location": "Packages/r/rust-itertools+use_std-devel-0.15.0-1.fc43.noarch.rpm",
-          "name": "rust-itertools+use_std-devel",
+          "evr": "0.14.0-1.fc43",
+          "location": "Packages/r/rust-itertools0.14+use_alloc-devel-0.14.0-1.fc43.noarch.rpm",
+          "name": "rust-itertools0.14+use_alloc-devel",
           "repo": "binary-updates",
-          "sha256": "447b46a01422563607be68302c9404cd3c3635f3a05880c9fd281c969d2f1d64",
-          "source": "rust-itertools"
+          "sha256": "9f6ee07576bc1bd8de386f5d232fdb66922224dde1ebf08be992d3cca35f458e",
+          "source": "rust-itertools0.14"
         },
         {
           "arch": "noarch",
-          "evr": "0.15.0-1.fc43",
-          "location": "Packages/r/rust-itertools-devel-0.15.0-1.fc43.noarch.rpm",
-          "name": "rust-itertools-devel",
+          "evr": "0.14.0-1.fc43",
+          "location": "Packages/r/rust-itertools0.14+use_std-devel-0.14.0-1.fc43.noarch.rpm",
+          "name": "rust-itertools0.14+use_std-devel",
           "repo": "binary-updates",
-          "sha256": "1ba40138262d833f455b41f7a0939492949693452984200acc4d40cbcee3eb01",
-          "source": "rust-itertools"
+          "sha256": "47a7cc3cade7cbf8e338918fbabfcd0c3f875f713595ebd230130b9d68eb675e",
+          "source": "rust-itertools0.14"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.14.0-1.fc43",
+          "location": "Packages/r/rust-itertools0.14-devel-0.14.0-1.fc43.noarch.rpm",
+          "name": "rust-itertools0.14-devel",
+          "repo": "binary-updates",
+          "sha256": "80f149c32a86f222979fa90067a01394403621959e5dcd76277ee8cb1e798550",
+          "source": "rust-itertools0.14"
         },
         {
           "arch": "noarch",
@@ -323449,30 +323404,21 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.9.0-1.fc43",
-          "location": "Packages/r/rust-libloading+default-devel-0.9.0-1.fc43.noarch.rpm",
-          "name": "rust-libloading+default-devel",
+          "evr": "0.8.9-1.fc43",
+          "location": "Packages/r/rust-libloading0.8+default-devel-0.8.9-1.fc43.noarch.rpm",
+          "name": "rust-libloading0.8+default-devel",
           "repo": "binary-updates",
-          "sha256": "3386202a09bc8d80f0c1f441b8c03dc464f59e9720bbe732a255b8bca5d9ced8",
-          "source": "rust-libloading"
+          "sha256": "72a9586ee6aaa4a917ac815215b3e459b918739426c97acc5076945a02efb9f3",
+          "source": "rust-libloading0.8"
         },
         {
           "arch": "noarch",
-          "evr": "0.9.0-1.fc43",
-          "location": "Packages/r/rust-libloading+std-devel-0.9.0-1.fc43.noarch.rpm",
-          "name": "rust-libloading+std-devel",
+          "evr": "0.8.9-1.fc43",
+          "location": "Packages/r/rust-libloading0.8-devel-0.8.9-1.fc43.noarch.rpm",
+          "name": "rust-libloading0.8-devel",
           "repo": "binary-updates",
-          "sha256": "7a812bba25a800cfb3d9def0e56c123793c567d9ef24d7c3eeac6bf9c1383a3c",
-          "source": "rust-libloading"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.9.0-1.fc43",
-          "location": "Packages/r/rust-libloading-devel-0.9.0-1.fc43.noarch.rpm",
-          "name": "rust-libloading-devel",
-          "repo": "binary-updates",
-          "sha256": "6803689682f8502b2d4865d06a4e07950eb69902f71be5ee2c5f8f26219c0fe3",
-          "source": "rust-libloading"
+          "sha256": "57e2ed531323c2bfa6fa73ae0d240127812ca011e65439b89b74b74e2e51c841",
+          "source": "rust-libloading0.8"
         },
         {
           "arch": "noarch",
@@ -323566,6 +323512,24 @@
         },
         {
           "arch": "noarch",
+          "evr": "0.2.1-10.fc43",
+          "location": "Packages/r/rust-minimal-lexical+std-devel-0.2.1-10.fc43.noarch.rpm",
+          "name": "rust-minimal-lexical+std-devel",
+          "repo": "binary-releases",
+          "sha256": "f56f2b1a5b2f92891d149e6d3a1255af5a0152de1fc2efb16b916766e3608184",
+          "source": "rust-minimal-lexical"
+        },
+        {
+          "arch": "noarch",
+          "evr": "0.2.1-10.fc43",
+          "location": "Packages/r/rust-minimal-lexical-devel-0.2.1-10.fc43.noarch.rpm",
+          "name": "rust-minimal-lexical-devel",
+          "repo": "binary-releases",
+          "sha256": "f295963a238d6eab2542d20b9b58af9303b8f16bf214c315086904475da09451",
+          "source": "rust-minimal-lexical"
+        },
+        {
+          "arch": "noarch",
           "evr": "1.0.6-4.fc43",
           "location": "Packages/r/rust-new_debug_unreachable+default-devel-1.0.6-4.fc43.noarch.rpm",
           "name": "rust-new_debug_unreachable+default-devel",
@@ -323584,30 +323548,30 @@
         },
         {
           "arch": "noarch",
-          "evr": "8.0.0-2.fc43",
-          "location": "Packages/r/rust-nom+alloc-devel-8.0.0-2.fc43.noarch.rpm",
-          "name": "rust-nom+alloc-devel",
+          "evr": "7.1.3-2.fc43",
+          "location": "Packages/r/rust-nom7+alloc-devel-7.1.3-2.fc43.noarch.rpm",
+          "name": "rust-nom7+alloc-devel",
           "repo": "binary-releases",
-          "sha256": "3d0fae5fc5565813e77ca767e7b166bb5535d7a513b1b679612fdd427cace195",
-          "source": "rust-nom"
+          "sha256": "34764aab73f7eb5dd52417e712482917e1ff422dd11be5b10271ac57961d7b98",
+          "source": "rust-nom7"
         },
         {
           "arch": "noarch",
-          "evr": "8.0.0-2.fc43",
-          "location": "Packages/r/rust-nom+std-devel-8.0.0-2.fc43.noarch.rpm",
-          "name": "rust-nom+std-devel",
+          "evr": "7.1.3-2.fc43",
+          "location": "Packages/r/rust-nom7+std-devel-7.1.3-2.fc43.noarch.rpm",
+          "name": "rust-nom7+std-devel",
           "repo": "binary-releases",
-          "sha256": "5e68d5523ce36a90518c85dfd1d147e56c096fd2bbb6813469ab81840efc0f1f",
-          "source": "rust-nom"
+          "sha256": "32dd35de8853db93878d7a4a8589a190f111235416d5c698b3dd93fbefcbe19c",
+          "source": "rust-nom7"
         },
         {
           "arch": "noarch",
-          "evr": "8.0.0-2.fc43",
-          "location": "Packages/r/rust-nom-devel-8.0.0-2.fc43.noarch.rpm",
-          "name": "rust-nom-devel",
+          "evr": "7.1.3-2.fc43",
+          "location": "Packages/r/rust-nom7-devel-7.1.3-2.fc43.noarch.rpm",
+          "name": "rust-nom7-devel",
           "repo": "binary-releases",
-          "sha256": "0248354f71db189abdfcf0ff7ed8c5a5a5fe93f12903e0886803728d15e27106",
-          "source": "rust-nom"
+          "sha256": "59f7bb5ad98b358418b0f5a5057a21a47b98c1d8cfe639630861b3a2621b5e9e",
+          "source": "rust-nom7"
         },
         {
           "arch": "noarch",
@@ -323710,102 +323674,75 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.6.1-1.fc43",
-          "location": "Packages/r/rust-password-hash+alloc-devel-0.6.1-1.fc43.noarch.rpm",
-          "name": "rust-password-hash+alloc-devel",
+          "evr": "0.5.0-1.fc43",
+          "location": "Packages/r/rust-password-hash0.5+alloc-devel-0.5.0-1.fc43.noarch.rpm",
+          "name": "rust-password-hash0.5+alloc-devel",
           "repo": "binary-updates",
-          "sha256": "7a48b24c7c95bd839cc2b00734006f5ee5d42b6ab9aa873cbd07944dd82495b9",
-          "source": "rust-password-hash"
+          "sha256": "0849b31c13d2e76884940907e802bd698ba14656732125599c90c704707694c0",
+          "source": "rust-password-hash0.5"
         },
         {
           "arch": "noarch",
-          "evr": "0.6.1-1.fc43",
-          "location": "Packages/r/rust-password-hash+default-devel-0.6.1-1.fc43.noarch.rpm",
-          "name": "rust-password-hash+default-devel",
+          "evr": "0.5.0-1.fc43",
+          "location": "Packages/r/rust-password-hash0.5+default-devel-0.5.0-1.fc43.noarch.rpm",
+          "name": "rust-password-hash0.5+default-devel",
           "repo": "binary-updates",
-          "sha256": "83676d3470dcd6c6044e645d785de302dc3a4eb3ca59fae8fb6dde19d81f244c",
-          "source": "rust-password-hash"
+          "sha256": "3bf22c449cde0a8010768da8414f0eae6aff7ec6c41174c59295601eeaf320c6",
+          "source": "rust-password-hash0.5"
         },
         {
           "arch": "noarch",
-          "evr": "0.6.1-1.fc43",
-          "location": "Packages/r/rust-password-hash+rand_core-devel-0.6.1-1.fc43.noarch.rpm",
-          "name": "rust-password-hash+rand_core-devel",
+          "evr": "0.5.0-1.fc43",
+          "location": "Packages/r/rust-password-hash0.5+rand_core-devel-0.5.0-1.fc43.noarch.rpm",
+          "name": "rust-password-hash0.5+rand_core-devel",
           "repo": "binary-updates",
-          "sha256": "8fedb300f7eafbada3554fdfee616c4dd20026e8951f5bae58145b7f04e1f7d6",
-          "source": "rust-password-hash"
+          "sha256": "f63bd96921dd988b9e5dc5e00ad409a1a921b3c0e4d6f93d89b7c9a4d9298ac2",
+          "source": "rust-password-hash0.5"
         },
         {
           "arch": "noarch",
-          "evr": "0.6.1-1.fc43",
-          "location": "Packages/r/rust-password-hash-devel-0.6.1-1.fc43.noarch.rpm",
-          "name": "rust-password-hash-devel",
+          "evr": "0.5.0-1.fc43",
+          "location": "Packages/r/rust-password-hash0.5-devel-0.5.0-1.fc43.noarch.rpm",
+          "name": "rust-password-hash0.5-devel",
           "repo": "binary-updates",
-          "sha256": "4da5815df11c49bf289e3ab1636ac2acf66d514851328788fcfe51f345a7204f",
-          "source": "rust-password-hash"
+          "sha256": "bf5b875fc67d1aaf6406abd2a96a57bfdfa145949edb8f1eea4e06144d2c2165",
+          "source": "rust-password-hash0.5"
         },
         {
           "arch": "noarch",
-          "evr": "0.8.3-1.fc43",
-          "location": "Packages/r/rust-petgraph-devel-0.8.3-1.fc43.noarch.rpm",
-          "name": "rust-petgraph-devel",
-          "repo": "binary-updates",
-          "sha256": "f39409f85d8c310e728a07b2e3326310809b8b733d42a3a17e6ad9fa7d9a7fde",
-          "source": "rust-petgraph"
+          "evr": "0.7.1-2.fc43",
+          "location": "Packages/r/rust-petgraph0.7-devel-0.7.1-2.fc43.noarch.rpm",
+          "name": "rust-petgraph0.7-devel",
+          "repo": "binary-releases",
+          "sha256": "f5ac66cbb277630b03b660c10f37c9d9778e8f0027261329a25aaeb86d038506",
+          "source": "rust-petgraph0.7"
         },
         {
           "arch": "noarch",
-          "evr": "0.6.1-1.fc43",
-          "location": "Packages/r/rust-phc+alloc-devel-0.6.1-1.fc43.noarch.rpm",
-          "name": "rust-phc+alloc-devel",
+          "evr": "0.11.3-1.fc43",
+          "location": "Packages/r/rust-phf_shared0.11+default-devel-0.11.3-1.fc43.noarch.rpm",
+          "name": "rust-phf_shared0.11+default-devel",
           "repo": "binary-updates",
-          "sha256": "02973e9c029d8d706f6c2c7527c4b3347c0eb2040ff17065cbb51a102d04a6fc",
-          "source": "rust-phc"
+          "sha256": "ed25045668d96f5a81741a30eb4d417bed29bd93e8a33a3a8d8b0705c1da1339",
+          "source": "rust-phf_shared0.11"
         },
         {
           "arch": "noarch",
-          "evr": "0.6.1-1.fc43",
-          "location": "Packages/r/rust-phc+rand_core-devel-0.6.1-1.fc43.noarch.rpm",
-          "name": "rust-phc+rand_core-devel",
+          "evr": "0.11.3-1.fc43",
+          "location": "Packages/r/rust-phf_shared0.11+std-devel-0.11.3-1.fc43.noarch.rpm",
+          "name": "rust-phf_shared0.11+std-devel",
           "repo": "binary-updates",
-          "sha256": "1d91ad64a3352f4001688bb871c5de63ce15aafe1fbaf9817ee2c07619a13a06",
-          "source": "rust-phc"
+          "sha256": "9ccccc449e37d554d9a30bac94198b906389e8b5cfcdccc7a9a8be758de906a9",
+          "source": "rust-phf_shared0.11"
         },
         {
           "arch": "noarch",
-          "evr": "0.6.1-1.fc43",
-          "location": "Packages/r/rust-phc-devel-0.6.1-1.fc43.noarch.rpm",
-          "name": "rust-phc-devel",
+          "evr": "0.11.3-1.fc43",
+          "location": "Packages/r/rust-phf_shared0.11-devel-0.11.3-1.fc43.noarch.rpm",
+          "name": "rust-phf_shared0.11-devel",
           "repo": "binary-updates",
-          "sha256": "cefe54b23a841c916c02b3e6d3139d7e5679ec3c7f04add2b4c37fe02cae4f24",
-          "source": "rust-phc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.13.1-1.fc43",
-          "location": "Packages/r/rust-phf_shared+default-devel-0.13.1-1.fc43.noarch.rpm",
-          "name": "rust-phf_shared+default-devel",
-          "repo": "binary-updates",
-          "sha256": "f6748662be1d4db07b6922695e27f457dfd695ab5bc1bfc56ef7a13ea3e66145",
-          "source": "rust-phf_shared"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.13.1-1.fc43",
-          "location": "Packages/r/rust-phf_shared+std-devel-0.13.1-1.fc43.noarch.rpm",
-          "name": "rust-phf_shared+std-devel",
-          "repo": "binary-updates",
-          "sha256": "bb84daac3a4e7f466ac1c53584ea8b81e7cd99ae7f08752244d8538a6b06d451",
-          "source": "rust-phf_shared"
-        },
-        {
-          "arch": "noarch",
-          "evr": "0.13.1-1.fc43",
-          "location": "Packages/r/rust-phf_shared-devel-0.13.1-1.fc43.noarch.rpm",
-          "name": "rust-phf_shared-devel",
-          "repo": "binary-updates",
-          "sha256": "fd068a8f3084e3a66f7968d16534215980f466001204b60c04b03e7c788c07f2",
-          "source": "rust-phf_shared"
+          "sha256": "680edcf37d8e33255896623eed58bc0c1b56dd2aa92a498e18a90a1ffaf45849",
+          "source": "rust-phf_shared0.11"
         },
         {
           "arch": "noarch",
@@ -323998,12 +323935,12 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.10.1-1.fc43",
-          "location": "Packages/r/rust-rand_core-devel-0.10.1-1.fc43.noarch.rpm",
-          "name": "rust-rand_core-devel",
-          "repo": "binary-updates",
-          "sha256": "5a4bb4b77af9573ade0d77f7518ed0ac153d2372f87eb08000f9c8a518c1b98d",
-          "source": "rust-rand_core"
+          "evr": "0.6.4-2.fc43",
+          "location": "Packages/r/rust-rand_core0.6-devel-0.6.4-2.fc43.noarch.rpm",
+          "name": "rust-rand_core0.6-devel",
+          "repo": "binary-releases",
+          "sha256": "487e73451d3b9065df1f5b38465874dd1ce5e4453c3d0f294e309854baa00435",
+          "source": "rust-rand_core0.6"
         },
         {
           "arch": "noarch",
@@ -324853,12 +324790,21 @@
         },
         {
           "arch": "noarch",
-          "evr": "0.9.0-1.fc43",
-          "location": "Packages/r/rust-string_cache-devel-0.9.0-1.fc43.noarch.rpm",
-          "name": "rust-string_cache-devel",
+          "evr": "0.8.9-1.fc43",
+          "location": "Packages/r/rust-string_cache0.8-devel-0.8.9-1.fc43.noarch.rpm",
+          "name": "rust-string_cache0.8-devel",
           "repo": "binary-updates",
-          "sha256": "bb499b42a35084ee47db1d78d113a6401fe6d32dba6c406dbc7218f3b5544ae6",
-          "source": "rust-string_cache"
+          "sha256": "c4df65ec8bba78a17ad3aa1855fdc7be0c311b71eaee132954b12fb3f934be40",
+          "source": "rust-string_cache0.8"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.6.1-4.fc43",
+          "location": "Packages/r/rust-subtle-devel-2.6.1-4.fc43.noarch.rpm",
+          "name": "rust-subtle-devel",
+          "repo": "binary-releases",
+          "sha256": "6bd965b323a7c7ae875a4b30cac83636b28a1e58f5ad9eabac607a0d492bc3b0",
+          "source": "rust-subtle"
         },
         {
           "arch": "noarch",
@@ -324885,33 +324831,6 @@
           "name": "rust-syn+derive-devel",
           "repo": "binary-updates",
           "sha256": "7b7a140ede6598c9f95475228c8a4c3b586ca77091515bee4f0972e30160cdfe",
-          "source": "rust-syn"
-        },
-        {
-          "arch": "noarch",
-          "evr": "3.0.3-1.fc43",
-          "location": "Packages/r/rust-syn+extra-traits-devel-3.0.3-1.fc43.noarch.rpm",
-          "name": "rust-syn+extra-traits-devel",
-          "repo": "binary-updates",
-          "sha256": "13be58e2172e436fc6cb390be660e241a272d7992e5b4dba209b4dfa467e1402",
-          "source": "rust-syn"
-        },
-        {
-          "arch": "noarch",
-          "evr": "3.0.3-1.fc43",
-          "location": "Packages/r/rust-syn+fold-devel-3.0.3-1.fc43.noarch.rpm",
-          "name": "rust-syn+fold-devel",
-          "repo": "binary-updates",
-          "sha256": "a3d51fdbe7705e1c923bebd3d0bb58c675c727822f282e494a87708a8b07aa21",
-          "source": "rust-syn"
-        },
-        {
-          "arch": "noarch",
-          "evr": "3.0.3-1.fc43",
-          "location": "Packages/r/rust-syn+full-devel-3.0.3-1.fc43.noarch.rpm",
-          "name": "rust-syn+full-devel",
-          "repo": "binary-updates",
-          "sha256": "8e4ed312d9a1caa35b44e34d324a4d53ee9761018262ba544a888757a5588be1",
           "source": "rust-syn"
         },
         {
@@ -324944,29 +324863,119 @@
         {
           "arch": "noarch",
           "evr": "3.0.3-1.fc43",
-          "location": "Packages/r/rust-syn+visit-devel-3.0.3-1.fc43.noarch.rpm",
-          "name": "rust-syn+visit-devel",
-          "repo": "binary-updates",
-          "sha256": "4ecdb0e04075b2c9be41e2b5ede8f31fdbf4be846febd12ee2f04912087b914c",
-          "source": "rust-syn"
-        },
-        {
-          "arch": "noarch",
-          "evr": "3.0.3-1.fc43",
-          "location": "Packages/r/rust-syn+visit-mut-devel-3.0.3-1.fc43.noarch.rpm",
-          "name": "rust-syn+visit-mut-devel",
-          "repo": "binary-updates",
-          "sha256": "1754dbb14eb352c40f5a6788ae00eed1706802cdeaec6da2c3d22ca0eeeb32cb",
-          "source": "rust-syn"
-        },
-        {
-          "arch": "noarch",
-          "evr": "3.0.3-1.fc43",
           "location": "Packages/r/rust-syn-devel-3.0.3-1.fc43.noarch.rpm",
           "name": "rust-syn-devel",
           "repo": "binary-updates",
           "sha256": "0c763103d0a538ebdb450cb8e60fb744dd82eea642c6def88468e739fc60b6e5",
           "source": "rust-syn"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+clone-impls-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+clone-impls-devel",
+          "repo": "binary-updates",
+          "sha256": "c3eac9e9857ff3cfd105825d90e6de48956fbbce4d6ac0a6c779711e76e538df",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+default-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+default-devel",
+          "repo": "binary-updates",
+          "sha256": "668d860f9841e92704d953ed8b810b080828125f31fa9c934e9fb64964ece37c",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+derive-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+derive-devel",
+          "repo": "binary-updates",
+          "sha256": "1d94a3d0b42ac96a1ff002ee4b4a1d2025a82b72bb21eb9d3a62c9a858fa947c",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+extra-traits-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+extra-traits-devel",
+          "repo": "binary-updates",
+          "sha256": "9e19abd1c853bf5dd00d847fdccd008b61d54ca952103d707e39e8c0ab2088b1",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+fold-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+fold-devel",
+          "repo": "binary-updates",
+          "sha256": "4c7a2de918207907bd0857245b9f224c2a26d03b5db465ee0c168beea7e89d05",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+full-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+full-devel",
+          "repo": "binary-updates",
+          "sha256": "138da624e9f26d3a5bf67d993a98c7ebea1c3c088c83e834c6b72402dcfac67b",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+parsing-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+parsing-devel",
+          "repo": "binary-updates",
+          "sha256": "99c973555ebb68d4c969cdb3d17f965541779e06bb6d2e29d4e3c1bd8c76ba0e",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+printing-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+printing-devel",
+          "repo": "binary-updates",
+          "sha256": "45543837c8440d7e7cdcd6c5b32d95be473567bbcc63b526ba2fa162072f43d6",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+proc-macro-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+proc-macro-devel",
+          "repo": "binary-updates",
+          "sha256": "b6e07439171db3207f947ce6e4c54d485d1591b3989b12bc49425d888f1a5c90",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+visit-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+visit-devel",
+          "repo": "binary-updates",
+          "sha256": "2a8f2c830dd14a4a58c150467213f71073039046fc7cdc0fb807ad6e27ae90e6",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2+visit-mut-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2+visit-mut-devel",
+          "repo": "binary-updates",
+          "sha256": "db623f2f536bc21e22aceacf45c98dcd5a881b6b67b5374dcdf1ea3a836aee2b",
+          "source": "rust-syn2"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.0.119-1.fc43",
+          "location": "Packages/r/rust-syn2-devel-2.0.119-1.fc43.noarch.rpm",
+          "name": "rust-syn2-devel",
+          "repo": "binary-updates",
+          "sha256": "27f6acb18b32ed00cd5aa40ab0528ff4f9bf524b305686138f0a30ff4238b52b",
+          "source": "rust-syn2"
         },
         {
           "arch": "noarch",
@@ -325015,21 +325024,21 @@
         },
         {
           "arch": "noarch",
-          "evr": "1.0.0-1.fc43",
-          "location": "Packages/r/rust-termtree+default-devel-1.0.0-1.fc43.noarch.rpm",
-          "name": "rust-termtree+default-devel",
+          "evr": "0.5.1-1.fc43",
+          "location": "Packages/r/rust-termtree0.5+default-devel-0.5.1-1.fc43.noarch.rpm",
+          "name": "rust-termtree0.5+default-devel",
           "repo": "binary-updates",
-          "sha256": "09b6471254d0f9b337a5089b123a95492ccaf4738449eebbc6a7d009cda0b099",
-          "source": "rust-termtree"
+          "sha256": "268f05cab33f2a081696b61e6e95f762be79dcc28443f3c645ea6402da587c07",
+          "source": "rust-termtree0.5"
         },
         {
           "arch": "noarch",
-          "evr": "1.0.0-1.fc43",
-          "location": "Packages/r/rust-termtree-devel-1.0.0-1.fc43.noarch.rpm",
-          "name": "rust-termtree-devel",
+          "evr": "0.5.1-1.fc43",
+          "location": "Packages/r/rust-termtree0.5-devel-0.5.1-1.fc43.noarch.rpm",
+          "name": "rust-termtree0.5-devel",
           "repo": "binary-updates",
-          "sha256": "06cc437e9822032635c6087ad0cbc16bc017a354fa735f3c4c728745c007caaf",
-          "source": "rust-termtree"
+          "sha256": "4ada47e23e144d9b716e51578eebd75aa55d7a0f86cb9ae35bc1bfa9e5d3d696",
+          "source": "rust-termtree0.5"
         },
         {
           "arch": "noarch",
@@ -325237,15 +325246,6 @@
           "repo": "binary-updates",
           "sha256": "39de8786e86db45802ec4173ebc7761b2d9b6ff56836fc932702d6785f47ae23",
           "source": "rust-toml_writer"
-        },
-        {
-          "arch": "noarch",
-          "evr": "1.20.1-1.fc43",
-          "location": "Packages/r/rust-typenum+const-generics-devel-1.20.1-1.fc43.noarch.rpm",
-          "name": "rust-typenum+const-generics-devel",
-          "repo": "binary-updates",
-          "sha256": "dcb7fd2186ea3cbc98afc0e45ba726093769881c6c6348774f567fcb832476aa",
-          "source": "rust-typenum"
         },
         {
           "arch": "noarch",
@@ -374120,130 +374120,6 @@
       "/usr/bin/gdb-add-index=gdb-minimal",
       "/usr/bin/sha512sum=coreutils",
       "/usr/bin/systemd-sysusers=systemd-standalone-sysusers",
-      "crate(aho-corasick)=rust-aho-corasick-devel",
-      "crate(aho-corasick/std)=rust-aho-corasick+std-devel",
-      "crate(annotate-snippets)=rust-annotate-snippets-devel",
-      "crate(annotate-snippets/default)=rust-annotate-snippets+default-devel",
-      "crate(base64)=rust-base64_0.22-devel",
-      "crate(base64/alloc)=rust-base64_0.22+alloc-devel",
-      "crate(base64/default)=rust-base64_0.22+default-devel",
-      "crate(base64/std)=rust-base64_0.22+std-devel",
-      "crate(bindgen)=rust-bindgen-devel",
-      "crate(bindgen/default)=rust-bindgen+default-devel",
-      "crate(bindgen/experimental)=rust-bindgen+experimental-devel",
-      "crate(bindgen/logging)=rust-bindgen+logging-devel",
-      "crate(bindgen/prettyplease)=rust-bindgen+prettyplease-devel",
-      "crate(bindgen/runtime)=rust-bindgen+runtime-devel",
-      "crate(bit-set)=rust-bit-set-devel",
-      "crate(bit-vec)=rust-bit-vec-devel",
-      "crate(bitflags)=rust-bitflags-devel",
-      "crate(bitflags/default)=rust-bitflags+default-devel",
-      "crate(block-buffer)=rust-block-buffer-devel",
-      "crate(block-buffer/default)=rust-block-buffer+default-devel",
-      "crate(cfg-if)=rust-cfg-if-devel",
-      "crate(cfg-if/default)=rust-cfg-if+default-devel",
-      "crate(cpufeatures)=rust-cpufeatures-devel",
-      "crate(cpufeatures/default)=rust-cpufeatures+default-devel",
-      "crate(crypto-common)=rust-crypto-common-devel",
-      "crate(crypto-common/default)=rust-crypto-common+default-devel",
-      "crate(crypto-common/std)=rust-crypto-common+std-devel",
-      "crate(digest)=rust-digest-devel",
-      "crate(digest/alloc)=rust-digest+alloc-devel",
-      "crate(digest/default)=rust-digest+default-devel",
-      "crate(digest/mac)=rust-digest+mac-devel",
-      "crate(digest/std)=rust-digest+std-devel",
-      "crate(fixedbitset)=rust-fixedbitset-devel",
-      "crate(foldhash)=rust-foldhash-devel",
-      "crate(generic-array)=rust-generic-array-devel",
-      "crate(generic-array/default)=rust-generic-array+default-devel",
-      "crate(hashbrown)=rust-hashbrown-devel",
-      "crate(hashbrown/default-hasher)=rust-hashbrown+default-hasher-devel",
-      "crate(hashbrown/inline-more)=rust-hashbrown+inline-more-devel",
-      "crate(idna)=rust-idna-devel",
-      "crate(idna/default)=rust-idna+default-devel",
-      "crate(indexmap)=rust-indexmap-devel",
-      "crate(indexmap/std)=rust-indexmap+std-devel",
-      "crate(itertools)=rust-itertools-devel",
-      "crate(itertools/use_alloc)=rust-itertools+use_alloc-devel",
-      "crate(itertools/use_std)=rust-itertools+use_std-devel",
-      "crate(libloading)=rust-libloading-devel",
-      "crate(libloading/default)=rust-libloading+default-devel",
-      "crate(nom)=rust-nom-devel",
-      "crate(nom/alloc)=rust-nom+alloc-devel",
-      "crate(nom/std)=rust-nom+std-devel",
-      "crate(parking_lot)=rust-parking_lot-devel",
-      "crate(parking_lot/default)=rust-parking_lot+default-devel",
-      "crate(parking_lot_core)=rust-parking_lot_core-devel",
-      "crate(parking_lot_core/default)=rust-parking_lot_core+default-devel",
-      "crate(password-hash)=rust-password-hash-devel",
-      "crate(password-hash/alloc)=rust-password-hash+alloc-devel",
-      "crate(password-hash/default)=rust-password-hash+default-devel",
-      "crate(password-hash/rand_core)=rust-password-hash+rand_core-devel",
-      "crate(petgraph)=rust-petgraph-devel",
-      "crate(phf_shared)=rust-phf_shared-devel",
-      "crate(phf_shared/default)=rust-phf_shared+default-devel",
-      "crate(phf_shared/std)=rust-phf_shared+std-devel",
-      "crate(predicates)=rust-predicates-devel",
-      "crate(predicates/diff)=rust-predicates+diff-devel",
-      "crate(quote)=rust-quote-devel",
-      "crate(quote/default)=rust-quote+default-devel",
-      "crate(rand_core)=rust-rand_core-devel",
-      "crate(regex-syntax)=rust-regex-syntax-devel",
-      "crate(regex-syntax/default)=rust-regex-syntax+default-devel",
-      "crate(regex-syntax/unicode)=rust-regex-syntax+unicode-devel",
-      "crate(regex-syntax/unicode-age)=rust-regex-syntax+unicode-age-devel",
-      "crate(regex-syntax/unicode-bool)=rust-regex-syntax+unicode-bool-devel",
-      "crate(regex-syntax/unicode-case)=rust-regex-syntax+unicode-case-devel",
-      "crate(regex-syntax/unicode-gencat)=rust-regex-syntax+unicode-gencat-devel",
-      "crate(regex-syntax/unicode-perl)=rust-regex-syntax+unicode-perl-devel",
-      "crate(regex-syntax/unicode-script)=rust-regex-syntax+unicode-script-devel",
-      "crate(regex-syntax/unicode-segment)=rust-regex-syntax+unicode-segment-devel",
-      "crate(rustc-hash)=rust-rustc-hash-devel",
-      "crate(rustc-hash/default)=rust-rustc-hash+default-devel",
-      "crate(rustc-hash/std)=rust-rustc-hash+std-devel",
-      "crate(serde_spanned)=rust-serde_spanned-devel",
-      "crate(serde_spanned/serde)=rust-serde_spanned+serde-devel",
-      "crate(siphasher)=rust-siphasher-devel",
-      "crate(siphasher/default)=rust-siphasher+default-devel",
-      "crate(siphasher/std)=rust-siphasher+std-devel",
-      "crate(string_cache)=rust-string_cache-devel",
-      "crate(syn)=rust-syn-devel",
-      "crate(syn/clone-impls)=rust-syn+clone-impls-devel",
-      "crate(syn/default)=rust-syn+default-devel",
-      "crate(syn/derive)=rust-syn+derive-devel",
-      "crate(syn/extra-traits)=rust-syn+extra-traits-devel",
-      "crate(syn/fold)=rust-syn+fold-devel",
-      "crate(syn/full)=rust-syn+full-devel",
-      "crate(syn/parsing)=rust-syn+parsing-devel",
-      "crate(syn/printing)=rust-syn+printing-devel",
-      "crate(syn/proc-macro)=rust-syn+proc-macro-devel",
-      "crate(syn/visit)=rust-syn+visit-devel",
-      "crate(syn/visit-mut)=rust-syn+visit-mut-devel",
-      "crate(synstructure)=rust-synstructure-devel",
-      "crate(synstructure/default)=rust-synstructure+default-devel",
-      "crate(synstructure/proc-macro)=rust-synstructure+proc-macro-devel",
-      "crate(term)=rust-term-devel",
-      "crate(term/default)=rust-term+default-devel",
-      "crate(termtree)=rust-termtree-devel",
-      "crate(termtree/default)=rust-termtree+default-devel",
-      "crate(thiserror)=rust-thiserror-devel",
-      "crate(thiserror-impl)=rust-thiserror-impl-devel",
-      "crate(thiserror-impl/default)=rust-thiserror-impl+default-devel",
-      "crate(thiserror/default)=rust-thiserror+default-devel",
-      "crate(toml)=rust-toml-devel",
-      "crate(toml/default)=rust-toml+default-devel",
-      "crate(toml/display)=rust-toml+display-devel",
-      "crate(toml/parse)=rust-toml+parse-devel",
-      "crate(toml/serde)=rust-toml+serde-devel",
-      "crate(toml/std)=rust-toml+std-devel",
-      "crate(toml_datetime)=rust-toml_datetime-devel",
-      "crate(toml_datetime/alloc)=rust-toml_datetime+alloc-devel",
-      "crate(toml_datetime/serde)=rust-toml_datetime+serde-devel",
-      "crate(toml_datetime/std)=rust-toml_datetime+std-devel",
-      "crate(unicode-width)=rust-unicode-width-devel",
-      "crate(unicode-width/cjk)=rust-unicode-width+cjk-devel",
-      "crate(unicode-width/default)=rust-unicode-width+default-devel",
-      "crate(winnow)=rust-winnow-devel",
       "fedora-release-identity=fedora-release-identity-basic",
       "fedora-release-variant=fedora-release",
       "glibc-langpack=glibc-minimal-langpack",
@@ -374265,7 +374141,6 @@
     "probe": "fedora-43.probe.json",
     "seed_only": false,
     "seed_packages": [],
-    "source_pins": [],
     "source_variants": [
       "acl-compat=acl@2.3.2-4.fc43:tar"
     ],
@@ -405381,8 +405256,8 @@
       "live": 187
     },
     "pins_by_repo": {
-      "binary-releases": 20465,
-      "binary-updates": 20076,
+      "binary-releases": 20479,
+      "binary-updates": 20062,
       "source-releases": 65,
       "source-updates": 62
     },
