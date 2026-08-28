@@ -2,7 +2,7 @@
 
 `buckos-distro` is a Buck2 repository for replaying upstream Linux package builds and assembling bootable distribution images.
 
-Fedora 43, Fedora 44, CentOS Stream 9 with EPEL Next, CentOS Stream 10, and CentOS Hyperscale 9 and 10 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
+Fedora 43, Fedora 44, Fedora 45, CentOS Stream 9 with EPEL Next, CentOS Stream 10, and CentOS Hyperscale 9 and 10 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
 
 ## Quick start
 
@@ -37,7 +37,23 @@ BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 | [Ubuntu](flavors/ubuntu/README.md) | Source replay | DEBs and install roots |
 | [BuckOS](flavors/buckos/README.md) | Stub | None |
 
-Fedora 43 solves its live image entirely from source: 127 source packages covering all 187 binary packages in the image, with 0 unresolved capabilities and 354 staged build targets across one bootstrap cycle. Solving and building are separate milestones — the solve is complete, and packages are still being built through it. Fedora 44, CentOS Stream, and CentOS Hyperscale live image package sets remain pinned upstream binary RPMs; for those flavors the source-replay pipeline and the image package set are still separate inputs.
+Every Fedora release solves its live image from source, each with 0 unresolved capabilities:
+
+| Release | Source packages | Live image | Built from source | Staged targets | Probed |
+| ------- | --------------- | ---------- | ----------------- | -------------- | ------ |
+| 43      | 127             | 187        | 182               | 354            | 117    |
+| 44      | 127             | 186        | 181               | 357            | 114    |
+| 45      | 131             | 193        | 187               | 357            | 0      |
+
+Solving and building are separate milestones — the solves are complete, and packages are still being built through them.
+
+The last column is the one that says whether a release can actually build, and it is easy to misread the others without it. A solve reads static `BuildRequires` out of repodata, and repodata does not carry everything the spec asks for: `tar`'s real list is eleven packages, of which repodata names one. The rest come from `tools/probe.py` running `rpmbuild -br` against the spec. A release with a clean solve and no probe data still fails at `%prep` with `Failed build dependencies`, so an unprobed release is not ready regardless of what its other columns say. Fedora 45 is in exactly that state.
+
+Five of the packages in that gap are the same on every release, and they are a property of the *build host* rather than of the solve: `kernel`, its three subpackages, and `libxcrypt` call libkcapi's `sha512hmac` or `fipshmac` from `%install`, which needs a kernel built with `CONFIG_CRYPTO_USER`. On a host that has it, drop `prebuilt` from the flavor configuration and those five build too. See "Checking the host" below.
+
+Fedora 45 pins a sixth, and that one is a fact about the release. `tar` 1.35 declares its own three-argument `acl_get_file_at` immediately after including `<sys/acl.h>`, with no configure probe guarding it, and `acl` 2.4.0 declares that name with four arguments. Fedora never hits this because it does not rebuild `tar` in a released branch. Releases 43 and 44 resolve it with a version variant — `acl` is built twice and only `tar` is routed to the older copy — but 45 ships 2.4.0 in both its source and binary trees, so there is no older copy to route to. Until upstream `tar` carries the fix, 45 takes the pinned binary.
+
+CentOS Stream and CentOS Hyperscale live image package sets remain pinned upstream binary RPMs; for those flavors the source-replay pipeline and the image package set are still separate inputs.
 
 ## Build model
 
@@ -77,6 +93,16 @@ Each release receives suffixed targets such as:
 ```
 
 The default release also receives unsuffixed targets. Release-specific target platforms, such as `//platforms:fedora-43-x86_64`, carry the release as a constraint value.
+
+Fedora 45 has branched from rawhide but has not reached GA, which changes where it is served from rather than how it is built. Upstream publishes a branched release under `development/<release>/` and gives it no `updates/` tree, because there have been no post-GA pushes. `tools/relock.py --branched 45` selects that layout:
+
+```sh
+tools/relock.py --release 45 --branched 45
+```
+
+The repo names it records are still `binary-releases` and `source-releases`. At GA the same packages move from `development/` to `releases/`, and naming the pins for the directory they happen to sit in today would churn every pin's `repo` field on a day when nothing about the packages changed.
+
+A pre-GA release is also the case `[buckos.fedora] release` exists for. The default otherwise follows the newest entry, which would point every unsuffixed target at a release whose packages still move daily, so the checked-in configuration lists 45 and pins the default to 44.
 
 CentOS Stream 9 with EPEL Next, CentOS Stream 10, and CentOS Hyperscale 9 and 10 provide the same release-suffixed rootfs, boot, and image targets as Fedora, plus their buildroot and hello targets. Debian 13 and Ubuntu 26.04 provide release-suffixed buildroot and hello targets. Each flavor also has unsuffixed aliases for its default release.
 

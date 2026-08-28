@@ -95,7 +95,9 @@ Tree artifacts are passed as complete hidden inputs when a command also referenc
 
 `[buckos.fedora] releases` is a comma-separated list. Each release receives suffixed download, buildroot, package, rootfs, boot, and image targets. The selected default release also receives unsuffixed copies.
 
-The checked-in configuration defines Fedora 43 and Fedora 44. Each has its own repository table, package pins, buildroot seed, source recipes, probe data, bootstrap plan, and image package sets.
+The checked-in configuration defines Fedora 43, Fedora 44, and Fedora 45. Each has its own repository table, package pins, buildroot seed, source recipes, probe data, bootstrap plan, and image package sets. All three solve their live image from source with no unresolved capabilities.
+
+A release that has branched from rawhide without reaching GA is served from `development/<release>/` and has no `updates/` tree. `tools/relock.py --branched` selects that repository table. The repo names it records are the GA ones, so the pins do not churn when upstream moves the same packages into `releases/`. Fedora 45 is in that state; the configuration pins the default release to 44 rather than letting it follow the newest entry.
 
 Package downloads use one URL and one SHA-256 digest per target. The URL comes from the package's recorded repository base, an optional `mirror_base` prefix rewrite, an optional static `package_url_template`, or an optional read-through `blob_base`. The static template requires the full digest and may include its 12-character prefix plus escaped filename, stem, extension, and release components. It cannot be combined with either existing redirect setting. The digest remains authoritative for every source.
 
