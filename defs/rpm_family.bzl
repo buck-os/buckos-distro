@@ -24,6 +24,12 @@ _RPM_FLAVORS = {
         "mirror_from": "https://mirror.stream.centos.org",
         "supplier": "Organization: CentOS",
     },
+    "centos-hyperscale": {
+        # The Stream and SIG repositories share this root. EPEL URLs are
+        # deliberately unaffected by a CentOS mirror rewrite.
+        "mirror_from": "https://mirror.stream.centos.org",
+        "supplier": "Organization: CentOS",
+    },
     "fedora": {
         "mirror_from": "https://dl.fedoraproject.org/pub/fedora/linux",
         "supplier": "Organization: Fedora Project",

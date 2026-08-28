@@ -2,7 +2,7 @@
 
 `buckos-distro` is a Buck2 repository for replaying upstream Linux package builds and assembling bootable distribution images.
 
-Fedora 43, Fedora 44, CentOS Stream 9 with EPEL Next, and CentOS Stream 10 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
+Fedora 43, Fedora 44, CentOS Stream 9 with EPEL Next, CentOS Stream 10, and CentOS Hyperscale 9 and 10 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
 
 ## Quick start
 
@@ -32,15 +32,16 @@ BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 |---|---|---|
 | Fedora | Implemented | RPMs, root filesystems, live ISOs |
 | [CentOS Stream](flavors/centos/README.md) | Implemented | RPMs, root filesystems, live ISO |
+| [CentOS Hyperscale](flavors/centos-hyperscale/README.md) | Implemented | RPMs, root filesystems, live ISO |
 | [Debian](flavors/debian/README.md) | Source replay | DEBs and install roots |
 | [Ubuntu](flavors/ubuntu/README.md) | Source replay | DEBs and install roots |
 | [BuckOS](flavors/buckos/README.md) | Stub | None |
 
-The Fedora lockfiles currently replay `gzip`, `xz`, and `zlib-ng` from source. Fedora and CentOS live image package sets are pinned upstream binary RPMs. The source-replay pipeline and image package sets are separate inputs.
+The Fedora lockfiles currently replay `gzip`, `xz`, and `zlib-ng` from source. Fedora, CentOS Stream, and CentOS Hyperscale live image package sets are pinned upstream binary RPMs. The source-replay pipeline and image package sets are separate inputs.
 
 ## Build model
 
-An upstream source package remains authoritative. The Fedora and CentOS frontends unpack the source RPM, assemble a buildroot from pinned packages, and run `rpmbuild -bb` without translating the spec file into Starlark. The Debian and Ubuntu frontends apply the same model to a `.dsc` source set and run `dpkg-buildpackage -b` inside a buildroot assembled from SHA-256-pinned DEBs.
+An upstream source package remains authoritative. The Fedora, CentOS Stream, and CentOS Hyperscale frontends unpack the source RPM, assemble a buildroot from pinned packages, and run `rpmbuild -bb` without translating the spec file into Starlark. The Debian and Ubuntu frontends apply the same model to a `.dsc` source set and run `dpkg-buildpackage -b` inside a buildroot assembled from SHA-256-pinned DEBs.
 
 Dependency resolution happens before Buck analysis:
 
@@ -77,11 +78,11 @@ Each release receives suffixed targets such as:
 
 The default release also receives unsuffixed targets. Release-specific target platforms, such as `//platforms:fedora-43-x86_64`, carry the release as a constraint value.
 
-CentOS Stream 9 with EPEL Next and CentOS Stream 10 provide the same release-suffixed rootfs, boot, and image targets as Fedora, plus their buildroot and hello targets. Debian 13 and Ubuntu 26.04 provide release-suffixed buildroot and hello targets. Each flavor also has unsuffixed aliases for its default release.
+CentOS Stream 9 with EPEL Next, CentOS Stream 10, and CentOS Hyperscale 9 and 10 provide the same release-suffixed rootfs, boot, and image targets as Fedora, plus their buildroot and hello targets. Debian 13 and Ubuntu 26.04 provide release-suffixed buildroot and hello targets. Each flavor also has unsuffixed aliases for its default release.
 
 ## Buildroots
 
-Fedora, CentOS, Debian, and Ubuntu support two buildroot provenances:
+Fedora, CentOS Stream, CentOS Hyperscale, Debian, and Ubuntu support two buildroot provenances:
 
 - `binary-seed` assembles the build environment from pinned Fedora RPMs or Debian-family DEBs. It is the default and is eligible for remote execution and shared-cache upload.
 - `host` uses the host root filesystem and installed distro toolchain. It is non-hermetic, local-only, and excluded from shared-cache upload.
@@ -104,12 +105,14 @@ The rootfs is a tar archive because package ownership and valid RPM filenames ca
 
 The live squashfs is used directly as the root filesystem. The ISO contains BIOS and UEFI boot entries, derives `root=live:CDLABEL=` from its volume label, and is not signed for Secure Boot.
 
-Build Fedora 44, CentOS Stream 9 with EPEL Next, or CentOS Stream 10 live media with:
+Build Fedora 44, CentOS Stream 9 with EPEL Next, CentOS Stream 10, or CentOS Hyperscale live media with:
 
 ```sh
 buck2 build //flavors/fedora:iso-live-44
 buck2 build //flavors/centos:iso-live-9
 buck2 build //flavors/centos:iso-live-10
+buck2 build //flavors/centos-hyperscale:iso-live-9
+buck2 build //flavors/centos-hyperscale:iso-live-10
 ```
 
 ## Configuration
@@ -130,7 +133,7 @@ Use the host buildroot for local development:
   buildroot = host
 ```
 
-CentOS, Debian, and Ubuntu use the same release and provenance settings under `[buckos.centos]`, `[buckos.debian]`, and `[buckos.ubuntu]`; the checked-in releases are `9,10`, `13`, and `26.04`. CentOS release 9 layers EPEL and EPEL Next, while unsuffixed CentOS targets remain on release 10.
+CentOS Stream, CentOS Hyperscale, Debian, and Ubuntu use the same release and provenance settings under `[buckos.centos]`, `[buckos.centos-hyperscale]`, `[buckos.debian]`, and `[buckos.ubuntu]`; the checked-in releases are `9,10`, `9,10`, `13`, and `26.04`. CentOS Stream release 9 layers EPEL and EPEL Next, while unsuffixed CentOS Stream targets remain on release 10. CentOS Hyperscale 9 uses that EPEL Next base; Hyperscale 10 uses EPEL without EPEL Next. Release 10 is the default for both CentOS flavors.
 
 Rewrite Fedora's recorded repository prefix to a mirror with the same directory layout:
 
@@ -139,14 +142,14 @@ Rewrite Fedora's recorded repository prefix to a mirror with the same directory 
   mirror_base = https://archives.fedoraproject.org/pub/archive/fedora/linux
 ```
 
-For CentOS, `mirror_base` names the common root above the release directories:
+For CentOS Stream and CentOS Hyperscale, `mirror_base` names the common root above the release and SIG directories:
 
 ```ini
 [buckos.centos]
   mirror_base = https://mirror.example.invalid/centos
 ```
 
-That mirror contains `9-stream/` and `10-stream/`. EPEL repositories retain their recorded Fedora Project bases; use `package_url_template` to redirect every pinned RPM into one content-addressed store.
+That mirror contains `9-stream/`, `10-stream/`, and `SIGs/`. EPEL repositories retain their recorded Fedora Project bases; use `package_url_template` to redirect every pinned RPM into one content-addressed store.
 
 A static content-addressed HTTP store can provide pinned packages through `package_url_template`. The template must contain `{sha256}` and may contain `{sha256_12}`, `{filename}`, `{stem}`, `{ext}`, and `{release}`. Filename and release components are escaped for use in URL paths.
 
@@ -180,6 +183,7 @@ A remote backend still requires a matching `[buck2_re_client]` configuration. Re
 defs/                    Providers, flavor dispatch, release handling, and Buck rules
 flavors/fedora/          Fedora target generation, lockfiles, and generated package data
 flavors/centos/          CentOS Stream lockfile, generated package data, and replay targets
+flavors/centos-hyperscale/ CentOS Hyperscale lockfile, generated data, and replay targets
 flavors/debian/          Debian lockfile, generated package data, and replay targets
 flavors/ubuntu/          Ubuntu lockfile, generated package data, and replay targets
 flavors/buckos/          BuckOS implementation-status documentation

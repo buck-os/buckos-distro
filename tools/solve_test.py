@@ -17,6 +17,7 @@ import unittest
 from solve import (
     BUILDSYS_BUILD,
     CENTOS_BUILDSYS_BUILD,
+    IMPLICIT_GROUPS,
     PROBE_SCHEMA,
     build_universe,
     check_public_base,
@@ -24,11 +25,21 @@ from solve import (
     derive_repo_name,
     load_probe,
     merge_packages,
+    parse_override,
     probed_buildrequires,
     solve,
     solve_image_sets,
     solve_package_set,
 )
+
+
+class TestOverrideParsing(unittest.TestCase):
+    def test_rich_dependency_may_contain_an_equals_operator(self):
+        expression = "(redhat-release with system-release(releasever) = 10)"
+        self.assertEqual(
+            parse_override(expression + "=centos-stream-release", "--override"),
+            (expression, "centos-stream-release"),
+        )
 
 
 def binary(name, requires=(), provides=(), source="src-1.fc43.src.rpm",
@@ -255,6 +266,12 @@ class TestDynamicBuildRequires(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertIn("centos-stream-release", deps["widget"])
         self.assertNotIn("fedora-release-common", deps["widget"])
+
+    def test_centos_hyperscale_inherits_the_centos_implicit_group(self):
+        self.assertEqual(
+            IMPLICIT_GROUPS["centos-hyperscale"],
+            CENTOS_BUILDSYS_BUILD,
+        )
 
     def test_rpmlib_entries_from_the_header_are_dropped(self):
         # `rpm -qp --requires` on a source header emits these unconditionally

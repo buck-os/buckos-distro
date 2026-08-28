@@ -99,7 +99,7 @@ check_flavor_tools() {
     local flavor="$1" missing=()
 
     case "$flavor" in
-        centos|fedora)
+        centos|centos-hyperscale|fedora)
             for tool in python3 tar rpm2archive; do
                 command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
             done

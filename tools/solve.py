@@ -604,6 +604,7 @@ CENTOS_BUILDSYS_BUILD = (
 
 IMPLICIT_GROUPS = {
     "centos": CENTOS_BUILDSYS_BUILD,
+    "centos-hyperscale": CENTOS_BUILDSYS_BUILD,
     "fedora": BUILDSYS_BUILD,
 }
 
@@ -1078,6 +1079,14 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
     return lock
 
 
+def parse_override(item, flag):
+    """Split capability=package without breaking `=` inside a rich dep."""
+    if "=" not in item:
+        sys.exit("{} expects capability=package, got {!r}".format(flag, item))
+    cap, pkg = item.rsplit("=", 1)
+    return cap.strip(), pkg.strip()
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     # Repos are repeatable and layered in the order given, so a release can
@@ -1175,10 +1184,8 @@ def main(argv=None):
 
     overrides = {}
     for item in args.override:
-        if "=" not in item:
-            sys.exit("--override expects capability=package, got {!r}".format(item))
-        cap, pkg = item.split("=", 1)
-        overrides[cap.strip()] = pkg.strip()
+        cap, pkg = parse_override(item, "--override")
+        overrides[cap] = pkg
 
     image_roots = {}
     for item in args.image:
@@ -1198,17 +1205,17 @@ def main(argv=None):
         # Split the set name off first: a capability can contain a colon
         # (an epoch, say), a set name cannot, so the leftmost colon is the
         # only unambiguous place to cut.
-        if ":" not in item or "=" not in item.split(":", 1)[1]:
+        if ":" not in item:
             sys.exit("--image-override expects name:capability=package, got "
                      "{!r}".format(item))
         name, rest = item.split(":", 1)
-        cap, pkg = rest.split("=", 1)
+        cap, pkg = parse_override(rest, "--image-override")
         name = name.strip()
         if name not in image_roots:
             sys.exit("--image-override names image set {!r}, which no --image "
                      "defines (have: {})".format(
                          name, ", ".join(sorted(image_roots)) or "none"))
-        image_overrides.setdefault(name, {})[cap.strip()] = pkg.strip()
+        image_overrides.setdefault(name, {})[cap] = pkg
 
     groups = {"binary": [], "source": []}
     for repo in args.repos:

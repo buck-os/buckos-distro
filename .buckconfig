@@ -108,6 +108,12 @@
   releases = 9,10
   buildroot = binary-seed
 
+# CentOS Hyperscale layers its main SIG repository and release package on
+# CentOS Stream. Release 9 uses EPEL and EPEL Next; release 10 uses EPEL.
+[buckos.centos-hyperscale]
+  releases = 9,10
+  buildroot = binary-seed
+
 [buckos.ubuntu]
   releases = 26.04
   buildroot = binary-seed

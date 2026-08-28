@@ -321,7 +321,11 @@ def main(argv=None):
             sys.exit("{}: unsupported schema {} (this generator reads {}); "
                      "re-run tools/relock.py".format(
                          lockfile, lock.get("schema"), LOCK_SCHEMA))
-        if lock.get("flavor") not in ("centos", "fedora"):
+        if lock.get("flavor") not in (
+            "centos",
+            "centos-hyperscale",
+            "fedora",
+        ):
             sys.exit("{}: unsupported RPM flavor {!r}".format(
                 lockfile, lock.get("flavor")))
 
