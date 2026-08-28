@@ -19,7 +19,9 @@ load("//defs/rules/rootfs.bzl", "rootfs")
 
 _RPM_FLAVORS = {
     "centos": {
-        "mirror_from": "https://mirror.stream.centos.org/10-stream",
+        # Keep the release component in the rewritten suffix so one
+        # mirror root can serve every configured Stream release.
+        "mirror_from": "https://mirror.stream.centos.org",
         "supplier": "Organization: CentOS",
     },
     "fedora": {

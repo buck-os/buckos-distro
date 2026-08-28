@@ -103,7 +103,9 @@ Package downloads use one URL and one SHA-256 digest per target. The URL comes f
 
 ## CentOS Stream release graph
 
-`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. The checked-in CentOS Stream 10 lock pins the BaseOS and AppStream closures for the upstream build-system package group, live root filesystem, and image toolchain. Its source replay target builds the checked-in SRPM fixture with the Stream 10 toolchain and `.el10` macros. Its hybrid live ISO boots through both BIOS and UEFI with SELinux enforcing.
+`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. Release 9 layers CentOS Stream BaseOS, AppStream, and CRB with EPEL and EPEL Next. Its buildroot includes the EPEL RPM macros, and its live image installs the EPEL and EPEL Next release packages without forcing an unrelated EPEL Next workload package. Release 10 retains its BaseOS, AppStream, and CRB graph and remains the default.
+
+Both CentOS releases pin the build-system package group, live root filesystem, and image toolchain. Their source replay targets build the checked-in SRPM fixture with the target release's compiler and `.el9` or `.el10` macros. Both define hybrid live ISO targets; the release 10 image has been boot-verified through BIOS and UEFI with SELinux enforcing.
 
 ## Debian-family release graphs
 

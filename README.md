@@ -2,7 +2,7 @@
 
 `buckos-distro` is a Buck2 repository for replaying upstream Linux package builds and assembling bootable distribution images.
 
-Fedora 43, Fedora 44, and CentOS Stream 10 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
+Fedora 43, Fedora 44, CentOS Stream 9 with EPEL Next, and CentOS Stream 10 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
 
 ## Quick start
 
@@ -77,7 +77,7 @@ Each release receives suffixed targets such as:
 
 The default release also receives unsuffixed targets. Release-specific target platforms, such as `//platforms:fedora-43-x86_64`, carry the release as a constraint value.
 
-CentOS Stream 10 provides the same release-suffixed rootfs, boot, and image targets as Fedora, plus its buildroot and hello targets. Debian 13 and Ubuntu 26.04 provide release-suffixed buildroot and hello targets. Each flavor also has unsuffixed aliases for its default release.
+CentOS Stream 9 with EPEL Next and CentOS Stream 10 provide the same release-suffixed rootfs, boot, and image targets as Fedora, plus their buildroot and hello targets. Debian 13 and Ubuntu 26.04 provide release-suffixed buildroot and hello targets. Each flavor also has unsuffixed aliases for its default release.
 
 ## Buildroots
 
@@ -104,10 +104,11 @@ The rootfs is a tar archive because package ownership and valid RPM filenames ca
 
 The live squashfs is used directly as the root filesystem. The ISO contains BIOS and UEFI boot entries, derives `root=live:CDLABEL=` from its volume label, and is not signed for Secure Boot.
 
-Build Fedora 44 or CentOS Stream 10 live media with:
+Build Fedora 44, CentOS Stream 9 with EPEL Next, or CentOS Stream 10 live media with:
 
 ```sh
 buck2 build //flavors/fedora:iso-live-44
+buck2 build //flavors/centos:iso-live-9
 buck2 build //flavors/centos:iso-live-10
 ```
 
@@ -129,7 +130,7 @@ Use the host buildroot for local development:
   buildroot = host
 ```
 
-CentOS, Debian, and Ubuntu use the same release and provenance settings under `[buckos.centos]`, `[buckos.debian]`, and `[buckos.ubuntu]`; the checked-in releases are `10`, `13`, and `26.04`.
+CentOS, Debian, and Ubuntu use the same release and provenance settings under `[buckos.centos]`, `[buckos.debian]`, and `[buckos.ubuntu]`; the checked-in releases are `9,10`, `13`, and `26.04`. CentOS release 9 layers EPEL and EPEL Next, while unsuffixed CentOS targets remain on release 10.
 
 Rewrite Fedora's recorded repository prefix to a mirror with the same directory layout:
 
@@ -137,6 +138,15 @@ Rewrite Fedora's recorded repository prefix to a mirror with the same directory 
 [buckos.fedora]
   mirror_base = https://archives.fedoraproject.org/pub/archive/fedora/linux
 ```
+
+For CentOS, `mirror_base` names the common root above the release directories:
+
+```ini
+[buckos.centos]
+  mirror_base = https://mirror.example.invalid/centos
+```
+
+That mirror contains `9-stream/` and `10-stream/`. EPEL repositories retain their recorded Fedora Project bases; use `package_url_template` to redirect every pinned RPM into one content-addressed store.
 
 A static content-addressed HTTP store can provide pinned packages through `package_url_template`. The template must contain `{sha256}` and may contain `{sha256_12}`, `{filename}`, `{stem}`, `{ext}`, and `{release}`. Filename and release components are escaped for use in URL paths.
 

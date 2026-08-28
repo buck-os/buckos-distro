@@ -18,6 +18,19 @@ load(
     _r10_staged = "STAGED",
     _r10_target_cpu = "TARGET_CPU",
 )
+load(
+    "//flavors/centos/generated:centos-9.bzl",
+    _r9_flavor = "FLAVOR",
+    _r9_dist_tag = "DIST_TAG",
+    _r9_image_sets = "IMAGE_SETS",
+    _r9_recipes = "RECIPES",
+    _r9_release = "RELEASE",
+    _r9_repo_base = "REPO_BASE",
+    _r9_seed = "SEED_RPMS",
+    _r9_sources = "SOURCE_RPMS",
+    _r9_staged = "STAGED",
+    _r9_target_cpu = "TARGET_CPU",
+)
 
 DATA_BY_RELEASE = {
     "10": struct(
@@ -31,5 +44,17 @@ DATA_BY_RELEASE = {
         SOURCE_RPMS = _r10_sources,
         RECIPES = _r10_recipes,
         STAGED = _r10_staged,
+    ),
+    "9": struct(
+        FLAVOR = _r9_flavor,
+        RELEASE = _r9_release,
+        DIST_TAG = _r9_dist_tag,
+        TARGET_CPU = _r9_target_cpu,
+        REPO_BASE = _r9_repo_base,
+        SEED_RPMS = _r9_seed,
+        IMAGE_SETS = _r9_image_sets,
+        SOURCE_RPMS = _r9_sources,
+        RECIPES = _r9_recipes,
+        STAGED = _r9_staged,
     ),
 }

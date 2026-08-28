@@ -322,6 +322,17 @@ class TestMergePackages(unittest.TestCase):
               "to": "1-5.fc43", "to_repo": "updates"}],
         )
 
+    def test_an_epel_next_rebuild_supersedes_epel(self):
+        packages, replaced = self.merge(
+            ("epel", [binary("widget", release="1.el9", repo="epel")]),
+            ("epel-next", [
+                binary("widget", release="1.el9.next", repo="epel-next"),
+            ]),
+        )
+        self.assertEqual(packages[0]["release"], "1.el9.next")
+        self.assertEqual(packages[0]["repo"], "epel-next")
+        self.assertEqual(replaced[0]["to_repo"], "epel-next")
+
     def test_repo_order_cannot_downgrade(self):
         """Version decides; order only settles exact ties.
 
@@ -576,6 +587,8 @@ class TestPublicBaseURLs(unittest.TestCase):
             "/Everything/x86_64/os",
             "https://archives.fedoraproject.org/pub/archive/fedora/linux"
             "/releases/41/Everything/source/tree",
+            "https://dl.fedoraproject.org/pub/epel/next/9/Everything/x86_64",
+            "https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os",
             "https://mirror.stream.centos.org/10-stream/BaseOS/x86_64/os",
         ):
             with self.subTest(url=url):
