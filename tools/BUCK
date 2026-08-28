@@ -308,6 +308,20 @@ python_binary(
     visibility = ["PUBLIC"],
 )
 
+# What this host can do, and which packages need it.
+#
+#     buck2 run //tools:hostcheck
+#
+# Out of the build graph deliberately: it probes the *running* kernel, so
+# as an action its answer would be cached against inputs that do not
+# describe it.  It writes advice for .buckconfig.local instead.
+python_binary(
+    name = "hostcheck",
+    main = "hostcheck.py",
+    deps = [":_isolation"],
+    visibility = ["PUBLIC"],
+)
+
 python_test(
     name = "depgraph_test",
     srcs = ["depgraph_test.py"],

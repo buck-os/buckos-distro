@@ -157,6 +157,44 @@ Use the host buildroot for local development:
 
 CentOS Stream, CentOS Hyperscale, Debian, and Ubuntu use the same release and provenance settings under `[buckos.centos]`, `[buckos.centos-hyperscale]`, `[buckos.debian]`, and `[buckos.ubuntu]`; the checked-in releases are `9,10`, `9,10`, `13`, and `26.04`. CentOS Stream release 9 layers EPEL and EPEL Next, while unsuffixed CentOS Stream targets remain on release 10. CentOS Hyperscale 9 uses that EPEL Next base; Hyperscale 10 uses EPEL without EPEL Next. Release 10 is the default for both CentOS flavors.
 
+### Checking the host
+
+A source build reaches outside the sandbox. The sandbox pins every byte of the *filesystem* a package builds in, but a spec can still call a tool that talks to the running kernel, and no amount of pinning changes which kernel that is.
+
+```sh
+buck2 run //tools:hostcheck
+```
+
+It probes each capability by doing the thing rather than by reading a version or `/proc/config.gz`, names the packages each one decides, and prints the `.buckconfig.local` stanza a host with gaps should carry:
+
+```
+MISS netlink-crypto   kernel crypto user API (CONFIG_CRYPTO_USER)   errno 93 (Protocol not supported)
+ok   af-alg           kernel crypto sockets                        available
+ok   user-namespaces  unprivileged user namespaces with a subid range  available
+
+netlink-crypto: libkcapi's sha512hmac and fipshmac open a NETLINK_CRYPTO socket
+to look up an algorithm. kernel.spec calls sha512hmac in %install to sign
+vmlinuz for FIPS, and libxcrypt calls fipshmac from %__spec_install_post;
+neither is guarded by a bcond. gmp and nettle guard theirs.
+  buildable with a feature disabled: gmp, nettle
+  not buildable here, use the pinned binary: kernel, libxcrypt
+
+[buckos.fedora]
+  without = gmp:fips, nettle:fipshmac
+  prebuilt = kernel, libxcrypt
+```
+
+The two fallbacks are not equivalent and the check distinguishes them. A `%bcond` keeps the package building from source and drops only the guarded feature. `prebuilt` gives up on building it at all and takes the pinned upstream binary, which is the last resort for a spec that offers no switch. Either way the image completes, and the loss is stated rather than discovered an hour into `%install`; `rpm_packages` repeats the warning on every evaluation.
+
+It exits non-zero only for a capability with no fallback — user namespaces, say — so it is usable as a CI gate without failing every host that merely needs a prebuilt.
+
+Take the upstream binary for a package this host cannot build:
+
+```ini
+[buckos.fedora]
+  prebuilt = kernel, libxcrypt
+```
+
 Turn off a spec's `%bcond` for one source package, when the build host cannot support it:
 
 ```ini

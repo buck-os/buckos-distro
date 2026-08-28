@@ -416,11 +416,28 @@ def rpm_packages(flavor, data, suffix):
     # as the package it varies, so letting it into this map would reroute
     # every consumer instead of the ones that asked.  Consumers that want it
     # name it in dep_variants, which _rpm_one_package consults first.
+    # Packages this host cannot build.  Left out of the map that answers
+    # "who builds this binary", which is all it takes: every consumer's
+    # lookup then misses and falls through to the pinned rpm already in the
+    # seed, and rpm_image_rootfs does the same for the image.  The targets
+    # are still defined -- an unreferenced target costs nothing, and
+    # deleting them would dangle anything that names one directly.
+    prebuilt = prebuilt_sources(flavor)
+    skip = {name: True for name in prebuilt}
+    if prebuilt:
+        print(("buckos-distro: WARNING: {} come from upstream binaries, not " +
+               "from source -- [buckos.{}] prebuilt says this host cannot " +
+               "build them. `buck2 run //tools:hostcheck` says why. The " +
+               "image is still complete; its provenance is not.").format(
+            ", ".join(prebuilt), flavor))
+
     provider = {}
     variant_recipe = {}
     for recipe in data.RECIPES:
         if recipe.get("variant_of"):
             variant_recipe[recipe["name"]] = recipe
+            continue
+        if recipe["name"] in skip:
             continue
         for sub in recipe["subpackages"]:
             provider[sub] = recipe
@@ -532,6 +549,32 @@ def rpm_packages(flavor, data, suffix):
             actual = ":" + variant + suffix + "-buildrequires",
             visibility = ["PUBLIC"],
         )
+
+def prebuilt_sources(flavor):
+    """Source packages to take from upstream instead of building.
+
+        [buckos.fedora]
+          prebuilt = kernel, libxcrypt
+
+    For a package this host cannot build at all.  `tools/hostcheck.py`
+    probes the capabilities a build reaches for outside the sandbox and
+    prints exactly this stanza; the case it exists for is a kernel without
+    CONFIG_CRYPTO_USER, where libkcapi's sha512hmac cannot look up an
+    algorithm and kernel.spec's FIPS signing step dies an hour into
+    %install.  Unlike a %bcond those specs offer no switch, so the choice
+    is a prebuilt binary or no image at all.
+
+    Configuration rather than a committed default, and local rather than
+    solved.  The lockfile has to stay host-independent -- it is reviewed as
+    a diff and must describe the same distro everywhere -- so this belongs
+    at the build layer, where it changes which target satisfies a
+    dependency and nothing about what was pinned.
+
+    Not silent.  Every one of these is a package this repo is supposed to
+    build and did not, so rpm_packages says so on every evaluation.
+    """
+    raw = read_config("buckos." + flavor, "prebuilt", "")
+    return sorted([name.strip() for name in raw.split(",") if name.strip()])
 
 def _disabled_bconds(flavor):
     """Per-package `--without` from local config, as {source: [bcond]}.
@@ -864,8 +907,13 @@ def rpm_image_rootfs(flavor, data, suffix):
     # zlib-ng means the image gets this repo's zlib-ng-compat too, not a
     # locally built zlib-ng beside a downloaded compat library from a
     # different compile.
+    skip = {name: True for name in prebuilt_sources(flavor)}
     built = {}
     for recipe in data.RECIPES:
+        if recipe["name"] in skip:
+            # Falls through to the pinned rpm below, which is the whole
+            # mechanism -- see prebuilt_sources.
+            continue
         for sub in recipe["subpackages"]:
             built[sub] = subpackage_rpm_target(
                 recipe["name"] + suffix, recipe["source_name"], sub,
