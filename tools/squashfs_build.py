@@ -176,7 +176,21 @@ def image_paths(rootfs):
     with tarfile.open(rootfs) as tar:
         for member in tar:
             name = member.name
-            if name.startswith("./"):
+            # `tar -C root .` names the root directory ".", which is the
+            # one member that is not a path *inside* the image.  Left
+            # alone it becomes "/." -- root again, spelled so the guard
+            # below does not recognise it -- and the pseudo-file then
+            # carries an xattr line for a file mksquashfs does not think
+            # exists.  4.6.1 accepted that line; 4.7.4, which Fedora 45
+            # ships, fails the whole image with
+            #
+            #   FATAL ERROR: File "." does not exist, can not add Pseudo
+            #   xattr to it.
+            #
+            # so the normalisation is the fix rather than a tidy-up.
+            if name in (".", "./"):
+                name = "/"
+            elif name.startswith("./"):
                 name = name[1:]
             elif not name.startswith("/"):
                 name = "/" + name
