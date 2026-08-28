@@ -95,7 +95,9 @@ Tree artifacts are passed as complete hidden inputs when a command also referenc
 
 `[buckos.fedora] releases` is a comma-separated list. Each release receives suffixed download, buildroot, package, rootfs, boot, and image targets. The selected default release also receives unsuffixed copies.
 
-The checked-in configuration defines Fedora 43 and Fedora 44. Each has its own repository table, package pins, buildroot seed, source recipes, probe data, bootstrap plan, and image package sets.
+The checked-in configuration defines Fedora 43, Fedora 44, and Fedora 45. Each has its own repository table, package pins, buildroot seed, source recipes, probe data, bootstrap plan, and image package sets. All three solve their live image from source with no unresolved capabilities.
+
+A release that has branched from rawhide without reaching GA is served from `development/<release>/` and has no `updates/` tree. `tools/relock.py --branched` selects that repository table. The repo names it records are the GA ones, so the pins do not churn when upstream moves the same packages into `releases/`. Fedora 45 is in that state; the configuration pins the default release to 44 rather than letting it follow the newest entry.
 
 Package downloads use one URL and one SHA-256 digest per target. The URL comes from the package's recorded repository base, an optional `mirror_base` prefix rewrite, an optional static `package_url_template`, or an optional read-through `blob_base`. The static template requires the full digest and may include its 12-character prefix plus escaped filename, stem, extension, and release components. It cannot be combined with either existing redirect setting. The digest remains authoritative for every source.
 
@@ -119,7 +121,9 @@ Hyperscale inherits the CentOS build-system package group, adds the release's EP
 
 ## Root filesystem and media pipeline
 
-`rootfs` gives pinned RPMs to the target release's RPM implementation as one transaction. RPM writes the database, checks dependencies, and runs scriptlets after the payload trees have been staged. Triggers remain disabled because staging all payloads before one transaction does not preserve ordinary inter-package trigger timing.
+Each bootable image set produces two target families from one package list. The unsuffixed family resolves every package that has a source recipe to that recipe's output; the `-prebuilt` family resolves the whole set to pinned upstream binaries and consults no recipe. Both run the same rootfs, boot, and image rules. The variant appears in the ISO volume label, which is also the live-root kernel argument, so the two images cannot be confused at boot.
+
+`rootfs` gives RPMs to the target release's RPM implementation as one transaction. RPM writes the database, checks dependencies, and runs scriptlets after the payload trees have been staged. Triggers remain disabled because staging all payloads before one transaction does not preserve ordinary inter-package trigger timing.
 
 The rootfs output is a tar archive. The archive preserves ownership, capabilities, and RPM filenames without requiring Buck to own or represent every unpacked path.
 

@@ -35,6 +35,21 @@ load(
     _r44_staged = "STAGED",
     _r44_target_cpu = "TARGET_CPU",
 )
+load(
+    "//flavors/fedora/generated:fedora-45.bzl",
+    _r45_flavor = "FLAVOR",
+    _r45_dist_tag = "DIST_TAG",
+    _r45_image_sets = "IMAGE_SETS",
+    _r45_recipes = "RECIPES",
+    _r45_release = "RELEASE",
+    _r45_repo_base = "REPO_BASE",
+    _r45_base_seed = "BASE_SEED",
+    _r45_seed = "SEED_RPMS",
+    _r45_variant_seed = "VARIANT_SEED_RPMS",
+    _r45_sources = "SOURCE_RPMS",
+    _r45_staged = "STAGED",
+    _r45_target_cpu = "TARGET_CPU",
+)
 
 DATA_BY_RELEASE = {
     "43": struct(
@@ -64,5 +79,19 @@ DATA_BY_RELEASE = {
         SOURCE_RPMS = _r44_sources,
         RECIPES = _r44_recipes,
         STAGED = _r44_staged,
+    ),
+    "45": struct(
+        FLAVOR = _r45_flavor,
+        RELEASE = _r45_release,
+        DIST_TAG = _r45_dist_tag,
+        TARGET_CPU = _r45_target_cpu,
+        REPO_BASE = _r45_repo_base,
+        SEED_RPMS = _r45_seed,
+        VARIANT_SEED_RPMS = _r45_variant_seed,
+        BASE_SEED = _r45_base_seed,
+        IMAGE_SETS = _r45_image_sets,
+        SOURCE_RPMS = _r45_sources,
+        RECIPES = _r45_recipes,
+        STAGED = _r45_staged,
     ),
 }

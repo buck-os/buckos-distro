@@ -74,6 +74,10 @@ def _rpm_package(
         # a question about the wrong release -- silently, since it produces
         # a plausible dependency list either way.
         buildroot = None,
+        # Which release's %{fedora} the spec is evaluated against, named
+        # here for exactly the reason `buildroot` is: the caller knows and
+        # the ambient configuration does not.  See distro_release below.
+        distro_release = None,
         visibility = None,
         **kwargs):
     """Replay one source rpm.
@@ -115,9 +119,24 @@ def _rpm_package(
     # property of the spec, and the recipe generator only sees repodata.
     # A probe of a spec without a generator is cheap and returns an empty
     # dynamic set, which is a useful thing to have recorded.
-    distro_release = None
-    if flavor == "fedora":
-        distro_release = read_config("buckos.fedora", "release", None)
+    # %{fedora} decides which branch of a spec's %if runs, so it has to be
+    # the release this package belongs to and not the one the graph happens
+    # to default to.  `[buckos.fedora] release` names the release the
+    # *unsuffixed* targets alias; reading it here handed every release the
+    # default's number, so in a graph holding 43 and 44 every F43 spec was
+    # evaluated as though it were F44.
+    #
+    # libseccomp is the visible version: it guards its python bindings with
+    #
+    #     %if 0%{?fedora} >= 44
+    #
+    # and the F43 build demanded python3-devel, cython and setuptools that
+    # F43 does not put in its buildroot, because it had been told it was 44.
+    # Undefined is not a safe fallback either -- 0%{?fedora} is then 0 and
+    # every Fedora-only branch silently takes the wrong path -- so the
+    # caller passes the release and only a caller that has none omits it.
+    if flavor != "fedora":
+        distro_release = None
 
     srpm_buildrequires(
         name = name + "-buildrequires",

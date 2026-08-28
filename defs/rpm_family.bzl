@@ -73,6 +73,24 @@ _INITRAMFS_MODULES = {
 # a confusing dracut error rather than as "this set has no kernel".
 _TOOL_SETS = ["image-tools"]
 
+# Every bootable image set is built twice, from the same package list.
+#
+# "" takes each package from the source build that produces it wherever a
+# recipe exists, which is what this repo is for and what an unsuffixed
+# target means.  "-prebuilt" takes the whole set from the pinned upstream
+# binaries instead.
+#
+# The second is worth a target rather than a config switch because the two
+# are most useful side by side: the same image built both ways is the only
+# direct evidence that replaying a distro's sources reproduces the distro,
+# and the pinned image is the thing to boot when a source build breaks
+# somewhere unrelated to what is being tested.  A switch would make them
+# alternatives; targets make them comparable in one graph.
+#
+# Order matters only in that "" is first, so the source-built image is
+# what a reader meets before the fallback.
+_IMAGE_VARIANTS = ["", "-prebuilt"]
+
 # Kernel command line for a live ISO.
 #
 # root=live:CDLABEL=<label> is what sends dracut's dmsquash-live module
@@ -881,6 +899,11 @@ def _rpm_one_package(
         },
         subpackages = recipe["subpackages"],
         supplier = _flavor_config(flavor)["supplier"],
+        # The release this recipe's data came from, which is the one whose
+        # %if branches the spec should take.  Same source as DIST_TAG, so
+        # `dist` and `fedora` can no longer disagree about which release is
+        # being built.
+        distro_release = data.RELEASE,
         visibility = ["PUBLIC"],
     )
 
@@ -944,21 +967,26 @@ def rpm_image_rootfs(flavor, data, suffix):
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
             continue
-        rpms = []
-        from_source = 0
-        for entry in data.IMAGE_SETS[name]:
-            local = built.get(entry["name"])
-            if local:
-                rpms.append(":" + local)
-                from_source += 1
-            else:
-                rpms.append(":" + entry["target"] + suffix)
-        rootfs(
-            name = "rootfs-" + name + suffix,
-            buildroot = buildroot,
-            rpms = rpms,
-            visibility = ["PUBLIC"],
-        )
+        for variant in _IMAGE_VARIANTS:
+            rpms = []
+            from_source = 0
+            for entry in data.IMAGE_SETS[name]:
+                # The prebuilt variant consults no recipe at all.  Not even
+                # for packages this host could build: the point of it is a
+                # set with one provenance, so a half-source image cannot be
+                # mistaken for the pinned one it is being compared against.
+                local = built.get(entry["name"]) if variant == "" else None
+                if local:
+                    rpms.append(":" + local)
+                    from_source += 1
+                else:
+                    rpms.append(":" + entry["target"] + suffix)
+            rootfs(
+                name = "rootfs-" + name + variant + suffix,
+                buildroot = buildroot,
+                rpms = rpms,
+                visibility = ["PUBLIC"],
+            )
 
 def rpm_image_tools(data, suffix):
     """A buildroot per tool set: what assembles an image, not what boots.
@@ -1000,21 +1028,22 @@ def rpm_boot(flavor, data, suffix):
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
             continue
-        rootfs_target = ":rootfs-" + name + suffix
+        for variant in _IMAGE_VARIANTS:
+            rootfs_target = ":rootfs-" + name + variant + suffix
 
-        kernel_image(
-            name = "kernel-" + name + suffix,
-            rootfs = rootfs_target,
-            visibility = ["PUBLIC"],
-        )
+            kernel_image(
+                name = "kernel-" + name + variant + suffix,
+                rootfs = rootfs_target,
+                visibility = ["PUBLIC"],
+            )
 
-        initramfs(
-            name = "initramfs-" + name + suffix,
-            buildroot = buildroot,
-            rootfs = rootfs_target,
-            add_modules = _INITRAMFS_MODULES.get(name, []),
-            visibility = ["PUBLIC"],
-        )
+            initramfs(
+                name = "initramfs-" + name + variant + suffix,
+                buildroot = buildroot,
+                rootfs = rootfs_target,
+                add_modules = _INITRAMFS_MODULES.get(name, []),
+                visibility = ["PUBLIC"],
+            )
 
 def rpm_images(flavor, data, release, suffix):
     """squashfs and ISO per bootable image set.
@@ -1035,36 +1064,46 @@ def rpm_images(flavor, data, release, suffix):
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
             continue
+        for variant in _IMAGE_VARIANTS:
+            squashfs(
+                name = "squashfs-" + name + variant + suffix,
+                buildroot = tools,
+                rootfs = ":rootfs-" + name + variant + suffix,
+                # Fedora ships selinux-policy-targeted in every bootable
+                # set and boots enforcing, so an unlabelled image does not
+                # boot at all -- systemd freezes as PID 1 before starting a
+                # unit.  Labelling here is what lets the kernel command
+                # line stop saying selinux=0.
+                selinux_relabel = True,
+                visibility = ["PUBLIC"],
+            )
 
-        squashfs(
-            name = "squashfs-" + name + suffix,
-            buildroot = tools,
-            rootfs = ":rootfs-" + name + suffix,
-            # Fedora ships selinux-policy-targeted in every bootable set
-            # and boots enforcing, so an unlabelled image does not boot at
-            # all -- systemd freezes as PID 1 before starting a unit.
-            # Labelling here is what lets the kernel command line stop
-            # saying selinux=0.
-            selinux_relabel = True,
-            visibility = ["PUBLIC"],
-        )
+            # Uppercase because the volume id is what ends up in the kernel
+            # command line as CDLABEL=, and genisoimage-style volume ids
+            # are upper-cased by the filesystem -- a lowercase label here
+            # would be written uppercase and then not match at boot.
+            #
+            # The variant is part of the label, not decoration: booting one
+            # of these is how you find out which one you burned, and two
+            # ISOs claiming the same CDLABEL would have the live root of
+            # whichever disc was found first.
+            label = "{}-{}-{}{}".format(
+                flavor.upper(),
+                release,
+                name.upper(),
+                variant.upper(),
+            )
 
-        # Uppercase because the volume id is what ends up in the kernel
-        # command line as CDLABEL=, and genisoimage-style volume ids are
-        # upper-cased by the filesystem -- a lowercase label here would be
-        # written uppercase and then not match at boot.
-        label = "{}-{}-{}".format(flavor.upper(), release, name.upper())
-
-        iso_image(
-            name = "iso-" + name + suffix,
-            buildroot = tools,
-            kernel = ":kernel-" + name + suffix,
-            initramfs = ":initramfs-" + name + suffix,
-            squashfs = ":squashfs-" + name + suffix,
-            volume_label = label,
-            kernel_args = _LIVE_KERNEL_ARGS,
-            visibility = ["PUBLIC"],
-        )
+            iso_image(
+                name = "iso-" + name + variant + suffix,
+                buildroot = tools,
+                kernel = ":kernel-" + name + variant + suffix,
+                initramfs = ":initramfs-" + name + variant + suffix,
+                squashfs = ":squashfs-" + name + variant + suffix,
+                volume_label = label,
+                kernel_args = _LIVE_KERNEL_ARGS,
+                visibility = ["PUBLIC"],
+            )
 
 # ── Per-release fan-out ──────────────────────────────────────────────
 #
