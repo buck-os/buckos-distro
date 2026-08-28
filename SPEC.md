@@ -4,7 +4,7 @@ This document describes the implemented build model and public Starlark interfac
 
 ## Package replay
 
-The Fedora and CentOS frontends treat the upstream spec file as executable build metadata. The Debian and Ubuntu frontends treat the unpacked Debian source package and `debian/rules` the same way. None translates the upstream recipe into Buck rules.
+The Fedora, CentOS Stream, and CentOS Hyperscale frontends treat the upstream spec file as executable build metadata. The Debian and Ubuntu frontends treat the unpacked Debian source package and `debian/rules` the same way. None translates the upstream recipe into Buck rules.
 
 For each source package, `package()` creates these targets:
 
@@ -81,7 +81,7 @@ Debian-family dependency resolution is deliberately smaller: `tools/deb_lock.py`
 
 ## Buildroot provenance
 
-Fedora, CentOS, Debian, and Ubuntu define a buildroot per configured release and provenance.
+Fedora, CentOS Stream, CentOS Hyperscale, Debian, and Ubuntu define a buildroot per configured release and provenance.
 
 `binary-seed` assembles a tree from the pinned Fedora `@buildsys-build` closure or a Debian-family APT build closure. The tree contains the target release's compiler, package implementation, libraries, and build utilities. Actions using it run with Bubblewrap or unshare isolation and are eligible for remote execution and cache upload.
 
@@ -103,7 +103,15 @@ Package downloads use one URL and one SHA-256 digest per target. The URL comes f
 
 ## CentOS Stream release graph
 
-`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. The checked-in CentOS Stream 10 lock pins the BaseOS and AppStream closures for the upstream build-system package group, live root filesystem, and image toolchain. Its source replay target builds the checked-in SRPM fixture with the Stream 10 toolchain and `.el10` macros. Its hybrid live ISO boots through both BIOS and UEFI with SELinux enforcing.
+`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. Release 9 layers CentOS Stream BaseOS, AppStream, and CRB with EPEL and EPEL Next. Its buildroot includes the EPEL RPM macros, and its live image installs the EPEL and EPEL Next release packages without forcing an unrelated EPEL Next workload package. Release 10 retains its BaseOS, AppStream, and CRB graph and remains the default.
+
+Both CentOS releases pin the build-system package group, live root filesystem, and image toolchain. Their source replay targets build the checked-in SRPM fixture with the target release's compiler and `.el9` or `.el10` macros. Both define hybrid live ISO targets; the release 10 image has been boot-verified through BIOS and UEFI with SELinux enforcing.
+
+## CentOS Hyperscale release graph
+
+`[buckos.centos-hyperscale] releases` is independent of the CentOS Stream release graph so both variants can coexist at releases 9 and 10. Hyperscale layers the SIG's `main` repository and `centos-release-hyperscale` from CentOS Extras on the corresponding CentOS Stream BaseOS, AppStream, and CRB repositories. Release 9 also uses EPEL and EPEL Next; its release package requires both. Release 10 uses EPEL, and its release package requires only `epel-release`.
+
+Hyperscale inherits the CentOS build-system package group, adds the release's EPEL RPM macros to the binary seed, and uses `.hs.el9` or `.hs.el10` for source replay. Its image closures install the Hyperscale release package, select newer Hyperscale replacements by RPM version, and explicitly resolve the split `systemd-sysusers` provider used by Hyperscale systemd. EPEL 10's rich release dependency is pinned to `centos-stream-release` by an explicit solver override.
 
 ## Debian-family release graphs
 
@@ -119,7 +127,7 @@ The rootfs output is a tar archive. The archive preserves ownership, capabilitie
 
 `initramfs` unpacks the rootfs into isolated scratch space and runs the image's own dracut with a non-host-only configuration.
 
-`squashfs` unpacks the rootfs and runs the target image toolchain's `mksquashfs`. Fedora and CentOS live images enable SELinux relabeling, which derives contexts from the image's own policy and writes them through the squashfs pseudo-file interface.
+`squashfs` unpacks the rootfs and runs the target image toolchain's `mksquashfs`. Fedora, CentOS Stream, and CentOS Hyperscale live images enable SELinux relabeling, which derives contexts from the image's own policy and writes them through the squashfs pseudo-file interface.
 
 `iso_image` creates the ISO9660 tree, BIOS boot files, UEFI files, El Torito entries, and optional isohybrid metadata. The volume label is also used to derive the live-root kernel argument. Secure Boot signing is not implemented.
 
@@ -136,7 +144,7 @@ The repository does not provide service addresses or credentials for a remote ba
 ```text
 defs/providers.bzl          Shared providers
 defs/flavor.bzl             Package frontend and flavor dispatch
-defs/rpm_family.bzl         Shared Fedora and CentOS target generation
+defs/rpm_family.bzl         Shared RPM-family target generation
 defs/releases.bzl           Configured release expansion
 defs/buildroot_helpers.bzl  Buildroot access and execution policy
 defs/exec.bzl               Execution-platform registration
@@ -148,6 +156,7 @@ defs/rules/boot.bzl         Kernel and initramfs rules
 defs/rules/image.bzl        Squashfs and ISO rules
 flavors/fedora/             Fedora configuration, lockfiles, and generated data
 flavors/centos/             CentOS Stream configuration, lockfile, and generated data
+flavors/centos-hyperscale/  CentOS Hyperscale configuration, lockfile, and generated data
 flavors/debian/             Debian configuration, lockfile, and generated data
 flavors/ubuntu/             Ubuntu configuration, lockfile, and generated data
 tools/                      Solver, generators, action drivers, and tests

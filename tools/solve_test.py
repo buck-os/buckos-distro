@@ -17,6 +17,7 @@ import unittest
 from solve import (
     BUILDSYS_BUILD,
     CENTOS_BUILDSYS_BUILD,
+    IMPLICIT_GROUPS,
     PROBE_SCHEMA,
     build_universe,
     check_public_base,
@@ -24,11 +25,21 @@ from solve import (
     derive_repo_name,
     load_probe,
     merge_packages,
+    parse_override,
     probed_buildrequires,
     solve,
     solve_image_sets,
     solve_package_set,
 )
+
+
+class TestOverrideParsing(unittest.TestCase):
+    def test_rich_dependency_may_contain_an_equals_operator(self):
+        expression = "(redhat-release with system-release(releasever) = 10)"
+        self.assertEqual(
+            parse_override(expression + "=centos-stream-release", "--override"),
+            (expression, "centos-stream-release"),
+        )
 
 
 def binary(name, requires=(), provides=(), source="src-1.fc43.src.rpm",
@@ -256,6 +267,12 @@ class TestDynamicBuildRequires(unittest.TestCase):
         self.assertIn("centos-stream-release", deps["widget"])
         self.assertNotIn("fedora-release-common", deps["widget"])
 
+    def test_centos_hyperscale_inherits_the_centos_implicit_group(self):
+        self.assertEqual(
+            IMPLICIT_GROUPS["centos-hyperscale"],
+            CENTOS_BUILDSYS_BUILD,
+        )
+
     def test_rpmlib_entries_from_the_header_are_dropped(self):
         # `rpm -qp --requires` on a source header emits these unconditionally
         # and nothing provides them, so a solve handed one reports an
@@ -321,6 +338,17 @@ class TestMergePackages(unittest.TestCase):
               "from": "1-1.fc43", "from_repo": "releases",
               "to": "1-5.fc43", "to_repo": "updates"}],
         )
+
+    def test_an_epel_next_rebuild_supersedes_epel(self):
+        packages, replaced = self.merge(
+            ("epel", [binary("widget", release="1.el9", repo="epel")]),
+            ("epel-next", [
+                binary("widget", release="1.el9.next", repo="epel-next"),
+            ]),
+        )
+        self.assertEqual(packages[0]["release"], "1.el9.next")
+        self.assertEqual(packages[0]["repo"], "epel-next")
+        self.assertEqual(replaced[0]["to_repo"], "epel-next")
 
     def test_repo_order_cannot_downgrade(self):
         """Version decides; order only settles exact ties.
@@ -576,6 +604,8 @@ class TestPublicBaseURLs(unittest.TestCase):
             "/Everything/x86_64/os",
             "https://archives.fedoraproject.org/pub/archive/fedora/linux"
             "/releases/41/Everything/source/tree",
+            "https://dl.fedoraproject.org/pub/epel/next/9/Everything/x86_64",
+            "https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os",
             "https://mirror.stream.centos.org/10-stream/BaseOS/x86_64/os",
         ):
             with self.subTest(url=url):

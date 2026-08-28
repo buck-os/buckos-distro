@@ -9,6 +9,8 @@ fills the four slots from SPEC.md section 2:
     ------  -------------------   --------------   -----------------   ------
     fedora  .src.rpm             BuildRequires    rpmbuild -bb        .rpm
     centos  .src.rpm             BuildRequires    rpmbuild -bb        .rpm
+    centos-hyperscale
+            .src.rpm             BuildRequires    rpmbuild -bb        .rpm
     debian  .dsc + debian.tar    Build-Depends    dpkg-buildpackage   .deb
     ubuntu  .dsc + debian.tar    Build-Depends    dpkg-buildpackage   .deb
     buckos  upstream tarball     Buck labels      configure && make   prefix tree
@@ -36,7 +38,14 @@ load(
     "srpm_unpack",
 )
 
-FLAVORS = ("fedora", "centos", "debian", "ubuntu", "buckos")
+FLAVORS = (
+    "fedora",
+    "centos",
+    "centos-hyperscale",
+    "debian",
+    "ubuntu",
+    "buckos",
+)
 
 def current_flavor():
     """The flavor selected by .buckconfig, overridable per invocation with
@@ -345,7 +354,7 @@ def package(name, flavor = None, **kwargs):
     """
     flavor = flavor or current_flavor()
 
-    if flavor in ("fedora", "centos"):
+    if flavor in ("fedora", "centos", "centos-hyperscale"):
         _rpm_package(name = name, flavor = flavor, **kwargs)
     elif flavor in ("debian", "ubuntu"):
         _deb_package(name = name, flavor = flavor, **kwargs)

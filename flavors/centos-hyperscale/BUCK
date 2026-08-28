@@ -8,54 +8,54 @@ load(
     "rpm_packages_for",
     "rpm_rootfs_for",
 )
-load("//flavors/centos/generated:index.bzl", "DATA_BY_RELEASE")
+load("//flavors/centos-hyperscale/generated:index.bzl", "DATA_BY_RELEASE")
 
-RELEASES = flavor_releases("centos", default = "9,10")
-DEFAULT_RELEASE = default_release("centos", RELEASES)
+RELEASES = flavor_releases("centos-hyperscale", default = "9,10")
+DEFAULT_RELEASE = default_release("centos-hyperscale", RELEASES)
 
-rpm_downloads_for("centos", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
-rpm_buildroots_for("centos", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
-rpm_packages_for("centos", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
-rpm_rootfs_for("centos", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_downloads_for("centos-hyperscale", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_buildroots_for("centos-hyperscale", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_packages_for("centos-hyperscale", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
+rpm_rootfs_for("centos-hyperscale", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE)
 
 package(
     name = "hello-9",
-    flavor = "centos",
+    flavor = "centos-hyperscale",
     srpm = "//tests:hello-srpm",
     source_name = "hello",
     version = "1.0",
     release = "1",
     subpackages = ["hello"],
     defines = ["debug_package %{nil}"],
-    buildroot = rpm_buildroot_target("centos", "-9"),
+    buildroot = rpm_buildroot_target("centos-hyperscale", "-9"),
     supplier = "Organization: CentOS",
     visibility = ["PUBLIC"],
 )
 
 package(
     name = "hello-10",
-    flavor = "centos",
+    flavor = "centos-hyperscale",
     srpm = "//tests:hello-srpm",
     source_name = "hello",
     version = "1.0",
     release = "1",
     subpackages = ["hello"],
     defines = ["debug_package %{nil}"],
-    buildroot = rpm_buildroot_target("centos", "-10"),
+    buildroot = rpm_buildroot_target("centos-hyperscale", "-10"),
     supplier = "Organization: CentOS",
     visibility = ["PUBLIC"],
 )
 
 package(
     name = "hello",
-    flavor = "centos",
+    flavor = "centos-hyperscale",
     srpm = "//tests:hello-srpm",
     source_name = "hello",
     version = "1.0",
     release = "1",
     subpackages = ["hello"],
     defines = ["debug_package %{nil}"],
-    buildroot = rpm_buildroot_target("centos", ""),
+    buildroot = rpm_buildroot_target("centos-hyperscale", ""),
     supplier = "Organization: CentOS",
     visibility = ["PUBLIC"],
 )

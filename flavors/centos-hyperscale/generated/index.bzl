@@ -2,11 +2,11 @@
 #
 # Starlark's load() is static -- it cannot be driven by a config value --
 # but the set of releases to build is config-driven.  So every generated
-# release is loaded here unconditionally and flavors/centos/BUCK picks the
-# ones `[buckos.centos] releases` actually asks for out of this map.
+# release is loaded here unconditionally and flavors/centos-hyperscale/BUCK picks the
+# ones `[buckos.centos-hyperscale] releases` actually asks for out of this map.
 
 load(
-    "//flavors/centos/generated:centos-10.bzl",
+    "//flavors/centos-hyperscale/generated:centos-hyperscale-10.bzl",
     _r10_flavor = "FLAVOR",
     _r10_dist_tag = "DIST_TAG",
     _r10_image_sets = "IMAGE_SETS",
@@ -19,7 +19,7 @@ load(
     _r10_target_cpu = "TARGET_CPU",
 )
 load(
-    "//flavors/centos/generated:centos-9.bzl",
+    "//flavors/centos-hyperscale/generated:centos-hyperscale-9.bzl",
     _r9_flavor = "FLAVOR",
     _r9_dist_tag = "DIST_TAG",
     _r9_image_sets = "IMAGE_SETS",
