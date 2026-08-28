@@ -881,6 +881,11 @@ def _rpm_one_package(
         },
         subpackages = recipe["subpackages"],
         supplier = _flavor_config(flavor)["supplier"],
+        # The release this recipe's data came from, which is the one whose
+        # %if branches the spec should take.  Same source as DIST_TAG, so
+        # `dist` and `fedora` can no longer disagree about which release is
+        # being built.
+        distro_release = data.RELEASE,
         visibility = ["PUBLIC"],
     )
 
