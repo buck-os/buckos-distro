@@ -11,6 +11,14 @@ the generated diff reviewable.
 """
 
 load("//defs:flavor.bzl", "package", "subpackage_rpm_target", "subpackage_target")
+load(
+    "//defs:architectures.bzl",
+    "ARCHITECTURES",
+    "DEFAULT_ARCHITECTURE",
+    "execution_compatible_with",
+    "release_arch_suffix",
+    "target_platform",
+)
 load("//defs:releases.bzl", "release_suffix")
 load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_buildroot")
@@ -122,7 +130,7 @@ _IMAGE_VARIANTS = ["", "-prebuilt"]
 # loaded in 78ms, PID 1 running as system_u:system_r:init_t, zero AVC
 # denials, login prompt reached.
 #
-_LIVE_KERNEL_ARGS = "rd.live.image console=tty0 console=ttyS0,115200"
+_LIVE_KERNEL_ARGS = "rd.live.image console=tty0"
 
 # ── Where an rpm is fetched from ─────────────────────────────────────
 #
@@ -166,7 +174,7 @@ _LIVE_KERNEL_ARGS = "rd.live.image console=tty0 console=ttyS0,115200"
 # and the difference is exactly where this went wrong:
 #
 #   `+` is a legal, literal character in a URL *path*, so Fedora serves
-#   gcc-c++-15.3.1-1.fc43.x86_64.rpm at that name and escaping it there
+#   gcc-c++-15.3.1-1.fc45.x86_64.rpm at that name and escaping it there
 #   would be noise.  In a *query string* it decodes to a space, so the same
 #   filename passed as a parameter arrives as `gcc-c  -15.3.1...` -- a
 #   request for a file that does not exist, from a name that looks right in
@@ -266,7 +274,7 @@ def _download_url(flavor, data, entry):
         base = mirror_base + base[len(mirror_from):]
     return "{}/{}".format(base, _escape(entry["location"], _PATH_ESCAPES))
 
-def rpm_downloads(flavor, data, suffix):
+def rpm_downloads(flavor, data, suffix, platform):
     """One http_file per pinned rpm: seed closure, image sets, source rpms.
 
     sha256 is passed through to http_file, so the pin in the lockfile is
@@ -281,19 +289,19 @@ def rpm_downloads(flavor, data, suffix):
     """
     defined = {}
     for entry in data.SEED_RPMS:
-        _rpm_download(flavor, data, entry, suffix, defined)
+        _rpm_download(flavor, data, entry, suffix, defined, platform)
 
     for entry in getattr(data, "VARIANT_SEED_RPMS", []):
-        _rpm_download(flavor, data, entry, suffix, defined)
+        _rpm_download(flavor, data, entry, suffix, defined, platform)
 
     for name in sorted(data.IMAGE_SETS):
         for entry in data.IMAGE_SETS[name]:
-            _rpm_download(flavor, data, entry, suffix, defined)
+            _rpm_download(flavor, data, entry, suffix, defined, platform)
 
     for entry in data.SOURCE_RPMS:
-        _rpm_download(flavor, data, entry, suffix, defined)
+        _rpm_download(flavor, data, entry, suffix, defined, platform)
 
-def _rpm_download(flavor, data, entry, suffix, defined):
+def _rpm_download(flavor, data, entry, suffix, defined, platform):
     name = entry["target"] + suffix
     if name in defined:
         # Same target name from a different pin would mean two rpms with
@@ -311,10 +319,11 @@ def _rpm_download(flavor, data, entry, suffix, defined):
         name = name,
         urls = [_download_url(flavor, data, entry)],
         sha256 = entry["sha256"],
+        default_target_platform = platform,
         visibility = ["PUBLIC"],
     )
 
-def rpm_buildroots(flavor, release, suffix, data = None):
+def rpm_buildroots(flavor, release, suffix, platform, exec_constraints, data = None):
     """Define the host and binary-seed buildroots for one RPM release.
 
     Called once per release with a `-<release>` suffix, and once more with
@@ -336,6 +345,7 @@ def rpm_buildroots(flavor, release, suffix, data = None):
         name = "buildroot-host" + suffix,
         dist_tag = dist_tag,
         target_cpu = target_cpu,
+        default_target_platform = platform,
         visibility = ["PUBLIC"],
     )
 
@@ -373,6 +383,8 @@ def rpm_buildroots(flavor, release, suffix, data = None):
         macros = "//defs:macros.buckos-distro",
         seed_rpms = seed_rpms,
         target_cpu = target_cpu,
+        default_target_platform = platform,
+        exec_compatible_with = exec_constraints,
         visibility = ["PUBLIC"],
     )
 
@@ -389,7 +401,7 @@ def rpm_buildroot_target(flavor, suffix):
     provenance = read_config("buckos." + flavor, "buildroot", "host")
     return ":buildroot-{}{}".format(provenance, suffix)
 
-def rpm_packages(flavor, data, suffix):
+def rpm_packages(flavor, data, suffix, platform, exec_constraints):
     """One package() per recipe, staged where the lockfile says to stage.
 
     A recipe's build_deps arrive as *binary* package names -- "xz-libs",
@@ -492,6 +504,8 @@ def rpm_packages(flavor, data, suffix):
             provider,
             seed_rpm,
             variant_recipe,
+            platform,
+            exec_constraints,
         )
 
     for entry in data.STAGED:
@@ -514,6 +528,8 @@ def rpm_packages(flavor, data, suffix):
             provider,
             seed_rpm,
             variant_recipe,
+            platform,
+            exec_constraints,
         )
 
     # The stable names.  Everything downstream -- an image set, another
@@ -526,6 +542,7 @@ def rpm_packages(flavor, data, suffix):
         native.alias(
             name = recipe["name"] + suffix,
             actual = ":" + shipping + suffix,
+            default_target_platform = platform,
             visibility = ["PUBLIC"],
         )
         for sub in recipe["subpackages"]:
@@ -536,6 +553,7 @@ def rpm_packages(flavor, data, suffix):
                 actual = ":" + subpackage_target(
                     shipping + suffix, recipe["source_name"], sub,
                 ),
+                default_target_platform = platform,
                 visibility = ["PUBLIC"],
             )
             # The rpm file gets the same treatment, so an image set asking
@@ -548,6 +566,7 @@ def rpm_packages(flavor, data, suffix):
                 actual = ":" + subpackage_rpm_target(
                     shipping + suffix, recipe["source_name"], sub,
                 ),
+                default_target_platform = platform,
                 visibility = ["PUBLIC"],
             )
 
@@ -565,6 +584,7 @@ def rpm_packages(flavor, data, suffix):
         native.alias(
             name = "probe-" + source + suffix,
             actual = ":" + variant + suffix + "-buildrequires",
+            default_target_platform = platform,
             visibility = ["PUBLIC"],
         )
 
@@ -733,7 +753,9 @@ def _rpm_one_package(
         variant,
         provider,
         seed_rpm,
-        variant_recipe = {}):
+        variant_recipe,
+        platform,
+        exec_constraints):
     """One package() call, with build_deps resolved to subpackage labels."""
     # Keyed on the recipe, not the spec: a version variant shares its
     # spec name with the package it varies and must not share its srpm.
@@ -904,10 +926,12 @@ def _rpm_one_package(
         # `dist` and `fedora` can no longer disagree about which release is
         # being built.
         distro_release = data.RELEASE,
+        default_target_platform = platform,
+        exec_compatible_with = exec_constraints,
         visibility = ["PUBLIC"],
     )
 
-def rpm_rootfs(flavor, data, suffix):
+def rpm_rootfs(flavor, data, suffix, platform, exec_constraints):
     """A rootfs installed from the release's pinned seed closure.
 
     The seed is a *build* closure, not the package set anyone would ship,
@@ -927,10 +951,12 @@ def rpm_rootfs(flavor, data, suffix):
         name = "rootfs-seed" + suffix,
         buildroot = rpm_buildroot_target(flavor, suffix),
         rpms = [":" + entry["target"] + suffix for entry in data.SEED_RPMS],
+        default_target_platform = platform,
+        exec_compatible_with = exec_constraints,
         visibility = ["PUBLIC"],
     )
 
-def rpm_image_rootfs(flavor, data, suffix):
+def rpm_image_rootfs(flavor, data, suffix, platform, exec_constraints):
     """A rootfs per named image set: the thing an ISO is actually made of.
 
     Same rule as rootfs-seed, different closure, and that is the whole
@@ -985,10 +1011,17 @@ def rpm_image_rootfs(flavor, data, suffix):
                 name = "rootfs-" + name + variant + suffix,
                 buildroot = buildroot,
                 rpms = rpms,
+                selinux_modules = (
+                    ["//flavors/centos-hyperscale:systemd-260-compat.cil"]
+                    if flavor == "centos-hyperscale"
+                    else []
+                ),
+                default_target_platform = platform,
+                exec_compatible_with = exec_constraints,
                 visibility = ["PUBLIC"],
             )
 
-def rpm_image_tools(data, suffix):
+def rpm_image_tools(data, suffix, platform, exec_constraints):
     """A buildroot per tool set: what assembles an image, not what boots.
 
     seeded_buildroot rather than rootfs because the consumer is an action,
@@ -1010,11 +1043,13 @@ def rpm_image_tools(data, suffix):
                 ":" + entry["target"] + suffix
                 for entry in data.IMAGE_SETS[name]
             ],
-            target_cpu = "x86_64",
+            target_cpu = data.TARGET_CPU,
+            default_target_platform = platform,
+            exec_compatible_with = exec_constraints,
             visibility = ["PUBLIC"],
         )
 
-def rpm_boot(flavor, data, suffix):
+def rpm_boot(flavor, data, suffix, platform, exec_constraints):
     """Kernel and initramfs per image set: what a bootloader loads.
 
     Only for sets that have a kernel, which in practice means the ones
@@ -1034,6 +1069,7 @@ def rpm_boot(flavor, data, suffix):
             kernel_image(
                 name = "kernel-" + name + variant + suffix,
                 rootfs = rootfs_target,
+                default_target_platform = platform,
                 visibility = ["PUBLIC"],
             )
 
@@ -1042,10 +1078,12 @@ def rpm_boot(flavor, data, suffix):
                 buildroot = buildroot,
                 rootfs = rootfs_target,
                 add_modules = _INITRAMFS_MODULES.get(name, []),
+                default_target_platform = platform,
+                exec_compatible_with = exec_constraints,
                 visibility = ["PUBLIC"],
             )
 
-def rpm_images(flavor, data, release, suffix):
+def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
     """squashfs and ISO per bootable image set.
 
     The squashfs is separate from the ISO rather than folded into it
@@ -1055,11 +1093,15 @@ def rpm_images(flavor, data, release, suffix):
     every ISO tweak, which is the same "split on what this actually costs"
     argument defs/rules/boot.bzl makes for kernel_image and initramfs.
 
-    Both run in the image-tools buildroot, not the package buildroot: they
-    need mksquashfs and xorriso, which are not in @buildsys-build and have
-    no business being added to it.
+    The ISO runs in the image-tools buildroot.  Squashfs normally does too;
+    Enterprise Linux 9 instead compiles the pinned 4.6.1 source in its
+    binary-seed buildroot because its packaged tool cannot add per-file
+    xattrs, then uses that target-architecture binary for the image.
     """
     tools = ":buildroot-image-tools" + suffix
+    old_squashfs = release == "9" and flavor in ("centos", "centos-hyperscale")
+    squashfs_tools = ":buildroot-binary-seed" + suffix if old_squashfs else tools
+    squashfs_source = "//tools:squashfs-tools-4.6.1-source" if old_squashfs else None
 
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
@@ -1067,7 +1109,8 @@ def rpm_images(flavor, data, release, suffix):
         for variant in _IMAGE_VARIANTS:
             squashfs(
                 name = "squashfs-" + name + variant + suffix,
-                buildroot = tools,
+                buildroot = squashfs_tools,
+                mksquashfs_source = squashfs_source,
                 rootfs = ":rootfs-" + name + variant + suffix,
                 # Fedora ships selinux-policy-targeted in every bootable
                 # set and boots enforcing, so an unlabelled image does not
@@ -1075,6 +1118,8 @@ def rpm_images(flavor, data, release, suffix):
                 # unit.  Labelling here is what lets the kernel command
                 # line stop saying selinux=0.
                 selinux_relabel = True,
+                default_target_platform = platform,
+                exec_compatible_with = exec_constraints,
                 visibility = ["PUBLIC"],
             )
 
@@ -1101,7 +1146,14 @@ def rpm_images(flavor, data, release, suffix):
                 initramfs = ":initramfs-" + name + variant + suffix,
                 squashfs = ":squashfs-" + name + variant + suffix,
                 volume_label = label,
-                kernel_args = _LIVE_KERNEL_ARGS,
+                kernel_args = "{} {}".format(
+                    _LIVE_KERNEL_ARGS,
+                    "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
+                ),
+                boot_mode = "hybrid" if data.TARGET_CPU == "x86_64" else "uefi",
+                target_cpu = data.TARGET_CPU,
+                default_target_platform = platform,
+                exec_compatible_with = exec_constraints,
                 visibility = ["PUBLIC"],
             )
 
@@ -1113,59 +1165,131 @@ def rpm_images(flavor, data, release, suffix):
 # target defined before it is referenced: downloads, then the buildroot
 # that consumes them, then the packages that build against it.
 
-def _missing(flavor, release):
-    fail(
-        "{} release {} is in `[buckos.{}] releases` but has no ".format(flavor, release, flavor) +
-        "generated data. Solve and generate it:\n" +
-        "    tools/solve.py --flavor {} --release {} ...\n".format(flavor, release) +
-        "    tools/generate.py flavors/{}/lock/{}-{}.lock.json".format(flavor, flavor, release),
-    )
-
-def _data_for(flavor, data_by_release, release):
-    data = data_by_release.get(release)
+def _data_for(flavor, data_by_release_arch, release, architecture):
+    by_arch = data_by_release_arch.get(release)
+    data = by_arch.get(architecture) if by_arch != None else None
     if data == None:
-        _missing(flavor, release)
+        fail(
+            "{} release {} has no generated {} data; solve and generate flavors/{}/lock/{}-{}-{}.lock.json".format(
+                flavor,
+                release,
+                architecture,
+                flavor,
+                flavor,
+                release,
+                architecture,
+            ),
+        )
     if data.FLAVOR != flavor:
         fail("{} release {} loaded {} data".format(flavor, release, data.FLAVOR))
+    if data.TARGET_CPU != architecture:
+        fail("{} release {} {} loaded {} data".format(
+            flavor,
+            release,
+            architecture,
+            data.TARGET_CPU,
+        ))
     return data
 
-def rpm_downloads_for(flavor, releases, default, data_by_release):
+def rpm_downloads_for(flavor, releases, default, data_by_release_arch):
     """http_file targets for every pinned rpm, per release."""
+    for release in releases:
+        for architecture in ARCHITECTURES:
+            rpm_downloads(
+                flavor,
+                _data_for(flavor, data_by_release_arch, release, architecture),
+                release_arch_suffix(release, architecture),
+                target_platform(flavor, release, architecture),
+            )
+
+    # Compatibility targets remain x86_64. They are separate definitions
+    # because http_file has no cheap alias form that preserves every output
+    # name consumed by generated package labels.
     for release in releases:
         rpm_downloads(
             flavor,
-            _data_for(flavor, data_by_release, release),
+            _data_for(flavor, data_by_release_arch, release, DEFAULT_ARCHITECTURE),
             release_suffix(release),
+            target_platform(flavor, release, DEFAULT_ARCHITECTURE),
         )
+    rpm_downloads(
+        flavor,
+        _data_for(flavor, data_by_release_arch, default, DEFAULT_ARCHITECTURE),
+        "",
+        target_platform(flavor, default, DEFAULT_ARCHITECTURE),
+    )
 
-    rpm_downloads(flavor, _data_for(flavor, data_by_release, default), "")
-
-def rpm_buildroots_for(flavor, releases, default, data_by_release = None):
+def rpm_buildroots_for(flavor, releases, default, data_by_release_arch = None):
     """Define buildroots for every release, plus the unsuffixed default."""
-    data_by_release = data_by_release or {}
+    data_by_release_arch = data_by_release_arch or {}
+
+    for release in releases:
+        for architecture in ARCHITECTURES:
+            rpm_buildroots(
+                flavor,
+                release,
+                release_arch_suffix(release, architecture),
+                target_platform(flavor, release, architecture),
+                execution_compatible_with(architecture),
+                _data_for(flavor, data_by_release_arch, release, architecture),
+            )
 
     for release in releases:
         rpm_buildroots(
             flavor,
             release,
             release_suffix(release),
-            data_by_release.get(release),
+            target_platform(flavor, release, DEFAULT_ARCHITECTURE),
+            execution_compatible_with(DEFAULT_ARCHITECTURE),
+            _data_for(flavor, data_by_release_arch, release, DEFAULT_ARCHITECTURE),
         )
+    rpm_buildroots(
+        flavor,
+        default,
+        "",
+        target_platform(flavor, default, DEFAULT_ARCHITECTURE),
+        execution_compatible_with(DEFAULT_ARCHITECTURE),
+        _data_for(flavor, data_by_release_arch, default, DEFAULT_ARCHITECTURE),
+    )
 
-    rpm_buildroots(flavor, default, "", data_by_release.get(default))
-
-def rpm_packages_for(flavor, releases, default, data_by_release):
+def rpm_packages_for(flavor, releases, default, data_by_release_arch):
     """package() calls for every recipe, per release."""
+    for release in releases:
+        for architecture in ARCHITECTURES:
+            rpm_packages(
+                flavor,
+                _data_for(flavor, data_by_release_arch, release, architecture),
+                release_arch_suffix(release, architecture),
+                target_platform(flavor, release, architecture),
+                execution_compatible_with(architecture),
+            )
+
     for release in releases:
         rpm_packages(
             flavor,
-            _data_for(flavor, data_by_release, release),
+            _data_for(flavor, data_by_release_arch, release, DEFAULT_ARCHITECTURE),
             release_suffix(release),
+            target_platform(flavor, release, DEFAULT_ARCHITECTURE),
+            execution_compatible_with(DEFAULT_ARCHITECTURE),
         )
+    rpm_packages(
+        flavor,
+        _data_for(flavor, data_by_release_arch, default, DEFAULT_ARCHITECTURE),
+        "",
+        target_platform(flavor, default, DEFAULT_ARCHITECTURE),
+        execution_compatible_with(DEFAULT_ARCHITECTURE),
+    )
 
-    rpm_packages(flavor, _data_for(flavor, data_by_release, default), "")
+def _rpm_images_for_one(flavor, data, release, suffix, architecture):
+    platform = target_platform(flavor, release, architecture)
+    exec_constraints = execution_compatible_with(architecture)
+    rpm_rootfs(flavor, data, suffix, platform, exec_constraints)
+    rpm_image_rootfs(flavor, data, suffix, platform, exec_constraints)
+    rpm_image_tools(data, suffix, platform, exec_constraints)
+    rpm_boot(flavor, data, suffix, platform, exec_constraints)
+    rpm_images(flavor, data, release, suffix, platform, exec_constraints)
 
-def rpm_rootfs_for(flavor, releases, default, data_by_release):
+def rpm_rootfs_for(flavor, releases, default, data_by_release_arch):
     """rootfs and boot targets for every release, plus the default.
 
     Boot targets are defined in the same pass, after the rootfs they read:
@@ -1173,17 +1297,27 @@ def rpm_rootfs_for(flavor, releases, default, data_by_release):
     kernel-<set> / initramfs-<set> both take :rootfs-<set>.
     """
     for release in releases:
-        data = _data_for(flavor, data_by_release, release)
-        suffix = release_suffix(release)
-        rpm_rootfs(flavor, data, suffix)
-        rpm_image_rootfs(flavor, data, suffix)
-        rpm_image_tools(data, suffix)
-        rpm_boot(flavor, data, suffix)
-        rpm_images(flavor, data, release, suffix)
+        for architecture in ARCHITECTURES:
+            _rpm_images_for_one(
+                flavor,
+                _data_for(flavor, data_by_release_arch, release, architecture),
+                release,
+                release_arch_suffix(release, architecture),
+                architecture,
+            )
 
-    default_data = _data_for(flavor, data_by_release, default)
-    rpm_rootfs(flavor, default_data, "")
-    rpm_image_rootfs(flavor, default_data, "")
-    rpm_image_tools(default_data, "")
-    rpm_boot(flavor, default_data, "")
-    rpm_images(flavor, default_data, default, "")
+    for release in releases:
+        _rpm_images_for_one(
+            flavor,
+            _data_for(flavor, data_by_release_arch, release, DEFAULT_ARCHITECTURE),
+            release,
+            release_suffix(release),
+            DEFAULT_ARCHITECTURE,
+        )
+    _rpm_images_for_one(
+        flavor,
+        _data_for(flavor, data_by_release_arch, default, DEFAULT_ARCHITECTURE),
+        default,
+        "",
+        DEFAULT_ARCHITECTURE,
+    )

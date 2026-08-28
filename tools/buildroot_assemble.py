@@ -20,7 +20,12 @@ import os
 import shutil
 import sys
 
-from _isolation import ISOLATION_MODES, resolve_isolation, run_isolated
+from _isolation import (
+    ISOLATION_MODES,
+    require_target_execution,
+    resolve_isolation,
+    run_isolated,
+)
 from _rpm import (
     extract_rpm,
     make_dirs_writable,
@@ -58,7 +63,8 @@ SCRIPTLET_LINKS = {
 def _repair_dangling_bindir_links(out):
     """Create the bin/sbin compat links no payload ships.
 
-    Fedora 43 finished the sbin merge: ldconfig is /usr/bin/ldconfig, and
+    Current Fedora releases have finished the sbin merge: ldconfig is
+    /usr/bin/ldconfig, and
     /usr/sbin is a symlink to bin.  But `filesystem` ships only /sbin ->
     usr/sbin in its payload -- the /usr/sbin -> bin link itself is created
     by its %pretrans lua scriptlet, because rpm cannot swap a directory for
@@ -167,7 +173,7 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
     for scriptlets is golang-bin above, which was the experiment that
     actually distinguished the two.
 
-    Why rpm from inside the tree rather than the host's: Fedora 43 ships
+    Why rpm from inside the tree rather than the host's: current Fedora ships
     rpm 6, whose database is sqlite at /usr/lib/sysimage/rpm.  A host rpm
     of a different vintage writes a different format in a different place,
     and the resulting tree would be one no rpmbuild inside it can read.
@@ -246,7 +252,7 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
             #
             #   error: unpacking of archive failed on file /dev:
             #          cpio: chown failed - Device or resource busy
-            #   error: filesystem-3.18-50.fc43.x86_64: install failed
+            #   error: filesystem-3.18-50.fc45.x86_64: install failed
             #
             # Nothing is lost by skipping them.  SKELETON above already
             # creates all four, they hold no package content, and their
@@ -261,8 +267,19 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
             '  echo "buckos-distro: excluding $(wc -l < excludes.txt) path(s)'
             ' whose names buck2 cannot address" >&2\n'
             'fi\n'
-            'exec rpm --install --notriggers --nosignature "$@" '
+            'rpm --install --notriggers --nosignature "$@" '
             '"$STAGING"/*.rpm\n'
+            # A buildroot is an execution environment, not a bootable image;
+            # ownership inside it is therefore deliberately normalized to
+            # namespace root. Some newer package scriptlets create runtime
+            # state owned by service users. Left mapped to subordinate host
+            # ids, Buck can hash the output but cannot later delete it on a
+            # clean remote worker. Preserve groups and modes, and avoid the
+            # sandbox mounts plus the staged input tree.
+            'WORK=${STAGING%/rpms}\n'
+            'find / -path /dev -prune -o -path /proc -prune -o '
+            '-path /sys -prune -o -path /tmp -prune -o '
+            '-path "$WORK" -prune -o ! -uid 0 -exec chown -h 0 {} +\n'
         )
         run_isolated(
             ["/bin/sh", "-c", script, "sh", staging],
@@ -310,27 +327,18 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
 
 
 def _check_ownership(out):
-    """Fail now if anything in the tree stopped being ours.
+    """Fail now if ownership normalization missed anything.
 
     Inside the namespace anything running as root may chown a file to an
     id in the subordinate range; outside, that id belongs to nobody the
     Buck daemon can act as, so the file cannot be deleted or
     re-materialised.
 
-    Nothing does this today, and with --noscripts nothing is even in a
-    position to: tar restores the ownership the payload declares and the
-    --justdb transaction touches no files.  Both sets measure zero.  It is checked anyway because of *when* the damage
-    would otherwise surface: not in this build, which would succeed, but
-    in the next one, as "Error cleaning up output path ... Permission
-    denied" naming a path nobody asked about, from an action that is not
-    this one.  That is the same delayed, misattributed failure the
-    backslash trap has, and it is worth the one walk to convert it into a
-    message that names the file and the cause.
-
-    Not repaired automatically, because the repair would have to run
-    inside a namespace this function no longer has, and because a
-    buildroot whose ownership a scriptlet cares about is a situation that
-    deserves a human rather than a silent chown.
+    The transaction normalizes non-root owners before leaving the namespace.
+    That is valid for a buildroot, whose package ownership is not shipped,
+    and necessary when scriptlets create service-owned runtime state. This
+    outer check makes a missed path fail in the action that created it rather
+    than the next action that tries to clean the output directory.
     """
     uid = os.getuid()
     strays = []
@@ -348,11 +356,9 @@ def _check_ownership(out):
         return
 
     sys.exit(
-        "buckos-distro: a scriptlet left {} file(s) owned by an id this "
-        "user does not have, so Buck cannot delete its own output on the "
-        "next build:\n  {}\n"
-        "Re-run the transaction with --noscripts, or add the offending "
-        "package to a set that does not need scriptlets.".format(
+        "buckos-distro: ownership normalization left {} file(s) owned by "
+        "an id this user does not have, so Buck cannot delete its own output "
+        "on the next build:\n  {}".format(
             len(strays), "\n  ".join(sorted(strays)[:10])
         )
     )
@@ -368,7 +374,10 @@ def main():
     ap.add_argument("--isolation", default="auto", choices=ISOLATION_MODES,
                     help="how to enter the tree to write its rpmdb")
     ap.add_argument("--source-date-epoch", default="1700000000")
+    ap.add_argument("--target-cpu", default="x86_64")
     args = ap.parse_args()
+
+    require_target_execution(args.target_cpu)
 
     out = os.path.abspath(args.out)
     shutil.rmtree(out, ignore_errors=True)

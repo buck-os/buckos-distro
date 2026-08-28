@@ -8,7 +8,7 @@ diff, which is the whole point of the exercise. Nothing here runs inside
 the build graph; see the comment in tools/BUCK on why the solve is a
 human-run generate step rather than a build action.
 
-    buck2 run //tools:relock -- --release 43
+    buck2 run //tools:relock -- --release 44 --arch x86_64
 
 What makes the refresh meaningful is `updates`. Fedora publishes a release
 twice: the frozen GA compose under releases/, which never changes, and
@@ -27,7 +27,7 @@ of overrides is iterative human work.
 
 Expect new ambiguities over time. An override settles a capability that
 several packages provide, and updates/ can introduce a new provider of a
-capability that had exactly one -- Fedora 43's python3.9 compat
+capability that had exactly one -- an older Fedora python compat
 interpreter started providing python(abi), for instance. That surfaces
 here as an unresolved-capability report naming both candidates, and is
 fixed by adding an --override to the lockfile's solve block and re-running.
@@ -106,7 +106,7 @@ def repo_root():
              "--lock-dir".format(" or ".join(seen)))
 
 
-def lockfile_releases(lock_dir):
+def lockfile_releases(lock_dir, arch="x86_64"):
     """Every release that has been solved at least once.
 
     Shared with tools/probe.py, which needs the same default and must not
@@ -115,9 +115,9 @@ def lockfile_releases(lock_dir):
     and not the other, silently.
     """
     return sorted(
-        name[len("fedora-"):-len(".lock.json")]
+        name[len("fedora-"):-len("-{}.lock.json".format(arch))]
         for name in os.listdir(lock_dir)
-        if name.startswith("fedora-") and name.endswith(".lock.json")
+        if name.startswith("fedora-") and name.endswith("-{}.lock.json".format(arch))
     )
 
 
@@ -238,7 +238,7 @@ def solve_argv(lock, repos, out, probe=None):
     argv = [
         "--release", str(lock["release"]),
         "--dist-tag", lock["dist_tag"],
-        "--target-cpu", lock["target_cpu"],
+        "--target-cpu", lock.get("target_cpu", "x86_64"),
         "--stages", str(recorded["stages"]),
         "--out", out,
     ]
@@ -314,7 +314,7 @@ def repo_list(release, args, offline=False):
 
 def read_lock(release, args):
     lock_path = os.path.join(args.lock_dir,
-                             "fedora-{}.lock.json".format(release))
+                             "fedora-{}-{}.lock.json".format(release, args.arch))
     if not os.path.exists(lock_path):
         sys.exit("no lockfile at {}: a release has to be solved by hand once "
                  "before it can be refreshed, because its overrides and image "
@@ -378,7 +378,7 @@ def main(argv=None):
     if args.lock_dir is None:
         args.lock_dir = os.path.join(root, "flavors", "fedora", "lock")
 
-    releases = args.release or lockfile_releases(args.lock_dir)
+    releases = args.release or lockfile_releases(args.lock_dir, args.arch)
     if not releases:
         sys.exit("no lockfiles in {}".format(args.lock_dir))
 
@@ -395,7 +395,7 @@ def main(argv=None):
 
 def regenerate(releases, args, root):
     generate.main(
-        [os.path.join(args.lock_dir, "fedora-{}.lock.json".format(r))
+        [os.path.join(args.lock_dir, "fedora-{}-{}.lock.json".format(r, args.arch))
          for r in releases]
         + ["--out-dir", os.path.join(root, "flavors", "fedora", "generated")]
     )
@@ -423,14 +423,14 @@ def probe_pass(releases, args, root):
 
     for release in releases:
         lock_path, lock = read_lock(release, args)
-        probe_mod.write_probe_file(release, args.lock_dir, root)
+        probe_mod.write_probe_file(release, args.arch, args.lock_dir, root)
         # offline: the repodata was synced minutes ago by the first solve,
         # and a second fetch could pick up an upstream push, which would
         # make these two lockfiles differ by more than the probe results --
         # the one thing this pass is meant to isolate.
         solve.main(solve_argv(
             lock, repo_list(release, args, offline=True), lock_path,
-            probe_mod.probe_path(args.lock_dir, release),
+            probe_mod.probe_path(args.lock_dir, release, args.arch),
         ))
     regenerate(releases, args, root)
 

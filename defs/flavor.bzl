@@ -78,6 +78,8 @@ def _rpm_package(
         # here for exactly the reason `buildroot` is: the caller knows and
         # the ambient configuration does not.  See distro_release below.
         distro_release = None,
+        default_target_platform = "//platforms:linux-x86_64",
+        exec_compatible_with = ["//platforms:can-execute-x86_64"],
         visibility = None,
         **kwargs):
     """Replay one source rpm.
@@ -104,6 +106,7 @@ def _rpm_package(
         name = name + "-topdir",
         srpm = srpm,
         expect_spec = source_name + ".spec",
+        default_target_platform = default_target_platform,
     )
 
     with_bconds, without_bconds = _resolve_bconds(use, use_bcond)
@@ -149,6 +152,8 @@ def _rpm_package(
         without_bconds = without_bconds,
         buildroot = buildroot,
         fedora_release = distro_release,
+        default_target_platform = default_target_platform,
+        exec_compatible_with = exec_compatible_with,
         visibility = visibility,
     )
 
@@ -170,6 +175,8 @@ def _rpm_package(
         # Only the frontend knows the ambient rpmbuild may be a wrapper;
         # host provenance needs the real binary.
         rpmbuild = read_config("buckos." + flavor, "rpmbuild", None),
+        default_target_platform = default_target_platform,
+        exec_compatible_with = exec_compatible_with,
         visibility = visibility,
         **kwargs
     )
@@ -181,6 +188,7 @@ def _rpm_package(
             name = _subpackage_target(name, source_name, sub),
             srpm = ":" + name + "-build",
             rpm = _subpackage_rpm_name(source_name, sub),
+            default_target_platform = default_target_platform,
             visibility = visibility,
         )
         # And the rpm file itself, for a rootfs rather than a buildroot.
@@ -192,6 +200,7 @@ def _rpm_package(
             name = subpackage_rpm_target(name, source_name, sub),
             srpm = ":" + name + "-build",
             rpm = _subpackage_rpm_name(source_name, sub),
+            default_target_platform = default_target_platform,
             visibility = visibility,
         )
 
@@ -208,6 +217,7 @@ def _rpm_package(
     native.alias(
         name = name,
         actual = actual,
+        default_target_platform = default_target_platform,
         visibility = visibility,
     )
 
@@ -331,6 +341,8 @@ def _deb_package(
         build_profiles = None,
         nocheck = True,
         buildroot = None,
+        default_target_platform = "//platforms:linux-x86_64",
+        exec_compatible_with = ["//platforms:can-execute-x86_64"],
         visibility = None,
         **kwargs):
     """Replay one Debian source package with dpkg-buildpackage."""
@@ -347,6 +359,7 @@ def _deb_package(
         flavor = flavor,
         version = version,
         release = release,
+        default_target_platform = default_target_platform,
         visibility = visibility,
     )
 
@@ -359,6 +372,8 @@ def _deb_package(
         nocheck = nocheck,
         buildroot = buildroot,
         dpkg_buildpackage = read_config("buckos." + flavor, "dpkg_buildpackage", None),
+        default_target_platform = default_target_platform,
+        exec_compatible_with = exec_compatible_with,
         visibility = visibility,
         **kwargs
     )
@@ -368,6 +383,7 @@ def _deb_package(
             name = _subpackage_target(name, source_name, subpackage),
             source = ":" + name + "-build",
             package_name = subpackage,
+            default_target_platform = default_target_platform,
             visibility = visibility,
         )
 
@@ -379,6 +395,7 @@ def _deb_package(
     native.alias(
         name = name,
         actual = actual,
+        default_target_platform = default_target_platform,
         visibility = visibility,
     )
 

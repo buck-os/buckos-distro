@@ -1,4 +1,5 @@
 load("//defs:exec.bzl", "distro_execution_platforms")
+load("//defs:architectures.bzl", "ARCHITECTURES")
 load("//defs:releases.bzl", "flavor_releases")
 
 # ── Target platforms ─────────────────────────────────────────────────
@@ -24,6 +25,33 @@ platform(
 config_setting(
     name = "is_x86_64",
     constraint_values = ["prelude//cpu/constraints:x86_64"],
+    visibility = ["PUBLIC"],
+)
+
+# An execution platform's CPU says which architecture its action runner is.
+# These independent capability constraints say which target binaries that
+# runner can execute. A native AArch64 worker and an x86_64 worker with a
+# registered AArch64 binfmt handler therefore satisfy the same action.
+
+constraint_setting(
+    name = "exec-x86_64",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "can-execute-x86_64",
+    constraint_setting = ":exec-x86_64",
+    visibility = ["PUBLIC"],
+)
+
+constraint_setting(
+    name = "exec-aarch64",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "can-execute-aarch64",
+    constraint_setting = ":exec-aarch64",
     visibility = ["PUBLIC"],
 )
 
@@ -82,8 +110,8 @@ constraint_value(
 
 # ── Distro release ───────────────────────────────────────────────────
 #
-# Which release of a flavor a target was built against.  Fedora 43 and
-# Fedora 44 are different build universes -- different compiler, different
+# Which release of a flavor a target was built against.  Fedora 44 and
+# Fedora 45 are different build universes -- different compiler, different
 # macros, different pinned dependency set -- so "which release" is carried
 # as a constraint rather than a global mode the repo is switched into.
 # That is what lets both exist in one build graph, and what lets a target
@@ -104,21 +132,22 @@ constraint_setting(
         constraint_setting = ":release",
         visibility = ["PUBLIC"],
     )
-    for _release in flavor_releases("fedora", default = "43,44")
+    for _release in flavor_releases("fedora", default = "44,45")
 ]
 
 [
     platform(
-        name = "fedora-{}-x86_64".format(_release),
+        name = "fedora-{}-{}".format(_release, _arch),
         constraint_values = [
-            "prelude//cpu/constraints:x86_64",
+            "prelude//cpu/constraints:{}".format("arm64" if _arch == "aarch64" else _arch),
             "prelude//os/constraints:linux",
             ":fedora",
             ":fedora-{}".format(_release),
         ],
         visibility = ["PUBLIC"],
     )
-    for _release in flavor_releases("fedora", default = "43,44")
+    for _release in flavor_releases("fedora", default = "44,45")
+    for _arch in ARCHITECTURES
 ]
 
 [
@@ -132,9 +161,9 @@ constraint_setting(
 
 [
     platform(
-        name = "centos-{}-x86_64".format(_release),
+        name = "centos-{}-{}".format(_release, _arch),
         constraint_values = [
-            "prelude//cpu/constraints:x86_64",
+            "prelude//cpu/constraints:{}".format("arm64" if _arch == "aarch64" else _arch),
             "prelude//os/constraints:linux",
             ":centos",
             ":centos-{}".format(_release),
@@ -142,6 +171,7 @@ constraint_setting(
         visibility = ["PUBLIC"],
     )
     for _release in flavor_releases("centos", default = "9,10")
+    for _arch in ARCHITECTURES
 ]
 
 [
@@ -155,9 +185,9 @@ constraint_setting(
 
 [
     platform(
-        name = "centos-hyperscale-{}-x86_64".format(_release),
+        name = "centos-hyperscale-{}-{}".format(_release, _arch),
         constraint_values = [
-            "prelude//cpu/constraints:x86_64",
+            "prelude//cpu/constraints:{}".format("arm64" if _arch == "aarch64" else _arch),
             "prelude//os/constraints:linux",
             ":centos-hyperscale",
             ":centos-hyperscale-{}".format(_release),
@@ -165,6 +195,7 @@ constraint_setting(
         visibility = ["PUBLIC"],
     )
     for _release in flavor_releases("centos-hyperscale", default = "9,10")
+    for _arch in ARCHITECTURES
 ]
 
 [
@@ -178,9 +209,9 @@ constraint_setting(
 
 [
     platform(
-        name = "ubuntu-{}-x86_64".format(_release),
+        name = "ubuntu-{}-{}".format(_release, _arch),
         constraint_values = [
-            "prelude//cpu/constraints:x86_64",
+            "prelude//cpu/constraints:{}".format("arm64" if _arch == "aarch64" else _arch),
             "prelude//os/constraints:linux",
             ":ubuntu",
             ":ubuntu-{}".format(_release),
@@ -188,6 +219,7 @@ constraint_setting(
         visibility = ["PUBLIC"],
     )
     for _release in flavor_releases("ubuntu", default = "26.04")
+    for _arch in ARCHITECTURES
 ]
 
 [
@@ -201,9 +233,9 @@ constraint_setting(
 
 [
     platform(
-        name = "debian-{}-x86_64".format(_release),
+        name = "debian-{}-{}".format(_release, _arch),
         constraint_values = [
-            "prelude//cpu/constraints:x86_64",
+            "prelude//cpu/constraints:{}".format("arm64" if _arch == "aarch64" else _arch),
             "prelude//os/constraints:linux",
             ":debian",
             ":debian-{}".format(_release),
@@ -211,6 +243,7 @@ constraint_setting(
         visibility = ["PUBLIC"],
     )
     for _release in flavor_releases("debian", default = "13")
+    for _arch in ARCHITECTURES
 ]
 
 # ── Buildroot provenance ─────────────────────────────────────────────
@@ -262,7 +295,16 @@ config_setting(
 
 distro_execution_platforms(
     name = "platforms",
+    aarch64_emulation_enabled = read_config("buckos", "aarch64_emulation", "false") == "true",
+    aarch64_execution_capability = ":can-execute-aarch64",
+    aarch64_platform = ":linux-aarch64",
     remote_cache_enabled = read_config("buckos", "remote_cache", "") == "true",
     remote_execution_enabled = read_config("buckos", "remote_execution", "") == "true",
+    remote_aarch64_properties = read_config("buckos", "remote_aarch64_properties", "platform.OSFamily=linux,platform.arch=aarch64"),
+    remote_aarch64_use_case = read_config("buckos", "remote_aarch64_use_case", "buck2-default"),
+    remote_x86_64_properties = read_config("buckos", "remote_x86_64_properties", "platform.OSFamily=linux,platform.arch=x86_64"),
+    remote_x86_64_use_case = read_config("buckos", "remote_x86_64_use_case", "buck2-default"),
     visibility = ["PUBLIC"],
+    x86_64_execution_capability = ":can-execute-x86_64",
+    x86_64_platform = ":linux-x86_64",
 )

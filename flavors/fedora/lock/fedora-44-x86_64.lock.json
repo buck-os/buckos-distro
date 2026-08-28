@@ -375988,7 +375988,7 @@
       "tex(shellesc.sty)=texlive-tools",
       "text-www-browser=lynx"
     ],
-    "probe": "fedora-44.probe.json",
+    "probe": "fedora-44-x86_64.probe.json",
     "seed_only": false,
     "seed_packages": [],
     "source_variants": [

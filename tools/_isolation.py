@@ -7,9 +7,9 @@ agreeing about what the sandbox guarantees.
 
 Genuine hermeticity needs the buildroot mounted as /.  Without that, the
 compiler, linker and rpm macros come from the machine rather than from the
-distro being built -- a Fedora 43 spec compiled by CentOS 9's gcc against
-CentOS 9's glibc is not a Fedora 43 package, even though it will be
-labelled .fc43 and will usually succeed.
+distro being built -- a Fedora 45 spec compiled by CentOS 9's gcc against
+CentOS 9's glibc is not a Fedora 45 package, even though it will be
+labelled .fc45 and will usually succeed.
 
 Modes:
 
@@ -35,6 +35,7 @@ module exists to prevent.  So the entry point is run_isolated().
 """
 
 import os
+import platform
 import pwd
 import shlex
 import shutil
@@ -48,6 +49,47 @@ ISOLATION_MODES = ("auto", "bwrap", "unshare", "none")
 # Where the kernel records a namespace's id translations.
 _UID_MAP = "/etc/subuid"
 _GID_MAP = "/etc/subgid"
+
+_CPU_ALIASES = {
+    "amd64": "x86_64",
+    "arm64": "aarch64",
+    "x86_64": "x86_64",
+    "aarch64": "aarch64",
+}
+
+
+def require_target_execution(target_cpu, provenance="binary-seed"):
+    """Fail before chroot when this host cannot execute target binaries."""
+    if not target_cpu:
+        return
+    target = _CPU_ALIASES.get(target_cpu, target_cpu)
+    native = _CPU_ALIASES.get(platform.machine(), platform.machine())
+    if provenance == "host" and target != native:
+        sys.exit(
+            "host provenance cannot build {} on {}; use the binary-seed "
+            "buildroot with a native worker or a registered binfmt handler".format(
+                target,
+                native,
+            )
+        )
+    if target == native:
+        return
+
+    handler = "/proc/sys/fs/binfmt_misc/qemu-{}".format(target)
+    try:
+        with open(handler, encoding="utf-8") as stream:
+            status = stream.read()
+    except OSError:
+        status = ""
+    if not status.startswith("enabled\n"):
+        sys.exit(
+            "this {} worker cannot execute {} target binaries: {} is not "
+            "enabled. Use a native worker or register QEMU binfmt support".format(
+                native,
+                target,
+                handler,
+            )
+        )
 
 
 def resolve_isolation(mode):

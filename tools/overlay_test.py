@@ -13,9 +13,11 @@ dies partway through composing its own buildroot.
 import os
 import stat
 import tempfile
+import types
 import unittest
+from unittest import mock
 
-from _rpm import overlay_tree
+from _rpm import overlay_tree, rpm_package_filename
 
 
 def write(path, text, mode=None):
@@ -252,6 +254,28 @@ class OverlayTreeTest(unittest.TestCase):
             stat.S_IMODE(os.stat(os.path.join(self.dest, "usr/share/x")).st_mode),
             0o644,
         )
+
+
+class RpmFilenameTest(unittest.TestCase):
+    @mock.patch("_rpm.require_tool", return_value="/usr/bin/rpm")
+    @mock.patch("_rpm.run")
+    def test_uses_header_identity_instead_of_artifact_name(self, run, _tool):
+        run.return_value = types.SimpleNamespace(
+            stdout="gzip-1.14-4.fc45.x86_64.rpm"
+        )
+
+        self.assertEqual(
+            rpm_package_filename("buck-out/some-target/gzip.rpm"),
+            "gzip-1.14-4.fc45.x86_64.rpm",
+        )
+
+    @mock.patch("_rpm.require_tool", return_value="/usr/bin/rpm")
+    @mock.patch("_rpm.run")
+    def test_rejects_a_filename_with_a_path_component(self, run, _tool):
+        run.return_value = types.SimpleNamespace(stdout="../escape.rpm")
+
+        with self.assertRaises(SystemExit):
+            rpm_package_filename("package.rpm")
 
 
 if __name__ == "__main__":

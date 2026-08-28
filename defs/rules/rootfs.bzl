@@ -74,6 +74,9 @@ def _rootfs_impl(ctx: AnalysisContext) -> list[Provider]:
         for artifact in dep[DefaultInfo].default_outputs:
             cmd.add(cmd_args("--rpm", artifact))
 
+    for source in ctx.attrs.selinux_modules:
+        cmd.add("--selinux-module", source)
+
     cmd.add(buildroot_sysroot_args(ctx))
 
     if ctx.attrs.nodeps:
@@ -108,9 +111,38 @@ rootfs = rule(
         "nodeps": attrs.bool(default = False),
         "packages": attrs.list(attrs.dep(providers = [PackageInfo]), default = []),
         "rpms": attrs.list(attrs.dep(), default = []),
+        "selinux_modules": attrs.list(attrs.source(), default = []),
         "source_date_epoch": attrs.string(default = "1700000000"),
         "_install": attrs.default_only(
             attrs.exec_dep(default = "//tools:rootfs_install"),
+        ),
+    } | BUILDROOT_ATTRS,
+)
+
+def _deb_rootfs_impl(ctx: AnalysisContext) -> list[Provider]:
+    out = ctx.actions.declare_output(ctx.attrs.name + ".tar")
+    cmd = cmd_args(ctx.attrs._deb_install[RunInfo], "--out", out.as_output())
+    for dep in ctx.attrs.debs:
+        for artifact in dep[DefaultInfo].default_outputs:
+            cmd.add("--deb", artifact)
+    cmd.add(buildroot_sysroot_args(ctx))
+    cmd.add("--source-date-epoch", ctx.attrs.source_date_epoch)
+    ctx.actions.run(
+        cmd,
+        category = "deb_rootfs_install",
+        identifier = ctx.attrs.name,
+        allow_cache_upload = buildroot_cache_upload(ctx),
+        local_only = buildroot_local_only(ctx),
+    )
+    return [DefaultInfo(default_output = out)]
+
+deb_rootfs = rule(
+    impl = _deb_rootfs_impl,
+    attrs = {
+        "debs": attrs.list(attrs.dep(), default = []),
+        "source_date_epoch": attrs.string(default = "1700000000"),
+        "_deb_install": attrs.default_only(
+            attrs.exec_dep(default = "//tools:deb_rootfs_install"),
         ),
     } | BUILDROOT_ATTRS,
 )

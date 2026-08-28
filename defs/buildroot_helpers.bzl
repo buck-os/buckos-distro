@@ -114,6 +114,8 @@ def buildroot_sysroot_args(ctx):
     args = [cmd_args("--isolation", _isolation_for(info))]
     if info.root:
         args.append(cmd_args("--buildroot-tree", info.root, hidden = info.root))
+    if info.target_cpu:
+        args.append(cmd_args("--target-cpu", info.target_cpu))
     return args
 
 def _isolation_for(info):

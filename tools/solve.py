@@ -493,7 +493,7 @@ def _arch_rank(arch, target_cpu):
     """How much this arch is wanted, lower being better.
 
     An x86_64 repo also carries the i686 multilib builds -- 9,078 of them
-    in Fedora 43 -- and an i686 rpm is named exactly what its 64-bit
+    in Fedora -- and an i686 rpm is named exactly what its 64-bit
     counterpart is. So `index[name] = pkg` over the raw package list picks
     whichever arch the document happened to mention last, which is a
     coin toss that lands on i686 for any package whose entries are ordered

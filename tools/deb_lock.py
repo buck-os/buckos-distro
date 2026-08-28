@@ -17,12 +17,27 @@ from _deb import parse_control_paragraphs
 
 TARGET_RE = re.compile(r"[^A-Za-z0-9_-]+")
 LOG = logging.getLogger("deb-lock")
+APT_CONFIG = []
+AVAILABLE_BY_FILENAME = None
 
 
 def run_output(command):
     LOG.debug("+ %s", " ".join(shlex.quote(part) for part in command))
-    result = subprocess.run(command, check=True, capture_output=True, text=True)
+    try:
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(
+            "{} failed with status {}: {}".format(
+                " ".join(shlex.quote(part) for part in command),
+                error.returncode,
+                error.stderr.strip(),
+            )
+        ) from error
     return result.stdout
+
+
+def apt_output(command):
+    return run_output(command[:1] + APT_CONFIG + command[1:])
 
 
 def apt_uri_lines(output):
@@ -49,12 +64,26 @@ def apt_uri_lines(output):
     return entries
 
 
-def apt_options(status, archives):
-    return [
+def apt_options(status, archives, architecture=None, lists=None, sources=None):
+    options = [
         "-o", "Dir::State::status={}".format(status),
         "-o", "Dir::Cache::archives={}".format(archives),
         "-o", "APT::Install-Recommends=false",
         "-o", "APT::Install-Suggests=false",
+    ]
+    if architecture:
+        options += [
+            "-o", "APT::Architecture={}".format(architecture),
+            "-o", "APT::Architectures::={}".format(architecture),
+        ]
+    if lists:
+        options += ["-o", "Dir::State::lists={}".format(lists)]
+    if sources:
+        options += [
+            "-o", "Dir::Etc::sourcelist={}".format(sources),
+            "-o", "Dir::Etc::sourceparts=-",
+        ]
+    return options + [
         "--print-uris",
         "--yes",
         "--download-only",
@@ -63,24 +92,38 @@ def apt_options(status, archives):
 
 def essential_packages():
     packages = []
-    for fields in parse_control_paragraphs(run_output(["apt-cache", "dumpavail"])):
+    for fields in parse_control_paragraphs(apt_output(["apt-cache", "dumpavail"])):
         if fields.get("Essential") == "yes":
             packages.append(fields["Package"])
     return sorted(set(packages))
 
 
 def binary_record(entry):
-    package = entry["filename"].split("_", 1)[0]
+    global AVAILABLE_BY_FILENAME
     url_path = urllib.parse.unquote(urllib.parse.urlsplit(entry["url"]).path)
-    records = parse_control_paragraphs(run_output(["apt-cache", "show", package]))
-    matches = [
-        fields for fields in records
-        if url_path.endswith("/" + fields.get("Filename", ""))
-    ]
+    if AVAILABLE_BY_FILENAME is None:
+        AVAILABLE_BY_FILENAME = {
+            fields.get("Filename"): fields
+            for fields in parse_control_paragraphs(apt_output(["apt-cache", "dumpavail"]))
+            if fields.get("Filename")
+        }
+    matches = [fields for filename, fields in AVAILABLE_BY_FILENAME.items()
+               if url_path.endswith("/" + filename)]
+    if not matches:
+        package, version, architecture = entry["filename"][:-4].rsplit("_", 2)
+        records = parse_control_paragraphs(apt_output([
+            "apt-cache",
+            "show",
+            "{}:{}={}".format(package, architecture, version),
+        ]))
+        matches = [
+            fields for fields in records
+            if url_path.endswith("/" + fields.get("Filename", ""))
+        ]
     if len(matches) != 1:
         raise ValueError(
             "{}: expected one apt-cache record for {}, got {}".format(
-                entry["url"], package, len(matches)
+                entry["url"], entry["filename"], len(matches)
             )
         )
     fields = matches[0]
@@ -105,7 +148,7 @@ def target_name(*parts):
 
 
 def source_record(package):
-    uri_entries = apt_uri_lines(run_output([
+    uri_entries = apt_uri_lines(apt_output([
         "apt-get", "source", "--print-uris", "--download-only", package,
     ]))
     dsc_entries = [entry for entry in uri_entries if entry["filename"].endswith(".dsc")]
@@ -113,7 +156,7 @@ def source_record(package):
         raise ValueError("{}: expected one .dsc URI, got {}".format(package, len(dsc_entries)))
     dsc_name = dsc_entries[0]["filename"]
 
-    records = parse_control_paragraphs(run_output(["apt-cache", "showsrc", package]))
+    records = parse_control_paragraphs(apt_output(["apt-cache", "showsrc", package]))
     matches = []
     for fields in records:
         checksums = fields.get("Checksums-Sha256", "")
@@ -173,6 +216,37 @@ def os_release():
     return fields
 
 
+def parse_named_packages(value):
+    name, separator, packages = value.partition("=")
+    roots = [item.strip() for item in packages.split(",") if item.strip()]
+    if not separator or not name or not roots:
+        raise argparse.ArgumentTypeError("expected NAME=package,package")
+    return name, roots
+
+
+def default_repositories(distro, codename, architecture):
+    if distro == "debian":
+        signed_by = "[signed-by=/usr/share/keyrings/debian-archive-keyring.gpg]"
+        return [
+            "deb {} https://deb.debian.org/debian {} main".format(signed_by, codename),
+            "deb-src {} https://deb.debian.org/debian {} main".format(signed_by, codename),
+            "deb {} https://deb.debian.org/debian {}-updates main".format(signed_by, codename),
+            "deb-src {} https://deb.debian.org/debian {}-updates main".format(signed_by, codename),
+            "deb {} https://security.debian.org/debian-security {}-security main".format(signed_by, codename),
+            "deb-src {} https://security.debian.org/debian-security {}-security main".format(signed_by, codename),
+        ]
+    archive = "http://ports.ubuntu.com/ubuntu-ports" if architecture == "arm64" else "http://archive.ubuntu.com/ubuntu"
+    security = archive if architecture == "arm64" else "http://security.ubuntu.com/ubuntu"
+    return [
+        "deb {} {} main universe".format(archive, codename),
+        "deb-src {} {} main universe".format(archive, codename),
+        "deb {} {}-updates main universe".format(archive, codename),
+        "deb-src {} {}-updates main universe".format(archive, codename),
+        "deb {} {}-security main universe".format(security, codename),
+        "deb-src {} {}-security main universe".format(security, codename),
+    ]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -181,6 +255,8 @@ def main():
     parser.add_argument("--codename", required=True)
     parser.add_argument("--architecture", default="amd64")
     parser.add_argument("--source", action="append", required=True)
+    parser.add_argument("--image", action="append", default=[], type=parse_named_packages)
+    parser.add_argument("--repository", action="append", default=[])
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     logging.basicConfig(
@@ -188,30 +264,9 @@ def main():
         format="deb-lock: %(message)s",
     )
 
-    release = os_release()
-    if release.get("ID") != args.distro or release.get("VERSION_ID") != args.release:
-        sys.exit(
-            "{} lock must run on {} {}; found {} {}".format(
-                args.distro,
-                args.distro,
-                args.release,
-                release.get("ID", "unknown"),
-                release.get("VERSION_ID", "unknown"),
-            )
-        )
-    if release.get("VERSION_CODENAME") != args.codename:
-        sys.exit(
-            "{} codename mismatch: expected {}, found {}".format(
-                args.distro, args.codename, release.get("VERSION_CODENAME", "unknown")
-            )
-        )
-    architecture = run_output(["dpkg", "--print-architecture"]).strip()
-    if architecture != args.architecture:
-        sys.exit(
-            "{} architecture mismatch: expected {}, found {}".format(
-                args.distro, args.architecture, architecture or "unknown"
-            )
-        )
+    target_cpu = {"amd64": "x86_64", "arm64": "aarch64"}.get(args.architecture)
+    if target_cpu is None:
+        sys.exit("unsupported Debian-family architecture: {}".format(args.architecture))
 
     LOG.info(
         "resolving %s %s (%s) for %s",
@@ -220,20 +275,59 @@ def main():
         args.codename,
         args.architecture,
     )
-    sources = [source_record(name) for name in args.source]
     with tempfile.TemporaryDirectory(prefix="buckos-apt-state-") as apt_state:
         status = os.path.join(apt_state, "status")
         archives = os.path.join(apt_state, "archives")
+        lists = os.path.join(apt_state, "lists")
+        sources_list = os.path.join(apt_state, "sources.list")
         with open(status, "w", encoding="utf-8"):
             pass
         os.makedirs(os.path.join(archives, "partial"))
+        os.makedirs(os.path.join(lists, "partial"))
+        repositories = args.repository or default_repositories(
+            args.distro,
+            args.codename,
+            args.architecture,
+        )
+        with open(sources_list, "w", encoding="utf-8") as stream:
+            stream.write("\n".join(repositories) + "\n")
+
+        global APT_CONFIG, AVAILABLE_BY_FILENAME
+        APT_CONFIG = apt_options(
+            status,
+            archives,
+            architecture=args.architecture,
+            lists=lists,
+            sources=sources_list,
+        )[:-3]
+        apt_output(["apt-get", "update"])
+        sources = [source_record(name) for name in args.source]
+        essential = essential_packages()
         build_output = run_output(
-            ["apt-get"] + apt_options(status, archives) + ["build-dep"] + args.source
+            ["apt-get"] + apt_options(
+                status, archives, args.architecture, lists, sources_list,
+            ) + ["build-dep"] + args.source
         )
-        base_roots = essential_packages() + ["build-essential", "fakeroot"]
+        base_roots = essential + ["build-essential", "fakeroot"]
         base_output = run_output(
-            ["apt-get"] + apt_options(status, archives) + ["install"] + base_roots
+            ["apt-get"] + apt_options(
+                status, archives, args.architecture, lists, sources_list,
+            ) + ["install"] + base_roots
         )
+        image_output = {}
+        for name, roots in args.image:
+            if name in image_output:
+                sys.exit("duplicate image set: {}".format(name))
+            image_output[name] = run_output(
+                ["apt-get"] + apt_options(
+                    status, archives, args.architecture, lists, sources_list,
+                ) + ["install"] + essential + roots
+            )
+        AVAILABLE_BY_FILENAME = {
+            fields.get("Filename"): fields
+            for fields in parse_control_paragraphs(apt_output(["apt-cache", "dumpavail"]))
+            if fields.get("Filename")
+        }
 
     by_target = {}
     for entry in apt_uri_lines(build_output) + apt_uri_lines(base_output):
@@ -243,14 +337,28 @@ def main():
             raise ValueError("conflicting pins for {}".format(record["target"]))
         by_target[record["target"]] = record
 
+    image_sets = {}
+    for name, output in image_output.items():
+        records = {}
+        for entry in apt_uri_lines(output):
+            record = binary_record(entry)
+            previous = records.get(record["target"])
+            if previous and previous["sha256"] != record["sha256"]:
+                raise ValueError("conflicting pins for {}".format(record["target"]))
+            records[record["target"]] = record
+        image_sets[name] = sorted(records.values(), key=lambda item: item["target"])
+
     lock = {
         "architecture": args.architecture,
         "codename": args.codename,
         "distro": args.distro,
         "release": args.release,
-        "schema": 1,
+        "image_sets": image_sets,
+        "repositories": repositories,
+        "schema": 2,
         "seed_debs": sorted(by_target.values(), key=lambda item: item["target"]),
         "sources": sorted(sources, key=lambda item: item["name"]),
+        "target_cpu": target_cpu,
     }
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as stream:

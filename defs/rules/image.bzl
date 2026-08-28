@@ -12,13 +12,14 @@ live in the cheap half, so changing any of them does not recompress the
 rootfs.  Fusing the rules would make "fix a typo in the boot menu" cost a
 full squashfs rebuild.
 
-Both run inside an image-tools buildroot rather than against host
-binaries.  mksquashfs and xorriso are build inputs like any other: an ISO
-built by whatever xorriso the machine happened to have is not
-reproducible, and on a machine that has none it is not buildable at all.
-Being a seeded buildroot also makes it hermetic, which is what lets these
-actions run on RE and populate the shared cache -- see
-defs/buildroot_helpers.bzl.
+Both run inside seeded target buildroots rather than against host binaries.
+mksquashfs and xorriso are build inputs like any other: an ISO built by
+whatever versions the machine happened to have is not reproducible, and on
+a machine that has none it is not buildable at all.  Most releases use the
+image-tools buildroot for both.  Enterprise Linux 9 compiles the pinned
+mksquashfs source in its binary-seed buildroot because its packaged version
+predates pseudo-file xattrs.  Seeded buildroots also make these actions
+hermetic and remote-executable; see defs/buildroot_helpers.bzl.
 
 The layout is Fedora's live-media layout, and it is not arbitrary; dracut's
 dmsquash-live module goes looking for specific paths and hangs at an
@@ -73,6 +74,11 @@ def _squashfs_impl(ctx: AnalysisContext) -> list[Provider]:
         cmd.add("--exclude", path)
     if ctx.attrs.selinux_relabel:
         cmd.add("--selinux-relabel")
+    if ctx.attrs.mksquashfs_source != None:
+        cmd.add(
+            "--mksquashfs-source",
+            _single_output(ctx.attrs.mksquashfs_source, "mksquashfs source archive"),
+        )
 
     ctx.actions.run(
         cmd,
@@ -103,6 +109,11 @@ squashfs = rule(
         # reviewed.  A caller that wants /var/cache gone can say so.
         "exclude": attrs.list(attrs.string(), default = []),
         "rootfs": attrs.dep(),
+        # Optional source archive for releases whose packaged mksquashfs is
+        # too old to add per-file xattrs through a pseudo file.  The source
+        # is compiled inside the target buildroot, so cross builds still run
+        # a target-architecture binary rather than a host tool.
+        "mksquashfs_source": attrs.option(attrs.dep(), default = None),
         # Write security.selinux into the image, computed from the image's
         # own policy.  Off by default because it is only meaningful for an
         # image that ships one: a tools tree or a minimal rootfs has no
@@ -143,6 +154,10 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
         ctx.attrs.kernel_args,
         "--boot-mode",
         ctx.attrs.boot_mode,
+        "--target-cpu",
+        ctx.attrs.target_cpu,
+        "--layout",
+        ctx.attrs.layout,
     )
     cmd.add(buildroot_sysroot_args(ctx))
 
@@ -169,8 +184,10 @@ iso_image = rule(
         # and when they disagree the initramfs waits forever for a device
         # that never appears -- with no error naming the mismatch.
         "kernel_args": attrs.string(default = "quiet"),
+        "layout": attrs.enum(["rpm", "debian", "ubuntu"], default = "rpm"),
         "kernel": attrs.dep(providers = [BootInfo]),
         "squashfs": attrs.dep(),
+        "target_cpu": attrs.enum(["x86_64", "aarch64"], default = "x86_64"),
         "volume_label": attrs.string(default = "BUCKOS"),
         "_build": attrs.default_only(
             attrs.exec_dep(default = "//tools:iso_build"),

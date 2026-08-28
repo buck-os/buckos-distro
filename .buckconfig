@@ -87,7 +87,8 @@
 # binary-seed is the default rather than host, and the reason is
 # compatibility rather than purity.  The host here is whatever machine ran
 # the build -- on CentOS Stream 9 that is rpm 4.16 and gcc 11 -- and with
-# `host` those produce artifacts stamped .fc43.  Two ways that bites:
+# `host` those produce artifacts stamped for the selected Fedora release.
+# Two ways that bites:
 # rpm 4.16 writes an rpmdb the target release's rpm may not read back, and
 # a package compiled against the host's glibc can reference a symbol
 # version the target's glibc does not have.  Both fail at *runtime*, in the
@@ -99,7 +100,7 @@
 # hermetic, and defs/buildroot_helpers.bzl turns that into local_only =
 # False with cache upload enabled, where `host` forces the opposite.
 [buckos.fedora]
-  releases = 43,44,45
+  releases = 44,45
   # 45 has branched from rawhide but has not reached GA, so it is served
   # from development/ rather than releases/ and has no updates tree --
   # tools/relock.py --branched 45 is what records that.  It is deliberately
@@ -127,8 +128,8 @@
   # source but no longer produces mingw32-gnutls or mingw64-gnutls, so
   # those two projection targets are unbuildable; nothing in the live or
   # image-tools sets asks for them.  And `without` is flavor-wide rather
-  # than per-release, so this also disables the cross build on 43 and 45,
-  # whose older compilers may not have the bug.  Narrowing it needs a
+  # than per-release, so this also disables the cross build on 45, whose
+  # older compiler may not have the bug.  Narrowing it needs a
   # per-release form of this setting, which does not exist yet.
   without = gnutls:mingw
 

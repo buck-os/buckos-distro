@@ -13,7 +13,7 @@ where it happens instead, as a rule with those inputs declared.
 Built with the *target's* dracut, not the host's.  That is the same
 argument the replay makes about rpm: the host's dracut has the host's
 modules, the host's version, and the host's idea of what a kernel needs.
-An initramfs for Fedora 43's 6.17 kernel has to be built by Fedora 43's
+An initramfs for Fedora 45's kernel has to be built by Fedora 45's
 dracut, so the image rootfs becomes / and dracut runs inside it.
 
 Three trips into the sandbox rather than one, because the root dracut needs
@@ -45,7 +45,12 @@ import shutil
 import sys
 
 from _image import find_kernel
-from _isolation import ISOLATION_MODES, resolve_isolation, run_isolated
+from _isolation import (
+    ISOLATION_MODES,
+    require_target_execution,
+    resolve_isolation,
+    run_isolated,
+)
 from _rpm import make_dirs_writable, reproducible_env, scratch_dir
 
 # Where the image tarball, the tree unpacked from it, and the finished
@@ -140,6 +145,27 @@ def _dracut_script(args, kver, image):
     ])
 
 
+def _initramfs_tools_script(args, kver, image):
+    hook = {
+        "live-boot": "/usr/share/initramfs-tools/scripts/live",
+        "casper": "/usr/share/initramfs-tools/scripts/casper",
+    }[args.generator]
+    return "\n".join([
+        "set -e",
+        "test -e {} || {{ echo {} >&2; exit 1; }}".format(
+            shlex.quote(hook),
+            shlex.quote("buckos-distro: {} initramfs hook missing at {}".format(args.generator, hook)),
+        ),
+        "export TMPDIR=/tmp",
+        "/usr/sbin/update-initramfs -c -k {}".format(shlex.quote(kver)),
+        "cp {} {}".format(
+            shlex.quote("/boot/initrd.img-{}".format(kver)),
+            shlex.quote(image),
+        ),
+        "test -s {}".format(shlex.quote(image)),
+    ])
+
+
 def _cleanup_script(root):
     """Remove the unpacked tree from inside the namespace that owns it."""
     return "set -e\nrm -rf {}".format(shlex.quote(root))
@@ -162,6 +188,8 @@ def main():
     ap.add_argument("--dracut-arg", action="append", default=[],
                     metavar="ARG",
                     help="passed through to dracut verbatim (repeatable)")
+    ap.add_argument("--generator", default="dracut",
+                    choices=("dracut", "live-boot", "casper"))
     ap.add_argument("--no-compress", action="store_true",
                     help="leave the cpio uncompressed")
     ap.add_argument("--work", default=None,
@@ -169,8 +197,10 @@ def main():
     ap.add_argument("--keep-work", action="store_true",
                     help="do not delete the scratch area, for debugging")
     ap.add_argument("--source-date-epoch", default="1700000000")
+    ap.add_argument("--target-cpu", default="x86_64")
     args = ap.parse_args()
 
+    require_target_execution(args.target_cpu)
     isolation = resolve_isolation(args.isolation)
     if isolation == "none":
         sys.exit(
@@ -238,8 +268,9 @@ def _build(args, isolation, rootfs, kver, work, out):
     )
 
     print(
-        "buckos-distro: running the image's own dracut (kver={}, "
+        "buckos-distro: running the image's own {} generator (kver={}, "
         "add={}, omit={})".format(
+            args.generator,
             kver,
             ",".join(args.add_module) or "-",
             ",".join(args.omit_module) or "-",
@@ -251,8 +282,11 @@ def _build(args, isolation, rootfs, kver, work, out):
         # The unpacked image is the sysroot here, so /proc, /sys, /dev and
         # /tmp land inside *it* -- which is what dracut needs and what a
         # nested chroot would not have.
+        script = _dracut_script(args, kver, image)
+        if args.generator != "dracut":
+            script = _initramfs_tools_script(args, kver, image)
         run_isolated(
-            ["/bin/sh", "-c", _dracut_script(args, kver, image)],
+            ["/bin/sh", "-c", script],
             isolation, work, work, root, env=env,
         )
     finally:

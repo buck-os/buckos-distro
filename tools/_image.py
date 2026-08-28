@@ -30,6 +30,7 @@ import tarfile
 # put it, which is here, and this is the only place worth looking.
 _MODULES_DIR = "usr/lib/modules"
 _KERNEL_NAME = "vmlinuz"
+_BOOT_PREFIX = "boot/vmlinuz-"
 
 
 def _normalise(name):
@@ -55,6 +56,9 @@ def find_kernels(tar_path):
                 continue
             name = _normalise(member.name)
             parts = name.split("/")
+            if name.startswith(_BOOT_PREFIX) and len(name) > len(_BOOT_PREFIX):
+                found.append((name[len(_BOOT_PREFIX):], member.name))
+                continue
             # usr/lib/modules/<kver>/vmlinuz -- exactly, so a stray
             # vmlinuz deeper in the tree is not mistaken for a kernel.
             if len(parts) != 5 or parts[-1] != _KERNEL_NAME:
@@ -77,9 +81,8 @@ def find_kernel(tar_path, kver=None):
     kernels = find_kernels(tar_path)
     if not kernels:
         raise SystemExit(
-            "{}: no kernel found under {}/<version>/{}. Either the image "
-            "set has no kernel package in it, or kernel-install was not "
-            "bypassed and the kernel went somewhere else.".format(
+            "{}: no kernel found under {}/<version>/{} or boot/vmlinuz-<version>. "
+            "The image set may not contain a kernel package.".format(
                 tar_path, _MODULES_DIR, _KERNEL_NAME
             )
         )

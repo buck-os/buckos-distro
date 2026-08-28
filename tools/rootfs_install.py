@@ -26,7 +26,7 @@ chroot, one transaction -- rather than unpacking payloads.  rpm decides
 install order, runs the scriptlets, and writes its own database.  We never
 reimplement any of that (SPEC.md section 1).
 
-Which rpm matters: the *buildroot's*, not the host's.  Fedora 43 keeps its
+Which rpm matters: the *buildroot's*, not the host's.  Fedora keeps its
 database in sqlite while the host's rpm 4.16 still defaults to bdb, so a
 database built by the host would be one the target cannot read.  Running
 inside the chroot is what makes the produced rpmdb the target distro's
@@ -59,13 +59,20 @@ import shlex
 import shutil
 import sys
 
-from _isolation import ISOLATION_MODES, resolve_isolation, run_isolated
+from _isolation import (
+    ISOLATION_MODES,
+    require_target_execution,
+    resolve_isolation,
+    run_isolated,
+)
 from _rpm import (
     make_dirs_writable,
     reproducible_env,
     scratch_dir,
     stage_rpms,
 )
+
+_SELINUX_MODULES = "selinux-modules"
 
 
 def collect_rpms(paths):
@@ -78,7 +85,7 @@ def collect_rpms(paths):
     A plain file is taken at its word rather than checked for a .rpm
     suffix.  Buck names an http_file's output after the *target*, so a
     pinned upstream rpm arrives as
-    `__rpm-glibc-2.42-4.fc43-x86_64-43__/rpm-glibc-...-43` with no
+    `__rpm-glibc-2.42-4.fc45-x86_64-45__/rpm-glibc-...-45` with no
     extension at all -- filtering on the name would reject every pinned
     package in the seed.  Inside a directory the suffix filter does apply,
     because there the name is the payload's own and the directory holds
@@ -112,6 +119,9 @@ def main():
                     help="tar archive of the rootfs to create (see above)")
     ap.add_argument("--rpm", action="append", default=[], metavar="PATH",
                     help="rpm file or directory of rpms (repeatable)")
+    ap.add_argument("--selinux-module", action="append", default=[],
+                    metavar="PATH", help="CIL policy module to install into "
+                    "the rootfs (repeatable)")
     ap.add_argument("--buildroot-tree", default=None,
                     help="tree providing the rpm that runs the transaction")
     ap.add_argument("--isolation", default="auto", choices=ISOLATION_MODES)
@@ -122,8 +132,10 @@ def main():
     ap.add_argument("--nodeps", action="store_true",
                     help="skip rpm's dependency check (see below)")
     ap.add_argument("--source-date-epoch", default="1700000000")
+    ap.add_argument("--target-cpu", default="x86_64")
     args = ap.parse_args()
 
+    require_target_execution(args.target_cpu, "host" if args.isolation == "none" else "binary-seed")
     isolation = resolve_isolation(args.isolation)
     rpms = collect_rpms(args.rpm)
 
@@ -161,6 +173,18 @@ def _install(args, isolation, rpms, work, out):
     os.makedirs(target)
     staging = os.path.join(work, "rpms")
     stage_rpms(rpms, staging)
+    modules = None
+    if args.selinux_module:
+        modules = os.path.join(work, _SELINUX_MODULES)
+        os.makedirs(modules)
+        for source in args.selinux_module:
+            name = os.path.basename(source)
+            if not name.endswith(".cil") or name in ("", ".", ".."):
+                sys.exit("SELinux policy module must be a .cil file: {}".format(source))
+            destination = os.path.join(modules, name)
+            if os.path.exists(destination):
+                sys.exit("duplicate SELinux policy module name: {}".format(name))
+            shutil.copy2(os.path.abspath(source), destination)
 
     # A private, writable copy of the buildroot to chroot into.  Copied
     # rather than entered directly because the buildroot is a Buck input
@@ -203,7 +227,11 @@ def _install(args, isolation, rpms, work, out):
         flush=True,
     )
     run_isolated(
-        ["/bin/sh", "-c", _transaction_script(args, staging, target, tarball)],
+        [
+            "/bin/sh",
+            "-c",
+            _transaction_script(args, staging, target, tarball, modules),
+        ],
         isolation, work, work, sysroot,
         env=_transaction_env(args),
     )
@@ -261,7 +289,7 @@ def _transaction_env(args):
     return env
 
 
-def _transaction_script(args, staging, target, tarball):
+def _transaction_script(args, staging, target, tarball, modules=None):
     """Install, archive, and tidy up -- all inside the one namespace.
 
     Three things have to happen where the subordinate ids are mapped, and
@@ -287,24 +315,35 @@ def _transaction_script(args, staging, target, tarball):
     presented is stable; rpm computes its own install order regardless.
     """
     quoted_target = shlex.quote(target)
-    return "\n".join([
-        "set -e",
-        # Runs on failure too -- see above.
-        "trap 'rm -rf {}' EXIT".format(quoted_target),
+    lines = ["set -e"]
+    if not args.keep_work:
+        # Runs on failure too -- see above. --keep-work is the deliberate
+        # debugging escape hatch and must preserve the transaction root as
+        # well as the outer scratch directory.
+        lines.append("trap 'rm -rf {}' EXIT".format(quoted_target))
+    lines += [
         "cd {}".format(shlex.quote(staging)),
-        # --nosignature: signatures are not the pin here.  Every rpm reaching
+        # --nosignature and --nodigest: rpm's embedded verification metadata
+        # is not the pin here.  Every rpm reaching
         # this point was fetched by sha256 through http_file or produced by a
         # build action in this graph, both of which buck2 enforces; rpm has
-        # no keyring in the buildroot and would only warn NOKEY on all of
-        # them, which trains the reader to ignore the warning.
+        # no keyring in the buildroot, and locally rebuilt packages are not
+        # signed.  RPM 6.1 rejects such packages as having no verifiable
+        # digest unless both checks are disabled explicitly.
         #
         # --nodeps is off by default, unlike the replay.  The buildroot has
         # to use it because it has no rpmdb to check against, but here rpm is
         # building the database as it goes, so the check works -- and it is
         # the only thing that verifies the package set computed in
         # tools/solve.py is actually closed and installable.
-        "/usr/bin/rpm --install --root {} --nosignature -v{} *.rpm".format(
-            quoted_target, " --nodeps" if args.nodeps else ""
+        # systemd-udev regenerates hwdb.bin in %posttrans. Excluding the
+        # payload copy lets its O_TMPFILE link land atomically even though
+        # the target chroot deliberately has no procfs for the fallback
+        # /proc/self/fd path used when the destination already exists.
+        "/usr/bin/rpm --install --root {} --nosignature --nodigest"
+        " --excludepath /etc/udev/hwdb.bin -v{} *.rpm".format(
+            quoted_target,
+            " --nodeps" if args.nodeps else "",
         ),
         # The rpmdb is the difference between an image and a heap of unpacked
         # payloads, and its absence is otherwise invisible until someone runs
@@ -324,6 +363,36 @@ def _transaction_script(args, staging, target, tarball):
         # boots to a relabel or to nothing).  Both are xattrs, not modes, so
         # a tar that drops them produces a tree that looks complete and is
         # not.
+        # Rebuild explicitly as well. Releases where the package hook does
+        # this already produce the same bytes; releases where it does not
+        # still leave the image with the database udev expects.
+        "if [ -x /usr/bin/systemd-hwdb ] &&"
+        " [ -d {}/usr/lib/udev/hwdb.d ]; then"
+        " /usr/bin/systemd-hwdb --root={} update; fi".format(
+            quoted_target,
+            quoted_target,
+        ),
+    ]
+    if modules:
+        installed_modules = "{}/usr/share/selinux/packages/buckos".format(
+            quoted_target
+        )
+        lines += [
+            "mkdir -p {}".format(installed_modules),
+            "cp {}/*.cil {}/".format(shlex.quote(modules), installed_modules),
+            "if [ -x {}/usr/sbin/semodule ]; then SEMODULE=/usr/sbin/semodule;"
+            " elif [ -x {}/usr/bin/semodule ]; then SEMODULE=/usr/bin/semodule;"
+            " else echo 'buckos-distro: SELinux module requested but semodule"
+            " is absent from the rootfs' >&2; exit 1; fi".format(
+                quoted_target,
+                quoted_target,
+            ),
+            "for module in {}/*.cil; do"
+            " chroot {} \"$SEMODULE\" -N -i"
+            " \"/usr/share/selinux/packages/buckos/$(basename \"$module\")\";"
+            " done".format(installed_modules, quoted_target),
+        ]
+    lines += [
         "tar --create --numeric-owner --sort=name"
         " --xattrs --xattrs-include='*' --acls --format=posix"
         " --mtime=@{epoch}"
@@ -332,7 +401,8 @@ def _transaction_script(args, staging, target, tarball):
             tarball=shlex.quote(tarball),
             target=quoted_target,
         ),
-    ])
+    ]
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":

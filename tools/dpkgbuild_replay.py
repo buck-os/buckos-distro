@@ -9,7 +9,7 @@ import shutil
 import sys
 
 from _deb import deb_field, extract_deb, require_tool, run
-from _isolation import resolve_isolation, run_isolated
+from _isolation import require_target_execution, resolve_isolation, run_isolated
 from _rpm import make_dirs_writable, overlay_tree, reproducible_env, scratch_dir
 
 
@@ -29,10 +29,14 @@ def compose_buildroot(seed_root, dep_roots, dest):
     return dest
 
 
-def host_sysroot_env(sysroot, env):
+def host_sysroot_env(sysroot, env, target_cpu="x86_64"):
     root = os.path.abspath(sysroot)
     usr = os.path.join(root, "usr")
     lib = os.path.join(usr, "lib")
+    multiarch = {
+        "x86_64": "x86_64-linux-gnu",
+        "aarch64": "aarch64-linux-gnu",
+    }[target_cpu]
     overrides = {
         "PATH": os.pathsep.join([
             os.path.join(usr, "bin"),
@@ -40,14 +44,14 @@ def host_sysroot_env(sysroot, env):
             env.get("PATH", "/usr/bin:/bin"),
         ]),
         "PKG_CONFIG_PATH": os.pathsep.join([
-            os.path.join(lib, "x86_64-linux-gnu", "pkgconfig"),
+            os.path.join(lib, multiarch, "pkgconfig"),
             os.path.join(lib, "pkgconfig"),
             os.path.join(usr, "share", "pkgconfig"),
         ]),
         "C_INCLUDE_PATH": os.path.join(usr, "include"),
         "CPLUS_INCLUDE_PATH": os.path.join(usr, "include"),
         "LIBRARY_PATH": os.pathsep.join([
-            os.path.join(lib, "x86_64-linux-gnu"),
+            os.path.join(lib, multiarch),
             lib,
         ]),
     }
@@ -98,6 +102,7 @@ def main():
     parser.add_argument("--build-profile", action="append", default=[])
     parser.add_argument("--nocheck", action="store_true")
     parser.add_argument("--source-date-epoch", default="1700000000")
+    parser.add_argument("--target-cpu", default="x86_64")
     args = parser.parse_args()
 
     work = scratch_dir("buckos-dpkgbuild-", key=os.path.abspath(args.out_debs))
@@ -120,9 +125,10 @@ def main():
     if args.build_profile:
         env["DEB_BUILD_PROFILES"] = " ".join(sorted(set(args.build_profile)))
 
+    require_target_execution(args.target_cpu, "host" if args.isolation == "none" else "binary-seed")
     isolation = resolve_isolation(args.isolation)
     if isolation == "none":
-        env.update(host_sysroot_env(sysroot, env))
+        env.update(host_sysroot_env(sysroot, env, args.target_cpu))
     else:
         env["TMPDIR"] = "/tmp"
 

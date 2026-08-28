@@ -11,7 +11,7 @@ binaries.  Not purity -- capability.  xorriso, mkfs.vfat, mcopy and
 grub2-mkimage are simply not present on many build machines, and where
 they are present they are a different vintage than the distro being built.
 The grub EFI binary in particular is assembled from the *target's* grub
-modules, so it is a Fedora 43 grub booting a Fedora 43 kernel.
+modules, so it is a Fedora 45 grub booting a Fedora 45 kernel.
 
 One trip into the sandbox, not three.  Unlike the initramfs and squashfs
 builds there is no rootfs to unpack, so nothing here creates a file owned
@@ -49,12 +49,18 @@ about why.
 """
 
 import argparse
+import hashlib
 import os
 import shlex
 import shutil
 import sys
 
-from _isolation import ISOLATION_MODES, resolve_isolation, run_isolated
+from _isolation import (
+    ISOLATION_MODES,
+    require_target_execution,
+    resolve_isolation,
+    run_isolated,
+)
 from _rpm import make_dirs_writable, reproducible_env, scratch_dir
 
 _ISO_ROOT = "iso"
@@ -79,13 +85,36 @@ _GRUB_MODULES = (
     "serial sleep syslinuxcfg test video xfs zstd"
 ).split()
 
-_GRUB_MODULE_DIR = "/usr/lib/grub/x86_64-efi"
+_EFI_ARCH = {
+    "x86_64": ("x86_64-efi", "BOOTX64.EFI"),
+    "aarch64": ("arm64-efi", "BOOTAA64.EFI"),
+}
+
+_LAYOUTS = {
+    "rpm": {
+        "kernel": "isolinux/vmlinuz",
+        "initramfs": "isolinux/initrd.img",
+        "squashfs": "LiveOS/squashfs.img",
+        "root_args": "root=live:CDLABEL={label} rd.live.image",
+    },
+    "debian": {
+        "kernel": "live/vmlinuz",
+        "initramfs": "live/initrd.img",
+        "squashfs": "live/filesystem.squashfs",
+        "root_args": "boot=live components",
+    },
+    "ubuntu": {
+        "kernel": "casper/vmlinuz",
+        "initramfs": "casper/initrd.img",
+        "squashfs": "casper/filesystem.squashfs",
+        "root_args": "boot=casper",
+    },
+}
 
 # isolinux's loader modules.  isolinux.bin refuses to start without
 # ldlinux.c32 -- silently, with a blinking cursor -- so it is required
 # rather than best-effort; the rest are only needed by menu.c32 and are
 # copied when present so a richer config stays a one-line change.
-_SYSLINUX_DIR = "/usr/share/syslinux"
 _SYSLINUX_REQUIRED = ("isolinux.bin", "ldlinux.c32")
 _SYSLINUX_OPTIONAL = ("libcom32.c32", "libutil.c32", "menu.c32",
                       "vesamenu.c32")
@@ -93,10 +122,18 @@ _SYSLINUX_OPTIONAL = ("libcom32.c32", "libutil.c32", "menu.c32",
 # The MBR xorriso stamps on the front so the same file works written raw
 # to a USB stick.  Optional: without it the ISO still boots from optical
 # media and from UEFI, it just is not `dd`-able for BIOS.
-_ISOHDPFX = "/usr/share/syslinux/isohdpfx.bin"
+_SYSLINUX_PATHS = {
+    "isolinux.bin": ("/usr/share/syslinux/isolinux.bin", "/usr/lib/ISOLINUX/isolinux.bin"),
+    "isohdpfx.bin": ("/usr/share/syslinux/isohdpfx.bin", "/usr/lib/ISOLINUX/isohdpfx.bin"),
+    "ldlinux.c32": ("/usr/share/syslinux/ldlinux.c32", "/usr/lib/syslinux/modules/bios/ldlinux.c32"),
+    "libcom32.c32": ("/usr/share/syslinux/libcom32.c32", "/usr/lib/syslinux/modules/bios/libcom32.c32"),
+    "libutil.c32": ("/usr/share/syslinux/libutil.c32", "/usr/lib/syslinux/modules/bios/libutil.c32"),
+    "menu.c32": ("/usr/share/syslinux/menu.c32", "/usr/lib/syslinux/modules/bios/menu.c32"),
+    "vesamenu.c32": ("/usr/share/syslinux/vesamenu.c32", "/usr/lib/syslinux/modules/bios/vesamenu.c32"),
+}
 
 
-def _isolinux_cfg(kernel_args, timeout_deciseconds):
+def _isolinux_cfg(layout, kernel_args, timeout_deciseconds):
     """BIOS boot config.
 
     `prompt 0` with a timeout, rather than a menu: menu.c32 pulls in two
@@ -109,13 +146,13 @@ def _isolinux_cfg(kernel_args, timeout_deciseconds):
         "timeout {}".format(timeout_deciseconds),
         "",
         "label linux",
-        "  kernel /isolinux/vmlinuz",
-        "  append initrd=/isolinux/initrd.img {}".format(kernel_args),
+        "  kernel /{}".format(layout["kernel"]),
+        "  append initrd=/{} {}".format(layout["initramfs"], kernel_args),
         "",
     ])
 
 
-def _grub_cfg(label, kernel_args, timeout_seconds):
+def _grub_cfg(label, layout, kernel_args, timeout_seconds):
     """UEFI boot config.
 
     The `search` is load-bearing.  grub is loaded from efiboot.img, so its
@@ -131,8 +168,8 @@ def _grub_cfg(label, kernel_args, timeout_seconds):
         "search --no-floppy --set=root -l {}".format(shlex.quote(label)),
         "",
         "menuentry {} {{".format(shlex.quote("Start " + label)),
-        "    linux /isolinux/vmlinuz {}".format(kernel_args),
-        "    initrd /isolinux/initrd.img",
+        "    linux /{} {}".format(layout["kernel"], kernel_args),
+        "    initrd /{}".format(layout["initramfs"]),
         "}",
         "",
     ])
@@ -152,23 +189,48 @@ def _stage(src, dest):
         shutil.copy2(src, dest)
 
 
-def _efi_script(iso_root, label):
-    """Build BOOTX64.EFI, then the FAT image the firmware actually reads."""
+def _write_md5sums(iso_root):
+    """Write the checksum manifest expected by Ubuntu's live boot stack."""
+    rows = []
+    for root, dirs, names in os.walk(iso_root):
+        dirs.sort()
+        for name in sorted(names):
+            path = os.path.join(root, name)
+            relative = os.path.relpath(path, iso_root)
+            if relative == "md5sum.txt":
+                continue
+            digest = hashlib.md5()
+            with open(path, "rb") as stream:
+                for block in iter(lambda: stream.read(1 << 20), b""):
+                    digest.update(block)
+            rows.append((relative, digest.hexdigest()))
+    _write(
+        os.path.join(iso_root, "md5sum.txt"),
+        "".join("{}  ./{}\n".format(digest, relative)
+                for relative, digest in sorted(rows)),
+    )
+
+
+def _efi_script(iso_root, target_cpu):
+    """Build the removable-media EFI loader and its El Torito FAT image."""
     efi_dir = os.path.join(iso_root, "EFI", "BOOT")
     images = os.path.join(iso_root, "images")
     efiboot = os.path.join(images, "efiboot.img")
+    grub_target, boot_filename = _EFI_ARCH[target_cpu]
+    module_dir = "/usr/lib/grub/{}".format(grub_target)
 
     return "\n".join([
         "set -e",
         "EFIDIR={}".format(shlex.quote(efi_dir)),
         "IMAGES={}".format(shlex.quote(images)),
         "EFIBOOT={}".format(shlex.quote(efiboot)),
-        "MODDIR={}".format(shlex.quote(_GRUB_MODULE_DIR)),
+        "MODDIR={}".format(shlex.quote(module_dir)),
+        "BOOTFILE={}".format(shlex.quote(boot_filename)),
         'mkdir -p "$EFIDIR" "$IMAGES"',
         "",
         'if [ ! -d "$MODDIR" ]; then',
         '  echo "buckos-distro: no grub modules at $MODDIR; the image-tools'
-        ' set needs grub2-efi-x64-modules" >&2',
+        ' set needs GRUB EFI modules for {}" >&2'.format(grub_target),
         "  exit 1",
         "fi",
         "",
@@ -182,9 +244,14 @@ def _efi_script(iso_root, label):
         # is resolved against whatever $root is at startup -- the FAT
         # image.  That is why grub.cfg is copied into efiboot.img below
         # and not merely onto the ISO.
-        'grub2-mkimage -O x86_64-efi -d "$MODDIR" -p /EFI/BOOT'
-        ' -o "$EFIDIR/BOOTX64.EFI" $MODS',
-        'test -s "$EFIDIR/BOOTX64.EFI"',
+        'GRUB_MKIMAGE=',
+        'for _candidate in /usr/bin/grub2-mkimage /usr/bin/grub-mkimage; do',
+        '  if [ -x "$_candidate" ]; then GRUB_MKIMAGE="$_candidate"; break; fi',
+        'done',
+        'if [ -z "$GRUB_MKIMAGE" ]; then echo "buckos-distro: grub mkimage tool missing" >&2; exit 1; fi',
+        '"$GRUB_MKIMAGE" -O {} -d "$MODDIR" -p /EFI/BOOT'.format(grub_target) +
+        ' -o "$EFIDIR/$BOOTFILE" $MODS',
+        'test -s "$EFIDIR/$BOOTFILE"',
         "",
         # Sized from the payload with generous slack, then floored at 8
         # MiB.  The floor is not padding for its own sake: mkfs.vfat picks
@@ -216,28 +283,30 @@ def _bios_script(iso_root):
     lines = [
         "set -e",
         "DEST={}".format(shlex.quote(dest)),
-        "SRC={}".format(shlex.quote(_SYSLINUX_DIR)),
         'mkdir -p "$DEST"',
-        'if [ ! -d "$SRC" ]; then',
-        '  echo "buckos-distro: no syslinux at $SRC; the image-tools set'
-        ' needs syslinux and syslinux-nonlinux" >&2',
-        "  exit 1",
-        "fi",
     ]
     for name in _SYSLINUX_REQUIRED:
         lines += [
-            'if [ ! -f "$SRC/{0}" ]; then'.format(name),
-            '  echo "buckos-distro: $SRC/{0} missing" >&2'.format(name),
+            "SOURCE=",
+            "for _candidate in {}; do".format(
+                " ".join(shlex.quote(path) for path in _SYSLINUX_PATHS[name])
+            ),
+            '  if [ -f "$_candidate" ]; then SOURCE="$_candidate"; break; fi',
+            "done",
+            'if [ -z "$SOURCE" ]; then',
+            '  echo "buckos-distro: {} missing; the image-tools set needs isolinux and syslinux-common" >&2'.format(name),
             "  exit 1",
             "fi",
-            'cp "$SRC/{0}" "$DEST/{0}"'.format(name),
+            'cp "$SOURCE" "$DEST/{0}"'.format(name),
         ]
     for name in _SYSLINUX_OPTIONAL:
-        lines.append(
-            'if [ -f "$SRC/{0}" ]; then cp "$SRC/{0}" "$DEST/{0}"; fi'.format(
-                name
-            )
-        )
+        lines += [
+            "for _candidate in {}; do".format(
+                " ".join(shlex.quote(path) for path in _SYSLINUX_PATHS[name])
+            ),
+            '  if [ -f "$_candidate" ]; then cp "$_candidate" "$DEST/{0}"; break; fi'.format(name),
+            "done",
+        ]
     # isolinux.bin is patched in place by -boot-info-table, so it has to
     # be writable; cp out of a read-only buildroot preserves 0444.
     lines.append('chmod u+w "$DEST/isolinux.bin"')
@@ -297,9 +366,11 @@ def _xorriso_script(args, iso_root, out, timestamp):
     # be a worse trade than losing `dd`-ability.
     if args.boot_mode in ("hybrid", "bios"):
         lines += [
-            'if [ -f {0} ]; then set -- "$@" -isohybrid-mbr {0}; fi'.format(
-                shlex.quote(_ISOHDPFX)
+            "for _candidate in {}; do".format(
+                " ".join(shlex.quote(path) for path in _SYSLINUX_PATHS["isohdpfx.bin"])
             ),
+            '  if [ -f "$_candidate" ]; then set -- "$@" -isohybrid-mbr "$_candidate"; break; fi',
+            "done",
         ]
     if args.boot_mode in ("hybrid", "uefi"):
         lines.append('set -- "$@" -isohybrid-gpt-basdat')
@@ -331,6 +402,8 @@ def main():
                     help="appended after the derived root= argument")
     ap.add_argument("--boot-mode", default="hybrid",
                     choices=("hybrid", "bios", "uefi"))
+    ap.add_argument("--target-cpu", default="x86_64", choices=tuple(_EFI_ARCH))
+    ap.add_argument("--layout", default="rpm", choices=tuple(_LAYOUTS))
     ap.add_argument("--timeout", type=int, default=5,
                     help="bootloader countdown in seconds")
     ap.add_argument("--work", default=None,
@@ -340,6 +413,9 @@ def main():
     ap.add_argument("--source-date-epoch", default="1700000000")
     args = ap.parse_args()
 
+    if args.target_cpu == "aarch64" and args.boot_mode != "uefi":
+        ap.error("AArch64 ISO images support UEFI boot only")
+    require_target_execution(args.target_cpu)
     isolation = resolve_isolation(args.isolation)
     if isolation == "none":
         sys.exit(
@@ -391,21 +467,18 @@ def _build(args, isolation, label, work, out):
     # rather than inside the sandbox because nothing about them needs the
     # target's tools -- they are bytes Buck already produced and two text
     # files.
-    _stage(os.path.abspath(args.kernel),
-           os.path.join(iso_root, "isolinux", "vmlinuz"))
-    _stage(os.path.abspath(args.initramfs),
-           os.path.join(iso_root, "isolinux", "initrd.img"))
-    _stage(os.path.abspath(args.squashfs),
-           os.path.join(iso_root, "LiveOS", "squashfs.img"))
+    layout = _LAYOUTS[args.layout]
+    _stage(os.path.abspath(args.kernel), os.path.join(iso_root, layout["kernel"]))
+    _stage(os.path.abspath(args.initramfs), os.path.join(iso_root, layout["initramfs"]))
+    _stage(os.path.abspath(args.squashfs), os.path.join(iso_root, layout["squashfs"]))
 
-    kernel_args = "root=live:CDLABEL={} {}".format(
-        label, args.kernel_args
-    ).strip()
+    root_args = layout["root_args"].format(label=label)
+    kernel_args = "{} {}".format(root_args, args.kernel_args).strip()
 
     _write(os.path.join(iso_root, "isolinux", "isolinux.cfg"),
-           _isolinux_cfg(kernel_args, args.timeout * 10))
+           _isolinux_cfg(layout, kernel_args, args.timeout * 10))
     _write(os.path.join(iso_root, "EFI", "BOOT", "grub.cfg"),
-           _grub_cfg(label, kernel_args, args.timeout))
+           _grub_cfg(label, layout, kernel_args, args.timeout))
 
     print(
         "buckos-distro: assembling {} ({}), cmdline: {}".format(
@@ -419,8 +492,11 @@ def _build(args, isolation, label, work, out):
         run_isolated(["/bin/sh", "-c", _bios_script(iso_root)],
                      isolation, work, work, sysroot, env=env)
     if args.boot_mode in ("hybrid", "uefi"):
-        run_isolated(["/bin/sh", "-c", _efi_script(iso_root, label)],
+        run_isolated(["/bin/sh", "-c", _efi_script(iso_root, args.target_cpu)],
                      isolation, work, work, sysroot, env=env)
+
+    if args.layout == "ubuntu":
+        _write_md5sums(iso_root)
 
     timestamp = _iso_timestamp(args.source_date_epoch)
     run_isolated(

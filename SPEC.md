@@ -57,13 +57,13 @@ tools/solve.py
         +--> rootfs and image runtime closures
         |
         v
-flavors/fedora/lock/fedora-<release>.lock.json
+flavors/fedora/lock/fedora-<release>-<architecture>.lock.json
         |
         v
 tools/generate.py
         |
         v
-flavors/fedora/generated/fedora-<release>.bzl
+flavors/fedora/generated/fedora-<release>-<architecture>.bzl
         |
         v
 Buck targets
@@ -77,7 +77,7 @@ Bootstrap cycles are strongly connected components in the projected source graph
 
 Dynamic build requirements are collected by running `rpmbuild -br` in `:name-buildrequires` targets. `tools/probe.py` writes the reports consumed by a subsequent solve. Probe results are checked in with the lockfile.
 
-Debian-family dependency resolution is deliberately smaller: `tools/deb_lock.py` runs APT inside the target release, resolves the source Build-Depends plus the essential build base against an empty dpkg status database, and records every source and binary artifact by URL and SHA-256. `tools/deb_generate.py` converts that lock into pure Starlark data.
+Debian-family dependency resolution is deliberately smaller: `tools/deb_lock.py` runs APT against explicit target repositories and an empty dpkg status database, resolves source Build-Depends, the essential build base, and complete live/image-tool closures, and records every source and binary artifact by URL and SHA-256. `tools/deb_generate.py` converts that lock into pure Starlark data.
 
 ## Buildroot provenance
 
@@ -95,11 +95,13 @@ Tree artifacts are passed as complete hidden inputs when a command also referenc
 
 `[buckos.fedora] releases` is a comma-separated list. Each release receives suffixed download, buildroot, package, rootfs, boot, and image targets. The selected default release also receives unsuffixed copies.
 
-The checked-in configuration defines Fedora 43, Fedora 44, and Fedora 45. Each has its own repository table, package pins, buildroot seed, source recipes, probe data, bootstrap plan, and image package sets. All three solve their live image from source with no unresolved capabilities.
+The checked-in configuration defines Fedora 44 and Fedora 45 for x86_64 and AArch64. Each architecture has its own repository table, package pins, buildroot seed, source recipes, probe data where available, bootstrap plan, and image package sets. The x86_64 graphs solve their live images from source with no unresolved capabilities.
 
 A release that has branched from rawhide without reaching GA is served from `development/<release>/` and has no `updates/` tree. `tools/relock.py --branched` selects that repository table. The repo names it records are the GA ones, so the pins do not churn when upstream moves the same packages into `releases/`. Fedora 45 is in that state; the configuration pins the default release to 44 rather than letting it follow the newest entry.
 
 Package downloads use one URL and one SHA-256 digest per target. The URL comes from the package's recorded repository base, an optional `mirror_base` prefix rewrite, an optional static `package_url_template`, or an optional read-through `blob_base`. The static template requires the full digest and may include its 12-character prefix plus escaped filename, stem, extension, and release components. It cannot be combined with either existing redirect setting. The digest remains authoritative for every source.
+
+SELinux-labelled live images require squashfs-tools 4.6 or newer for pseudo-file xattrs. CentOS Stream 9 and CentOS Hyperscale 9 therefore compile a pinned 4.6.1 source archive inside their target-architecture binary-seed buildroot. `[buckos] squashfs_tools_source_url` may redirect that digest-verified archive without changing its identity.
 
 `tools/relock.py` refreshes releases and updates metadata, calls the solver, and regenerates the Starlark data. A release must already have a lockfile because the initial package set and override policy require review.
 
@@ -107,7 +109,7 @@ Package downloads use one URL and one SHA-256 digest per target. The URL comes f
 
 `[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. Release 9 layers CentOS Stream BaseOS, AppStream, and CRB with EPEL and EPEL Next. Its buildroot includes the EPEL RPM macros, and its live image installs the EPEL and EPEL Next release packages without forcing an unrelated EPEL Next workload package. Release 10 retains its BaseOS, AppStream, and CRB graph and remains the default.
 
-Both CentOS releases pin the build-system package group, live root filesystem, and image toolchain. Their source replay targets build the checked-in SRPM fixture with the target release's compiler and `.el9` or `.el10` macros. Both define hybrid live ISO targets; the release 10 image has been boot-verified through BIOS and UEFI with SELinux enforcing.
+Both CentOS releases pin the build-system package group, live root filesystem, and image toolchain for x86_64 and AArch64. Their source replay targets build the checked-in SRPM fixture with the target release's compiler and `.el9` or `.el10` macros. x86_64 images are hybrid BIOS/UEFI media; AArch64 images use UEFI.
 
 ## CentOS Hyperscale release graph
 
@@ -115,9 +117,11 @@ Both CentOS releases pin the build-system package group, live root filesystem, a
 
 Hyperscale inherits the CentOS build-system package group, adds the release's EPEL RPM macros to the binary seed, and uses `.hs.el9` or `.hs.el10` for source replay. Its image closures install the Hyperscale release package, select newer Hyperscale replacements by RPM version, and explicitly resolve the split `systemd-sysusers` provider used by Hyperscale systemd. EPEL 10's rich release dependency is pinned to `centos-stream-release` by an explicit solver override.
 
+The Hyperscale live rootfs also installs a narrow SELinux compatibility module for systemd operations missing from the matching base policy. The module permits only the observed BTF mapping, Varlink registry symlink creation, hardware-database reads, and EFI variable probing required for a clean enforcing boot.
+
 ## Debian-family release graphs
 
-`[buckos.debian] releases` and `[buckos.ubuntu] releases` use the same suffix/default expansion as Fedora. The checked-in Debian 13 (`trixie`) and Ubuntu 26.04 (`resolute`) data pin the GNU hello source set and their complete binary buildroot closures. Package downloads support the same content-addressed `package_url_template` placeholders as Fedora.
+`[buckos.debian] releases` and `[buckos.ubuntu] releases` use the same release-and-architecture expansion as Fedora. The checked-in Debian 13 (`trixie`) and Ubuntu 26.04 (`resolute`) data pin the GNU hello source set, complete binary buildroot closures, native live stacks, and image tools for x86_64 and AArch64. Debian boots with live-boot/live-config; Ubuntu boots with casper. Package downloads support the same content-addressed `package_url_template` placeholders as Fedora.
 
 ## Root filesystem and media pipeline
 
@@ -125,19 +129,21 @@ Each bootable image set produces two target families from one package list. The 
 
 `rootfs` gives RPMs to the target release's RPM implementation as one transaction. RPM writes the database, checks dependencies, and runs scriptlets after the payload trees have been staged. Triggers remain disabled because staging all payloads before one transaction does not preserve ordinary inter-package trigger timing.
 
+`deb_rootfs` bootstraps the essential Debian payload, then lets the target's dpkg run maintainer scripts and configure the complete package set. Both RPM and Debian-family pipelines produce a rootfs with native package-manager state rather than an extracted approximation.
+
 The rootfs output is a tar archive. The archive preserves ownership, capabilities, and RPM filenames without requiring Buck to own or represent every unpacked path.
 
 `kernel_image` reads the archive index and extracts the selected kernel and version without entering a buildroot.
 
-`initramfs` unpacks the rootfs into isolated scratch space and runs the image's own dracut with a non-host-only configuration.
+`initramfs` unpacks the rootfs into isolated scratch space and runs the image's own dracut, `update-initramfs` with live-boot, or `update-initramfs` with casper.
 
 `squashfs` unpacks the rootfs and runs the target image toolchain's `mksquashfs`. Fedora, CentOS Stream, and CentOS Hyperscale live images enable SELinux relabeling, which derives contexts from the image's own policy and writes them through the squashfs pseudo-file interface.
 
-`iso_image` creates the ISO9660 tree, BIOS boot files, UEFI files, El Torito entries, and optional isohybrid metadata. The volume label is also used to derive the live-root kernel argument. Secure Boot signing is not implemented.
+`iso_image` creates the distro-specific ISO9660 layout and boot arguments. x86_64 media has BIOS and UEFI El Torito entries plus optional isohybrid metadata; AArch64 media has a `BOOTAA64.EFI` UEFI entry. Secure Boot signing is not implemented.
 
 ## Remote execution contract
 
-The execution platform reads `buckos.remote_execution` and `buckos.remote_cache`. Both default to false.
+The execution platform reads `buckos.remote_execution` and `buckos.remote_cache`. Both default to false. Separate `remote_x86_64_properties`, `remote_aarch64_properties`, and use-case settings select architecture-specific worker pools without embedding any backend's names in the repository. Local x86_64 workers may advertise AArch64 execution with `buckos.aarch64_emulation=true`; action drivers verify a registered QEMU binfmt handler before executing target binaries.
 
 Rules that consume a buildroot derive `local_only` and cache-upload permission from `BuildrootInfo.hermetic`. Buildroot-independent actions declare that property directly. `tools/re_contract_test.py` checks these requirements in the rule source.
 
@@ -158,6 +164,7 @@ defs/rules/buildroot.bzl    Host and binary-seeded buildroots
 defs/rules/rootfs.bzl       RPM transaction and rootfs archive
 defs/rules/boot.bzl         Kernel and initramfs rules
 defs/rules/image.bzl        Squashfs and ISO rules
+defs/rules/boot_test.bzl    Rootfs instrumentation and firmware boot tests
 flavors/fedora/             Fedora configuration, lockfiles, and generated data
 flavors/centos/             CentOS Stream configuration, lockfile, and generated data
 flavors/centos-hyperscale/  CentOS Hyperscale configuration, lockfile, and generated data
