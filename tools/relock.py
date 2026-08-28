@@ -61,6 +61,22 @@ FEDORA_REPOS = [
     ("source-updates", "source", "updates/{release}/Everything/source/tree"),
 ]
 
+# A release that has branched from rawhide but has not reached GA is served
+# from development/ instead, and has no updates/ tree at all -- there have
+# been no post-GA pushes because there has been no GA.
+#
+# The repo *names* are deliberately the ones above rather than
+# development-flavoured spellings. Every pin records the repo it came from,
+# and at GA the same packages simply move from development/ to releases/;
+# naming them for the tree they happen to sit in today would churn every
+# pin's `repo` field on a day when nothing about the packages changed.
+FEDORA_BRANCHED_REPOS = [
+    ("binary-releases", "binary",
+     "development/{release}/Everything/{arch}/os"),
+    ("source-releases", "source",
+     "development/{release}/Everything/source/tree"),
+]
+
 # Repos that legitimately do not exist yet. A release has no updates/ tree
 # until its first post-GA push, so a 404 there is news, not an error.
 OPTIONAL = {"binary-updates", "source-updates"}
@@ -260,7 +276,9 @@ def repo_list(release, args, offline=False):
     only by the probe results.
     """
     repos = []
-    for name, kind, template in FEDORA_REPOS:
+    table = (FEDORA_BRANCHED_REPOS if str(release) in args.branched
+             else FEDORA_REPOS)
+    for name, kind, template in table:
         tail = template.format(release=release, arch=args.arch)
         # The canonical URL is what gets recorded; the mirror, if any, is
         # only where the bytes come from now. Identity is the sha256, so a
@@ -327,6 +345,13 @@ def main(argv=None):
                     help="release to refresh (repeatable; default: every "
                          "release with a lockfile)")
     ap.add_argument("--arch", default="x86_64")
+    ap.add_argument("--branched", action="append", default=[], metavar="N",
+                    help="release that has branched but not reached GA, so "
+                         "it is served from development/ and has no updates "
+                         "tree (repeatable). Stated rather than detected: "
+                         "which releases exist and where is a fact about the "
+                         "world on a given day, not something to infer from "
+                         "a 404")
     ap.add_argument("--lock-dir", default=None)
     ap.add_argument("--mirror", default=os.environ.get("BUCKOS_FEDORA_MIRROR"),
                     metavar="URL",
