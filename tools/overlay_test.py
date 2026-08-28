@@ -149,8 +149,14 @@ class OverlayTreeTest(unittest.TestCase):
         self.assertTrue(os.path.islink(out))
         self.assertEqual(os.readlink(out), "usr/lib")
 
-    def test_directory_replaces_symlink(self):
-        """And the reverse: a link below, a real tree above."""
+    def test_directory_replaces_dangling_symlink(self):
+        """And the reverse: a link below, a real tree above.
+
+        The link dangles -- ../../var/debug is provided by no layer here --
+        so there is nothing to follow and replacing it is the only option.
+        Contrast test_upper_directory_follows_a_merged_usr_symlink, where
+        the link resolves and the answer is the other way round.
+        """
         link(os.path.join(self.lower, "usr/lib/debug"), "../../var/debug")
         write(os.path.join(self.upper, "usr/lib/debug/gzip.debug"), "rebuilt")
 
@@ -159,6 +165,35 @@ class OverlayTreeTest(unittest.TestCase):
         out = os.path.join(self.dest, "usr/lib/debug")
         self.assertFalse(os.path.islink(out))
         self.assertTrue(os.path.isfile(os.path.join(out, "gzip.debug")))
+
+    def test_upper_directory_follows_a_merged_usr_symlink(self):
+        """libtirpc, and the reason 26 probes reported a missing rpm.
+
+        `filesystem` ships /lib64 as a symlink to usr/lib64, and libtirpc
+        declares its library under /lib64.  On a real system that path
+        resolves through the link and the file lands in /usr/lib64.
+
+        Replacing the link with a real directory forks them, and what
+        breaks is not libtirpc: /usr/lib64 keeps ld-linux-x86-64.so.2,
+        which every binary names absolutely as /lib64/ld-linux-x86-64.so.2,
+        so exec fails on the interpreter.  The shell calls that 127 and
+        prints nothing, for a binary sitting right there in /usr/bin.
+        """
+        os.makedirs(os.path.join(self.lower, "usr/lib64"))
+        write(os.path.join(self.lower, "usr/lib64/ld-linux-x86-64.so.2"), "loader")
+        link(os.path.join(self.lower, "lib64"), "usr/lib64")
+        write(os.path.join(self.upper, "lib64/libtirpc.so.3"), "tirpc")
+
+        self.compose()
+
+        out = os.path.join(self.dest, "lib64")
+        self.assertTrue(os.path.islink(out), "/lib64 must stay a symlink")
+        self.assertEqual(os.readlink(out), "usr/lib64")
+        # Both files reachable by both spellings -- the point of the merge.
+        for path in ("lib64/libtirpc.so.3", "usr/lib64/libtirpc.so.3",
+                     "lib64/ld-linux-x86-64.so.2",
+                     "usr/lib64/ld-linux-x86-64.so.2"):
+            self.assertTrue(os.path.isfile(os.path.join(self.dest, path)), path)
 
     def test_symlinked_directory_stays_a_symlink(self):
         """os.walk lists a symlink-to-directory in dirnames and does not

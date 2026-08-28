@@ -6,10 +6,13 @@ here is fetched by sha256 from upstream and is *not* built from source; the
 set is deliberately small -- roughly Fedora's @buildsys-build group -- and
 its size is the repo's honest bootstrap-debt metric.
 
-Payloads are unpacked with rpm2archive | tar; the database is then written
-separately, by a real `rpm --justdb` transaction run inside the tree
-itself.  See _register_rpmdb below for why those two halves are done by
-different mechanisms, and why no scriptlet runs in either of them.
+Payloads are unpacked with rpm2archive | tar, and then installed properly
+by a real `rpm --install` transaction run inside the tree itself.  The
+unpack is a bootstrap step -- it puts an rpm on disk to run the
+transaction with -- and the transaction is what makes the result a
+buildroot rather than an approximation of one: it writes the database
+rpmbuild consults, and it runs the install scriptlets.  See
+_register_rpmdb for why those two halves use different mechanisms.
 """
 
 import argparse
@@ -36,10 +39,9 @@ SKELETON = (
     "var/tmp",
     "var/lib/rpm",
     # update-alternatives keeps its state here and fails without it.
-    # Nothing in this assembly calls it -- --justdb runs no scriptlets --
-    # so this buys nothing today; it is here because the directory is part
-    # of a working root the same way /var/tmp is, and because anything
-    # that ever does register an alternative needs it to already exist.
+    # Load-bearing since the transaction became a real one: golang-bin's
+    # %post registers /usr/bin/go through it, and a package that
+    # autodetects Go sees nothing if that registration silently failed.
     "var/lib/alternatives",
     "builddir",
 )
@@ -76,14 +78,15 @@ def _repair_dangling_bindir_links(out):
     one lstat, and the failure it prevents is a hardcoded /sbin/ldconfig
     dangling in the middle of somebody's %install.
 
-    Not created by a scriptlet on any path here, despite what the
-    paragraph above describes: _register_rpmdb runs --justdb, which does
-    not execute install scriptlets at all.  See its docstring.
+    Still worth keeping now that _register_rpmdb runs scriptlets and
+    %pretrans creates the link for real, because the order is the other
+    way round: payloads are unpacked *before* that transaction, and
+    anything reading the tree in between sees the gap.
 
-    Skipping an occupied path is also which is also
-    what keeps it correct for releases and distros that predate the merge:
-    there, an rpm ships /usr/sbin as a real directory full of real
-    binaries, and turning that into a symlink would silently discard them.
+    Skipping an occupied path is also what keeps this correct for releases
+    and distros that predate the merge: there, an rpm ships /usr/sbin as a
+    real directory full of real binaries, and turning that into a symlink
+    would silently discard them.
     """
     for rel, target in SCRIPTLET_LINKS.items():
         link = os.path.join(out, rel)
@@ -133,61 +136,50 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
     hand-written one is a reimplementation of rpm semantics that has to
     stay correct as rpm changes -- exactly what SPEC.md section 1 forbids.
 
-    Why `--justdb` rather than a plain install: the payloads are already
-    on disk, unpacked by tar as the invoking user.  A real install would
-    chown them into the subordinate id range, and Buck -- which does not
-    own those ids -- could then neither delete nor re-materialize its own
-    output directory.  --justdb writes the database and touches nothing
-    else, so the tree stays deletable and stays a directory artifact that
-    other actions can chroot into.
+    Why a full install rather than `--justdb`: because the scriptlets are
+    not optional.  golang-bin's %post is
+
+        update-alternatives --install /usr/bin/go go \
+            /usr/lib/golang/bin/go 90 ...
+
+    and /usr/bin/go ships as a symlink into /etc/alternatives, so without
+    it the symlink dangles.  libcap then autodetects Go with `go version`,
+    gets nothing, silently omits its captree program, and fails in %files
+    on a file nothing said it was skipping.  Every step is a warning or a
+    success until the last one.  Under --justdb rpm updates the database
+    and declines to run install scriptlets for files it is not installing,
+    so that failure was structural rather than incidental.
+
+    This cost the ownership property that --justdb was chosen for.  A real
+    install chowns files into the subordinate id range, and Buck -- which
+    does not own those ids -- then cannot delete or re-materialize its own
+    output.  That is handled by make_dirs_writable in the finally below
+    rather than by avoiding the transaction; see the comment there, and
+    note it is in the finally precisely because a *failed* transaction
+    leaves the tree in that state too.
+
+    One measurement lesson is worth keeping, because the mistake was in
+    the method rather than the conclusion.  Dropping --noscripts was first
+    justified by observing /usr/sbin -> bin and the systemd sysusers
+    entries in /etc/passwd afterwards and attributing both to it -- without
+    building the same tree *with* --noscripts to compare.  The control says
+    they are there either way: they come from package payloads.  The case
+    for scriptlets is golang-bin above, which was the experiment that
+    actually distinguished the two.
 
     Why rpm from inside the tree rather than the host's: Fedora 43 ships
     rpm 6, whose database is sqlite at /usr/lib/sysimage/rpm.  A host rpm
     of a different vintage writes a different format in a different place,
     and the resulting tree would be one no rpmbuild inside it can read.
 
-    --noscripts, because under --justdb the scriptlets do not run
-    anyway, and saying so is better than passing a flag that reads like a
-    policy.
-
-    This was briefly changed to run them, on the argument that the tree is
-    complete by the time the transaction happens -- every payload is
-    already extracted, so a %post that walks /usr/lib finds all of it.
-    That argument is still sound.  The measurement offered for it was not:
-    /usr/sbin -> bin and the systemd sysusers entries were both observed
-    after dropping --noscripts and attributed to it, without ever building
-    the same tree *with* it to compare.
-
-    The control says both are there either way.  With --noscripts the
-    buildroot has the identical /etc/passwd -- dbus, systemd-coredump,
-    systemd-oom, systemd-timesync -- and the identical /usr/sbin symlink,
-    because those come from package payloads rather than from scriptlets.
-
-    What settles it is golang-bin, whose %post is
-
-        update-alternatives --install /usr/bin/go go \
-            /usr/lib/golang/bin/go 90 ...
-
-    Run by hand inside the finished buildroot that command exits 0 and
-    /usr/bin/go resolves.  Run as part of `rpm --justdb --install` without
-    --noscripts it has no effect at all: /etc/alternatives stays empty and
-    /usr/bin/go, which ships as a symlink into it, dangles.  rpm is
-    updating a database and declining to run install scriptlets for files
-    it is not installing.
-
-    That has a consequence worth stating, because it is a real limit
-    rather than a detail.  Any package whose build needs a tool registered
-    through `alternatives` cannot be built in this buildroot: libcap
-    autodetects Go with `go version`, gets nothing, silently omits its
-    captree program, and fails in %files.  Making it work needs a real
-    (non---justdb) transaction, which is what the ownership argument above
-    rules out.
-
-    --notriggers stays.  A trigger fires on *another* package's
-    installation, so in a single transaction that installs everything at
-    once the firing order is a property of rpm's internal ordering rather
-    than of anything this repo decides -- and nothing in the seed set
-    needs one.  Turning them on is a change that should come with a case.
+    --notriggers stays, and here that is still right.  A trigger fires on
+    *another* package's installation, so in a single transaction that
+    installs everything at once the firing order is rpm's internal
+    ordering rather than anything this repo decides.  The overlay in
+    tools/rpmbuild_replay.py does turn them on, and needs to: it installs
+    into a tree that already exists, which is the situation a trigger is
+    for -- glibc's rebuilds /etc/ld.so.cache, and without it bpftool
+    cannot load a library sitting on disk.
 
     No --nodeps.  The seed set is dependency-closed by construction --
     tools/solve.py computes its closure -- so rpm checking that claim is

@@ -18,6 +18,8 @@ See SPEC.md section 3a.
 import re
 from collections import defaultdict
 
+from rpmvercmp import compare_evr
+
 # ── Capability resolution ────────────────────────────────────────────
 
 
@@ -47,31 +49,169 @@ class UnresolvedCapability(Exception):
         )
 
 
-def resolve_capability(capability, provides, required_by, overrides=None):
+def split_constraint(capability):
+    """Split "crate(base64) >= 0.21" into ("crate(base64)", ">=", "0.21").
+
+    Returns (name, None, None) when there is no constraint, and leaves a
+    rich dep alone -- its internal grammar has its own version syntax and
+    splitting on the first operator would cut it mid-expression.
+    """
+    if is_rich_dep(capability):
+        return capability.strip(), None, None
+    for op in (">=", "<=", "=", ">", "<"):
+        idx = capability.find(" {} ".format(op))
+        if idx != -1:
+            return (capability[:idx].strip(), op,
+                    capability[idx + len(op) + 2:].strip())
+    return capability.strip(), None, None
+
+
+def _evr_parts(text):
+    """Split an EVR string, leaving unstated components as None."""
+    epoch, sep, rest = text.partition(":")
+    if not sep:
+        epoch, rest = None, text
+    version, sep, release = rest.partition("-")
+    return (epoch, version, release if sep else None)
+
+
+def satisfies_constraint(provided, op, wanted):
+    """Does a provided version satisfy `op wanted`?
+
+    A provider that declares no version for a capability satisfies any
+    constraint, which is rpm's rule and not a shortcut: an unversioned
+    Provides is a claim to supply the capability in whatever form is
+    asked for, and most of them -- file paths, virtual names -- have no
+    meaningful version at all.
+
+    Compared at the precision the *constraint* states, which is also rpm's
+    rule and is easy to get wrong.  `Requires: automake = 1.18.1` is
+    satisfied by automake 1.18.1-2.fc43: the requirement says nothing about
+    release, so release is not compared.  Comparing the full triple instead
+    makes an exact-version requirement almost never match, since a provider
+    nearly always carries a release the requirement omits.
+    """
+    if op is None or provided is None:
+        return True
+    w_epoch, w_version, w_release = _evr_parts(wanted)
+    p_epoch, p_version, p_release = provided
+    # The provider keeps its epoch; a requirement that states none is
+    # read as epoch 0, which is rpm's rule and the point of epochs.
+    # `Requires: emacs-filesystem >= 30.2` is satisfied by 1:30.0-5.fc43,
+    # because the epoch bump exists precisely to overrule the version
+    # comparison.  Zeroing both sides -- which this did first -- turns every
+    # epoch in the distro into a false unsatisfiable.
+    left = (p_epoch or "0", p_version,
+            p_release if w_release is not None else None)
+    right = (w_epoch or "0", w_version, w_release)
+    result = compare_evr(left, right)
+    return {
+        "=": result == 0,
+        ">": result > 0,
+        ">=": result >= 0,
+        "<": result < 0,
+        "<=": result <= 0,
+    }[op]
+
+
+def _any_version_satisfies(provided, op, wanted):
+    """One package can provide a capability at more than one version.
+
+    texlive-kpathsea carries both its own NEVR, 11:20230311-95.fc43.1, and
+    the upstream svn revision its spec also declares.  Keeping one version
+    per (capability, package) meant whichever was parsed last decided, and
+    a requirement naming the other was reported unsatisfiable by the very
+    package that satisfies it.
+    """
+    if not provided:
+        return True
+    return any(satisfies_constraint(evr, op, wanted) for evr in provided)
+
+
+def resolve_capability(capability, provides, required_by, overrides=None,
+                       provide_evr=None):
     """Map one capability to a single providing binary package.
 
     Policy, in order:
       1. an explicit override from the flavor's config
-      2. the unique provider, when there is exactly one
-      3. an exact name match -- "zlib-devel" provided by zlib-devel itself
+      2. providers that cannot satisfy the version constraint are dropped
+      3. the unique provider, when there is exactly one
+      4. an exact name match -- "zlib-devel" provided by zlib-devel itself
          beats some other package that happens to Provide it
-      4. otherwise raise, so the ambiguity is resolved by a human and
+      5. otherwise raise, so the ambiguity is resolved by a human and
          recorded in the lockfile rather than guessed at build time
+
+    Step 2 is what stops the solver handing a package a dependency it
+    already said it could not use.  Fedora keeps several majors of a Rust
+    crate side by side -- rust-base64-devel is the current one and
+    rust-base64_0.21-devel and friends are compat packages -- and
+    `crate(base64) >= 0.21 with crate(base64) < 0.23` names the range it
+    will accept.  Discarding that left the name alone, the exact-name rule
+    picked the current major, and the mismatch surfaced only when cargo
+    refused it several minutes into %build:
+
+        error: failed to select a version for the requirement
+               `base64 = ">=0.21, <0.23"`
+        candidate versions found which didn't match: 0.23.1
+
+    `provide_evr` is {capability: {package: (epoch, version, release)}}.
+    Absent, every provider is treated as unversioned and this behaves as
+    it did before -- which is what the image and buildroot closures want,
+    since they resolve names rather than ranges.
     """
     overrides = overrides or {}
+    provide_evr = provide_evr or {}
     if capability in overrides:
         return overrides[capability]
 
-    candidates = provides.get(capability)
+    name, op, wanted = split_constraint(capability)
+    if name in overrides:
+        return overrides[name]
+
+    candidates = provides.get(name)
     if not candidates:
         raise UnresolvedCapability(capability, required_by)
 
-    candidates = set(candidates)
-    if len(candidates) == 1:
-        return next(iter(candidates))
-    if capability in candidates:
-        return capability
-    raise AmbiguousProvider(capability, candidates)
+    versions = provide_evr.get(name, {})
+    matching = {
+        pkg for pkg in candidates
+        if _any_version_satisfies(versions.get(pkg), op, wanted)
+    }
+    if not matching:
+        # Deliberately a different message from "nothing provides it":
+        # the providers exist and are the wrong version, which is a
+        # different thing to go and look at.
+        offered = sorted({
+            "-".join(x for x in (evr[1], evr[2]) if x)
+            for pkg in candidates for evr in versions.get(pkg, ())
+        })
+        raise UnresolvedCapability(
+            "{} (provided by {}, at {})".format(
+                capability,
+                ", ".join(sorted(candidates)),
+                ", ".join(offered) or "no version"),
+            required_by)
+
+    if len(matching) == 1:
+        return next(iter(matching))
+    if name in matching:
+        return name
+    if op is not None:
+        # Several satisfy the range, so take the newest that does -- which
+        # is what rpm, dnf and cargo all do, and is not a judgement call the
+        # way an unconstrained ambiguity is.  A constraint is evidence that
+        # the requirement is about versions of one thing; `/bin/awk` between
+        # gawk and mawk carries none, and still needs a human.
+        best, best_evr = None, None
+        for pkg in sorted(matching):
+            for evr in versions.get(pkg, ()):
+                if not satisfies_constraint(evr, op, wanted):
+                    continue
+                if best is None or compare_evr(evr, best_evr) > 0:
+                    best, best_evr = pkg, evr
+        if best is not None:
+            return best
+    raise AmbiguousProvider(capability, matching)
 
 
 def validate_overrides(overrides, provides, scope=""):
@@ -134,10 +274,13 @@ def strip_capability_version(capability):
     "gcc-c++ >= 4.8"   -> "gcc-c++"
     "libfoo(x86-64)"   -> "libfoo(x86-64)"   (isa suffix is part of the name)
 
-    Version ranges are intentionally discarded: the lockfile pins an exact
-    NEVRA per capability, so the range only matters at solve time, and at
-    solve time libsolv enforces it.  Keeping the range here would make the
-    provides-map key not match.
+    Version ranges are dropped because the provides map is keyed on the
+    bare name, so this is how a lookup key is made.  It is *not* how a
+    requirement is resolved: resolve_capability takes the constraint
+    intact and filters providers by it.  This function used to claim the
+    range was enforced by libsolv, which this repo does not use and never
+    did -- the constraint was simply lost, and Fedora's compat crates all
+    resolved to whichever major happened to be current.
 
     Rich deps are returned untouched.  They have their own internal
     grammar, and a version constraint inside one is not a trailing
@@ -411,6 +554,39 @@ def unparse_boolean(node):
     return text + ")"
 
 
+def _leaf_caps(node):
+    """The bounds of a `with` chain over one capability, constraints intact.
+
+    _leaf_names strips them, which is right when the question is "which
+    packages are named here" and wrong when it is "which versions will do".
+
+    Only `with` is followed, and that restriction is load-bearing: `with`
+    is a conjunction, so intersecting its bounds is the correct reading,
+    while `or` is a disjunction and intersecting *its* branches asks for a
+    version satisfying two alternatives at once.  Fedora writes both, and
+    the second is not rare --
+
+        ((rpm-build >= 4.14.90 with rpm-build < 4.19.90)
+         or rpm-build >= 4.19.91-8)
+
+    -- which flattened into one chain becomes a range nothing can satisfy,
+    and reported 28 packages unresolvable over dependencies that were
+    perfectly fine.
+    """
+    kind = node[0]
+    if kind == "cap":
+        return [node[1]]
+    if kind == "with":
+        out = []
+        for child in node[1]:
+            child_caps = _leaf_caps(child)
+            if child_caps is None:
+                return None
+            out.extend(child_caps)
+        return out
+    return None
+
+
 def _leaf_names(node):
     """Every bare capability name a node mentions, or None if not all leaves."""
     kind = node[0]
@@ -524,7 +700,8 @@ def parse_range_dep(capability):
 # ── Transitive closure ───────────────────────────────────────────────
 
 
-def runtime_closure(roots, requires, provides, overrides=None, extra=None):
+def runtime_closure(roots, requires, provides, overrides=None, extra=None,
+                    provide_evr=None):
     """Transitively close a set of binary packages over their Requires.
 
     Installing zlib-devel means installing zlib and its deps too, or the
@@ -554,10 +731,50 @@ def runtime_closure(roots, requires, provides, overrides=None, extra=None):
     pending = []
     # (expression, [alternative, ...], required_by) with no branch present.
     choices = []
+    provide_evr = provide_evr or {}
+
+    def resolve_range(caps, who):
+        """One provider satisfying every bound in a version range."""
+        name = strip_capability_version(caps[0])
+        if name in overrides:
+            return overrides[name]
+        candidates = set(provides.get(name, ()))
+        if not candidates:
+            problems.append((
+                "unresolved",
+                str(UnresolvedCapability(" with ".join(caps), who)), who))
+            return None
+        versions = provide_evr.get(name, {})
+        for cap in caps:
+            _, op, wanted = split_constraint(cap)
+            candidates = {
+                pkg for pkg in candidates
+                if _any_version_satisfies(versions.get(pkg), op, wanted)
+            }
+        if not candidates:
+            problems.append((
+                "unresolved",
+                "no build of {} satisfies {}; providers are {}".format(
+                    name, " with ".join(caps),
+                    ", ".join(sorted(provides.get(name, ())))),
+                who))
+            return None
+        if len(candidates) == 1:
+            return next(iter(candidates))
+        best, best_evr = None, None
+        for pkg in sorted(candidates):
+            for evr in versions.get(pkg, ()):
+                if best is None or compare_evr(evr, best_evr) > 0:
+                    best, best_evr = pkg, evr
+        if best is not None:
+            return best
+        choices.append((" with ".join(caps), sorted(candidates), who))
+        return None
 
     def resolve(cap, who):
         try:
-            return resolve_capability(cap, provides, who, overrides)
+            return resolve_capability(cap, provides, who, overrides,
+                                      provide_evr)
         except AmbiguousProvider as exc:
             # Deferred rather than reported, on the same argument that
             # defers "(A or B)": several packages provide this, so the
@@ -686,6 +903,35 @@ def runtime_closure(roots, requires, provides, overrides=None, extra=None):
                 # in a --override, so there is no lever to offer.
                 problems.append(("rich", text, who))
                 return []
+            if text in overrides:
+                return [overrides[text]]
+
+            # An alternative nothing provides is not an alternative.  The
+            # `with` branch below already reasons this way -- one candidate
+            # is not a choice -- and an `or` deserves the same: asking a
+            # human to pick between a package that exists and one that does
+            # not is asking them to confirm arithmetic.
+            #
+            # gcc is the case.  Its spec offers
+            # `(glibc32 or glibc-devel(x86-32))`, Fedora 43 ships no
+            # glibc32 at all, and glibc-devel(x86-32) has exactly one
+            # provider.  There is nothing to settle.
+            #
+            # Ambiguity in a surviving branch still defers: two providers
+            # for one alternative is a real question, and answering it here
+            # would be the guessing this function exists to refuse.
+            live = set()
+            for name in alternatives:
+                try:
+                    live.add(resolve_capability(name, provides, who, overrides))
+                except UnresolvedCapability:
+                    continue
+                except AmbiguousProvider:
+                    live = None
+                    break
+            if live is not None and len(live) == 1:
+                return [live.pop()]
+
             choices.append((text, alternatives, who))
             return []
 
@@ -693,8 +939,16 @@ def runtime_closure(roots, requires, provides, overrides=None, extra=None):
             if kind == "with":
                 collapsed = _leaf_names(node)
                 if collapsed and len(set(collapsed)) == 1:
-                    provider = resolve(collapsed[0], who)
-                    return [] if provider is None else [provider]
+                    # A version range, spelled as a conjunction over one
+                    # capability: `(crate(base64) >= 0.21 with
+                    # crate(base64) < 0.23)`.  Resolved against every bound
+                    # at once rather than by name, which is what this used
+                    # to do -- and which handed rpm-sequoia the 0.23 its
+                    # own constraint excludes.
+                    bounds = _leaf_caps(node)
+                    if bounds:
+                        provider = resolve_range(bounds, who)
+                        return [] if provider is None else [provider]
             candidates = intersect(node, who)
             text = unparse_boolean(node)
             if candidates is None:
@@ -771,7 +1025,11 @@ def runtime_closure(roots, requires, provides, overrides=None, extra=None):
                         if provider not in seen:
                             frontier.append(provider)
                     continue
-                provider = resolve(base, pkg)
+                # `cap`, not `base`: the constraint is what tells the
+                # 0.22 build of a crate from the 0.23 one, and stripping
+                # it here made every versioned requirement ambiguous
+                # among every major Fedora ships.
+                provider = resolve(cap, pkg)
                 if provider is not None and provider not in seen:
                     frontier.append(provider)
 
@@ -867,24 +1125,37 @@ def runtime_closure(roots, requires, provides, overrides=None, extra=None):
 # ── Source-level graph and cycle handling ────────────────────────────
 
 
-def project_to_source_graph(build_deps, source_of, build_set):
+def project_to_source_graph(build_deps, source_of, build_set, routes=None):
     """Collapse binary-level build deps onto a source-package graph.
 
     build_deps: {source_pkg: set(binary_pkg)}  -- resolved BuildRequires
                 closure for each source package we intend to build
     source_of:  {binary_pkg: source_pkg}
     build_set:  the source packages being built from source
+    routes:     {source_pkg: {binary_pkg: source_pkg}} -- version variants,
+                which override source_of for the consumer that named one
 
     Only edges *within* build_set become graph edges.  An edge to a
     package outside build_set is satisfied from the seed and therefore
     cannot participate in a cycle.
+
+    `routes` has to be honoured here or the graph is a lie about what
+    depends on what.  tar builds against the acl-compat variant, and with
+    the edge still pointing at acl the planner sees no cycle through the
+    variant, stages nothing, and buck2 rejects the target graph at analysis
+    with a cycle the solver said did not exist:
+
+        tar-stage1 -> acl-compat -> zstd-stage3
+                   -> zlib-ng-stage2 -> tar-stage1
     """
+    routes = routes or {}
     graph = {src: set() for src in build_set}
     for src, bins in build_deps.items():
         if src not in build_set:
             continue
+        routed = routes.get(src, {})
         for binary in bins:
-            dep_src = source_of.get(binary)
+            dep_src = routed.get(binary) or source_of.get(binary)
             if dep_src is None or dep_src not in build_set:
                 continue  # from seed -- not an edge
             if dep_src != src:
@@ -1019,12 +1290,12 @@ def stage_cycle(component, graph, stages=3):
     return plan
 
 
-def plan_build_order(build_deps, source_of, build_set, stages=3):
+def plan_build_order(build_deps, source_of, build_set, stages=3, routes=None):
     """Full graph plan: order, cycles, and the staging needed to break them.
 
     Returns a dict suitable for embedding in the lockfile.
     """
-    graph = project_to_source_graph(build_deps, source_of, build_set)
+    graph = project_to_source_graph(build_deps, source_of, build_set, routes)
     cycles = find_cycles(graph)
     cyclic = {pkg for comp in cycles for pkg in comp}
 
@@ -1043,19 +1314,21 @@ def plan_build_order(build_deps, source_of, build_set, stages=3):
 # ── Bootstrap depth reporting ────────────────────────────────────────
 
 
-def bootstrap_depth(build_deps, source_of, build_set):
+def bootstrap_depth(build_deps, source_of, build_set, routes=None):
     """Summarize how much of the closure is built vs seeded.
 
     The headline number for "how much of this distro do we actually build
     from source" (SPEC.md section 3a).
     """
+    routes = routes or {}
     built = set()
     seeded = set()
     for src, bins in build_deps.items():
         if src not in build_set:
             continue
+        routed = routes.get(src, {})
         for binary in bins:
-            dep_src = source_of.get(binary)
+            dep_src = routed.get(binary) or source_of.get(binary)
             if dep_src in build_set:
                 built.add(binary)
             else:

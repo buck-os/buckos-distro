@@ -310,6 +310,8 @@ def merge_packages(groups):
     # reported against the base rather than against whatever intermediate
     # build happened to be seen most recently.
     origin = {}
+    # Every build seen for a key, winners and losers alike.
+    candidates = {}
 
     for _repo, packages in groups:
         # Resolve within the repo first. A repo carrying two builds of one
@@ -330,6 +332,7 @@ def merge_packages(groups):
                 group_best[key] = pkg
 
         for key, pkg in group_best.items():
+            candidates.setdefault(key, []).append(pkg)
             incumbent = index.get(key)
             if incumbent is None:
                 index[key] = pkg
@@ -349,7 +352,21 @@ def merge_packages(groups):
         for key, pkg in sorted(index.items())
         if pkg is not origin[key]
     ]
-    return [index[key] for key in sorted(index)], replacements
+    # The builds that lost, kept rather than dropped.  Newest-wins is the
+    # right default and the wrong answer for a source package older than
+    # the update: tar 1.35-6 cannot compile against acl 2.4.0, because the
+    # 2.4.0 header declares an acl_get_file_at that tar declares itself
+    # with a different arity.  Fedora shipped that update without rebuilding
+    # tar, so its own buildroot would fail the same way -- the GA binary
+    # simply predates the header.  Building it needs the acl it was built
+    # against, and that build has to still be reachable to be named.
+    superseded = {}
+    for key, losers in sorted(candidates.items()):
+        for pkg in losers:
+            if pkg is index[key]:
+                continue
+            superseded.setdefault(key, {})[_evr_string(pkg)] = pkg
+    return [index[key] for key in sorted(index)], replacements, superseded
 
 
 def _evr_string(pkg):
@@ -384,6 +401,13 @@ def _parse_package_elem(elem):
 
     fmt = elem.find("{{{}}}format".format(COMMON_NS))
     provides, requires, sourcerpm = [], [], None
+    # What version of each capability this package supplies, and what range
+    # each requirement will accept.  Both live in attributes on the entry --
+    # flags="GE" epoch="0" ver="0.21" -- rather than in the name, so reading
+    # only @name silently turns every constrained dependency into an
+    # unconstrained one.  That is how a buildroot ends up with the newest
+    # build of a crate whose consumer asked for an older major.
+    provide_evr, require_ranges = [], []
     if fmt is not None:
         sourcerpm = _text(fmt, "sourcerpm", ns=RPM_NS)
         for kind, sink in (("provides", provides), ("requires", requires)):
@@ -395,6 +419,13 @@ def _parse_package_elem(elem):
                 if not cap:
                     continue
                 sink.append(cap)
+                evr = (entry.get("epoch"), entry.get("ver"), entry.get("rel"))
+                if entry.get("ver") is None:
+                    continue
+                if kind == "provides":
+                    provide_evr.append((cap, evr))
+                else:
+                    require_ranges.append((cap, entry.get("flags"), evr))
 
         # A package also provides every file it ships, and specs lean on
         # that constantly -- `BuildRequires: /usr/bin/perl` is idiomatic,
@@ -418,6 +449,8 @@ def _parse_package_elem(elem):
         "checksum": checksum,
         "checksum_type": checksum_type,
         "provides": provides,
+        "provide_evr": provide_evr,
+        "require_ranges": require_ranges,
         "requires": requires,
         "sourcerpm": sourcerpm,
     }
@@ -441,6 +474,21 @@ def source_name_from_sourcerpm(sourcerpm):
     return parts[0] if len(parts) == 3 else base
 
 
+# The rank _arch_rank gives a build of neither the target arch nor noarch.
+_FOREIGN_RANK = 2
+
+
+def arch_qualified(name, arch):
+    """How a build that lost the arch collapse is named.
+
+    `glibc-devel.i686`, which is how rpm, dnf and every Fedora bug report
+    spell it -- so an override written by a human reads the way they
+    already think about it, and a reviewer seeing one in a lockfile knows
+    immediately that a second arch is involved.
+    """
+    return "{}.{}".format(name, arch)
+
+
 def _arch_rank(arch, target_cpu):
     """How much this arch is wanted, lower being better.
 
@@ -462,7 +510,143 @@ def _arch_rank(arch, target_cpu):
     return 2
 
 
-def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64"):
+def parse_source_variants(specs):
+    """Parse --source-variant into {variant: {source, evr, consumers}}.
+
+        acl-compat=acl@2.3.2-4.fc43:tar,rsync
+
+    One flag rather than two, because declaring a variant and saying who
+    uses it are not separable decisions -- a variant nobody consumes is
+    dead weight in the graph, and a consumer naming a variant that was
+    never declared is a typo that should fail here rather than resolve to
+    the default and build the wrong thing.
+    """
+    variants = {}
+    for spec in specs:
+        head, _, consumers = spec.partition(":")
+        name, _, origin = head.partition("=")
+        source, _, evr = origin.partition("@")
+        name, source, evr = name.strip(), source.strip(), evr.strip()
+        if not (name and source and evr and consumers.strip()):
+            sys.exit(
+                "--source-variant expects name=source@evr:consumer[,...], "
+                "got {!r}".format(spec))
+        if name == source:
+            sys.exit(
+                "--source-variant {}: the variant needs a name of its own, "
+                "distinct from the source package it is built from".format(
+                    name))
+        variants[name] = {
+            "source": source,
+            "evr": evr,
+            "consumers": sorted(
+                {c.strip() for c in consumers.split(",") if c.strip()}),
+        }
+    return variants
+
+
+def add_source_variants(variants, universe, source_superseded,
+                        binary_superseded, build_set):
+    """Register a second build of a source package, at another version.
+
+    An update is published for the package it updates, not for everything
+    built against it, so a distro can reach a state where one version
+    satisfies some consumers and another satisfies the rest.  Fedora 43 is
+    in exactly that state over acl: 2.4.0 added a versioned symbol that
+    rsync now requires, and the same release's header change broke tar
+    1.35, whose source declares its own three-argument `acl_get_file_at`
+    where 2.4.0 declares four.  Fedora resolves it by not rebuilding tar.
+    A repo that builds everything from source cannot, so it builds both.
+
+    Modelled on the staging machinery rather than beside it: a stage is
+    already "this source package, built more than once, with consumers
+    routed to the right one".  The only new thing is that the copies differ by
+    version instead of by position in a cycle, so a variant carries its own
+    srpm and its own EVR and is otherwise an ordinary recipe.
+
+    Deliberately not automatic.  Deciding that two versions must coexist is
+    a claim about the distro that a person should make and review, and
+    guessing it from a failed compile would be the solver inventing policy.
+
+    Returns (problems, subpackages_by_variant, routes) where routes is
+    {consumer: {binary: variant}}.
+    """
+    problems = []
+    subpackages = {}
+    routes = {}
+    for name in sorted(variants):
+        spec = variants[name]
+        source, evr = spec["source"], spec["evr"]
+        current = universe["source_index"].get(source)
+        if current is None:
+            problems.append(
+                ("variant", "no source package named {!r}".format(source),
+                 name))
+            continue
+        older = source_superseded.get((source, current["arch"]), {}).get(evr)
+        if older is None:
+            problems.append((
+                "variant",
+                "{} wants {} at {}, which this repodata does not carry "
+                "(newest is {}; superseded: {})".format(
+                    name, source, evr, _evr_string(current),
+                    ", ".join(sorted(source_superseded.get(
+                        (source, current["arch"]), {}))) or "none"),
+                name))
+            continue
+
+        # The variant is a source package in its own right from here on.
+        universe["source_index"][name] = dict(older, name=name)
+        # Its outputs are the same binary names, at the pinned EVR.  Kept
+        # out of `source_of` and `subpackages`, which answer "who normally
+        # builds this" for the whole graph -- a variant is by definition
+        # not the normal answer, and overwriting them would reroute every
+        # consumer rather than the named ones.
+        subpackages[name] = list(universe["subpackages"].get(source, []))
+        build_set.add(name)
+
+        for consumer in spec["consumers"]:
+            for binary in subpackages[name]:
+                if binary_superseded.get(
+                        (binary, universe["binary_index"].get(
+                            binary, {}).get("arch")), {}).get(evr) is None:
+                    # This subpackage did not change between the two
+                    # builds, so there is one rpm and no routing to do.
+                    continue
+                routes.setdefault(consumer, {})[binary] = name
+    return problems, subpackages, routes
+
+
+_RPM_FLAG_OPS = {"EQ": "=", "GE": ">=", "GT": ">", "LE": "<=", "LT": "<"}
+
+
+def constrained_requires(pkg):
+    """A package's Requires with their version ranges spelled out.
+
+    Repodata puts the constraint in attributes -- flags="LT" ver="0.23" --
+    while everything downstream reasons about the textual form rpm itself
+    uses, `crate(base64) < 0.23`.  Rendering it here means one
+    representation reaches the resolver, whether the requirement came from
+    repodata or from a probe running rpmspec.
+
+    A requirement with no version is passed through untouched, which is
+    most of them.
+    """
+    ranges = {}
+    for cap, flags, evr in pkg.get("require_ranges", ()):
+        op = _RPM_FLAG_OPS.get(flags)
+        if op is None:
+            continue
+        epoch, version, release = evr
+        text = version if not release else "{}-{}".format(version, release)
+        if epoch and epoch != "0":
+            text = "{}:{}".format(epoch, text)
+        ranges.setdefault(cap, "{} {} {}".format(cap, op, text))
+    return [ranges.get(cap, cap) for cap in pkg["requires"]]
+
+
+def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
+                   superseded=None):
     """Index the repodata into the maps depgraph needs.
 
     Collapses the arch dimension: callers work in package names, so of the
@@ -472,6 +656,7 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64"):
     closure.
     """
     provides = {}
+    provide_evr = {}
     requires = {}
     source_of = {}
     subpackages = {}
@@ -497,7 +682,8 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64"):
 
     for name, pkg in binary_index.items():
         requires[name] = [
-            c for c in pkg["requires"] if not is_pseudo_capability(c)
+            c for c in constrained_requires(pkg)
+            if not is_pseudo_capability(c)
         ]
         for cap in pkg["provides"]:
             if is_pseudo_capability(cap):
@@ -505,11 +691,117 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64"):
             provides.setdefault(cap, []).append(name)
         # A package always provides its own name, even if repodata is odd.
         provides.setdefault(name, []).append(name)
+        # And at what version, so a constrained requirement can tell the
+        # compat build of a crate from the current one.
+        for cap, evr in pkg.get("provide_evr", ()):
+            if is_pseudo_capability(cap):
+                continue
+            provide_evr.setdefault(cap, {}).setdefault(name, []).append(evr)
 
         src = source_name_from_sourcerpm(pkg["sourcerpm"])
         if src:
             source_of[name] = src
             subpackages.setdefault(src, []).append(name)
+
+    # ── Multilib: the builds the collapse discarded ────────────────────
+    #
+    # The collapse above answers "which build is *the* glibc", which every
+    # caller working in package names needs.  It is the wrong question for
+    # a spec that wants the 32-bit one, and gcc asks on every 64-bit arch:
+    #
+    #     %ifarch %{multilib_64_archs}
+    #     BuildRequires: (glibc32 or glibc-devel(%{__isa_name}-32))
+    #     %endif
+    #
+    # Fedora 43 ships no glibc32 at all, and glibc-devel(x86-32) comes only
+    # from glibc-devel.i686 -- which lost.  So the requirement was
+    # unsatisfiable and gcc could not be built.
+    #
+    # These builds get an arch-qualified identity, `glibc-devel.i686`,
+    # spelled the way rpm and every Fedora bug report spell it.  Their
+    # Requires go into the shared map under that key, where no plain
+    # package name can collide, so the ordinary closure walks a 32-bit
+    # package's dependencies like anything else's.
+    #
+    # Their Provides are the delicate half, and the rule is below: a
+    # capability is registered only where the collapsed universe has no
+    # answer at all.
+    foreign_index = {}
+    for pkg in binary_pkgs:
+        if _arch_rank(pkg["arch"], target_cpu) != _FOREIGN_RANK:
+            continue
+        # A package that exists *only* in this arch already won the
+        # collapse and is addressable by its plain name; a second entry for
+        # it would make `lrmi(x86-32)` ambiguous between `lrmi` and
+        # `lrmi.i686`, which are the same rpm.  Six packages in Fedora 43.
+        winner = binary_index.get(pkg["name"])
+        if winner is not None and winner["arch"] == pkg["arch"]:
+            continue
+        key = arch_qualified(pkg["name"], pkg["arch"])
+        incumbent = foreign_index.get(key)
+        if incumbent is None or package_is_newer(pkg, incumbent):
+            foreign_index[key] = pkg
+
+    foreign_provides = {}
+    foreign_source_of = {}
+    for key, pkg in foreign_index.items():
+        # Straight into the shared map, keyed by the qualified name.  No
+        # plain package name can collide with `glibc-devel.i686`, and
+        # putting it here is what lets the ordinary closure walk a foreign
+        # package's dependencies like anything else's.
+        requires[key] = [
+            c for c in constrained_requires(pkg)
+            if not is_pseudo_capability(c)
+        ]
+        caps = foreign_provides.setdefault(pkg["arch"], {})
+        for cap in pkg["provides"]:
+            if is_pseudo_capability(cap):
+                continue
+            caps.setdefault(cap, []).append(key)
+        caps.setdefault(pkg["name"], []).append(key)
+        src = source_name_from_sourcerpm(pkg["sourcerpm"])
+        if src:
+            # Recorded here rather than in source_of, which feeds
+            # `subpackages` and through it the build graph: glibc.i686 is
+            # not a subpackage glibc's recipe emits, and saying so would
+            # have the generator try to build it.
+            foreign_source_of[key] = src
+        # setdefault, so a real package named like a qualified key -- there
+        # is none today -- keeps its own entry.
+        binary_index.setdefault(key, pkg)
+
+    foreign_provides = {
+        arch: {cap: sorted(set(names)) for cap, names in caps.items()}
+        for arch, caps in foreign_provides.items()
+    }
+
+    # ── Where the foreign arch is the only possible answer ─────────────
+    #
+    # A capability nothing in the collapsed universe provides, that a
+    # foreign build does, has exactly one honest resolution.  Registering
+    # those makes a 32-bit requirement resolve on its own, which is what
+    # multilib means: gcc asks for `glibc-devel(x86-32)` and gets
+    # glibc-devel.i686 without anyone writing an override.
+    #
+    # Restricted to capabilities with no collapsed provider, and that
+    # restriction is the entire safety argument -- it cannot introduce an
+    # ambiguity, because it only ever fills an empty slot.  The alternative,
+    # registering every foreign Provide, was measured: 9,230 i686 builds
+    # offer 59,078 capabilities, 30,790 of which the collapsed universe
+    # already answers, and 21,556 of *those* would become ambiguities the
+    # exact-name rule cannot settle -- `/bin/awk` between gawk and
+    # gawk.i686.  That is the collapse earning its keep, not a bug in it.
+    #
+    # Which is also the right answer for the colliding ones: an unmarked
+    # `/bin/awk` from a 64-bit package means the 64-bit gawk.  rpm draws the
+    # same line, by naming the capabilities that are unambiguously 32-bit --
+    # `glibc-devel(x86-32)`, and sonames without the `()(64bit)` marker.
+    # Those are precisely the ones with no collapsed provider, so this rule
+    # arrives at rpm's answer without hardcoding rpm's spelling of it.
+    for arch in sorted(foreign_provides):
+        for cap, names in sorted(foreign_provides[arch].items()):
+            if cap not in provides:
+                provides[cap] = list(names)
 
     source_index = {}
     for pkg in source_pkgs:
@@ -523,11 +815,21 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64"):
 
     return {
         "provides": provides,
+        # {capability: {package: (epoch, version, release)}} -- only where
+        # repodata states one, which is why resolve_capability treats a
+        # missing entry as "satisfies anything".
+        "provide_evr": provide_evr,
         "requires": requires,
         "source_of": source_of,
         "subpackages": subpackages,
         "binary_index": binary_index,
         "source_index": source_index,
+        # {(name, arch): {evr: pkg}} for the builds newest-wins discarded,
+        # so --pin can name one.  Empty unless merge_packages supplied it.
+        "superseded": superseded or {},
+        "foreign_index": foreign_index,
+        "foreign_provides": foreign_provides,
+        "foreign_source_of": foreign_source_of,
     }
 
 
@@ -777,7 +1079,8 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None,
                 continue
             try:
                 provider = resolve_capability(
-                    base, universe["provides"], src, overrides
+                    cap, universe["provides"], src, overrides,
+                    universe["provide_evr"],
                 )
             except AmbiguousProvider:
                 # Handed to the closure for the same reason the boolean
@@ -796,17 +1099,60 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None,
         # or the compiler will not actually find the libraries.
         closure, closure_problems = runtime_closure(
             direct, universe["requires"], universe["provides"], overrides,
-            extra=conditional,
+            extra=conditional, provide_evr=universe["provide_evr"],
         )
         problems.extend(closure_problems)
         build_deps[src] = closure
+
+    # The *shared* buildroot: @buildsys-build closed over its Requires, and
+    # nothing else.  This is the tree every package starts from; what each
+    # one additionally needs is overlaid per build, from deps_seed.
+    #
+    # Every package used to build in `seed_closure` below -- the union of
+    # every package's BuildRequires -- and that is wrong in a way only
+    # visible once the build set grows past a handful.  A union is not a
+    # buildroot: it is every tool any package asked for, handed to all of
+    # them.  autoconf-era build systems feature-detect, so an undeclared
+    # tool present in the tree silently changes what gets built.
+    #
+    # libmnl is the case that found it.  Its spec BuildRequires gcc, gnupg2
+    # and make; the union handed it 311 packages it never asked for,
+    # including doxygen; its build then generated man pages that its
+    # %files does not list, and rpm failed on the unpackaged files.  Note
+    # the shape is the exact mirror of a *missing* tool -- libcap finding
+    # no Go and silently omitting a program -- and both are one fault:
+    # the buildroot did not match what the spec expects.
+    #
+    # Fixed per release rather than derived from the build set, which is
+    # the point: @buildsys-build is what Fedora guarantees is present, so a
+    # package's environment does not change because some unrelated package
+    # joined the build.
+    #
+    # From `implicit` rather than from BUILDSYS_BUILD directly, so the base
+    # is the group the *flavor* guarantees: CentOS ships a different one,
+    # and hardcoding Fedora's would build every CentOS package in a tree
+    # CentOS never promised.
+    base_direct = []
+    for capability in implicit:
+        try:
+            base_direct.append(resolve_capability(
+                capability, universe["provides"], "@buildsys-build", overrides
+            ))
+        except (AmbiguousProvider, UnresolvedCapability) as exc:
+            problems.append(("unresolved", str(exc), "@buildsys-build"))
+    base_closure, base_problems = runtime_closure(
+        base_direct, universe["requires"], universe["provides"], overrides,
+        provide_evr=universe["provide_evr"],
+    )
+    problems.extend(base_problems)
+
 
     if strict and problems:
         for kind, detail, who in problems:
             print("solve error [{}] {}: {}".format(kind, who, detail), file=sys.stderr)
         sys.exit("solve failed with {} unresolved item(s)".format(len(problems)))
 
-    return build_deps, resolutions, problems, dynamic
+    return build_deps, resolutions, problems, dynamic, base_closure
 
 
 def solve_package_set(universe, roots, overrides=None, scope="package-set"):
@@ -823,6 +1169,7 @@ def solve_package_set(universe, roots, overrides=None, scope="package-set"):
     closure, closure_problems = runtime_closure(
         [root for root in roots if root not in missing],
         universe["requires"], universe["provides"], overrides,
+        provide_evr=universe["provide_evr"],
     )
     problems.extend(
         (kind, detail, "{} ({})".format(scope, who))
@@ -910,10 +1257,23 @@ def _count_pins_by_repo(lock):
     return dict(sorted(counts.items()))
 
 
+def _dedupe_pins(entries):
+    """One entry per rpm, keyed by digest."""
+    by_sha = {}
+    for entry in entries:
+        by_sha.setdefault(entry.get("sha256") or repr(entry), entry)
+    return [by_sha[k] for k in sorted(by_sha)]
+
+
 def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
                   dynamic, plan, depth, image_sets, seed_packages,
-                  replacements, args):
+                  replacements, base_closure, args,
+                  variant_subpackages=None, variant_routes=None,
+                  binary_superseded=None):
     """Produce the lockfile. Every entry is pinned by checksum."""
+    variant_subpackages = variant_subpackages or {}
+    variant_routes = variant_routes or {}
+    binary_superseded = binary_superseded or {}
 
     def pin_binary(name):
         pkg = universe["binary_index"].get(name)
@@ -929,7 +1289,12 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             "arch": pkg["arch"],
             "location": pkg["location"],
             "sha256": pkg["checksum"] if pkg["checksum_type"] == "sha256" else None,
-            "source": universe["source_of"].get(name),
+            # foreign_source_of as the fallback: a second-arch pin is keyed
+            # `glibc-devel.i686`, which source_of does not carry -- that map
+            # feeds `subpackages`, and glibc's recipe does not emit an i686
+            # build.  The attribution is still real and worth recording.
+            "source": (universe["source_of"].get(name)
+                       or universe.get("foreign_source_of", {}).get(name)),
             # Which repo's base URL `location` hangs off. Per package, not
             # per release: once updates/ is layered over releases/ a closure
             # legitimately spans both, and a single base would be wrong for
@@ -937,6 +1302,36 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             # exactly the packages that received a fix.
             "repo": pkg.get("repo"),
         }
+
+    def routed_binary(src, name):
+        """pin_binary, sent to a version variant where one is routed.
+
+        The pin has to move with the routing or the lockfile describes a
+        buildroot nobody can assemble: tar's recipe would point at the
+        compat variant's target while its recorded sha256 named the
+        current build's rpm.
+        """
+        variant = variant_routes.get(src, {}).get(name)
+        if variant is None:
+            return pin_binary(name)
+        evr = args.source_variant[variant]["evr"]
+        current = universe["binary_index"].get(name, {})
+        older = binary_superseded.get(
+            (name, current.get("arch")), {}).get(evr)
+        entry = pin_binary(name)
+        if older is not None:
+            entry.update({
+                "evr": _evr_string(older),
+                "arch": older["arch"],
+                "location": older["location"],
+                "sha256": (older["checksum"]
+                           if older["checksum_type"] == "sha256" else None),
+                "repo": older.get("repo"),
+            })
+        # Named even when the rpm did not move, so the generator routes the
+        # dependency to the variant's target either way.
+        entry["variant"] = variant
+        return entry
 
     packages = {}
     for src in sorted(build_set):
@@ -950,6 +1345,11 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
         packages[src] = {
             "source": {
                 "name": src,
+                # The spec's own name, which is `src` for everything except
+                # a version variant: acl-compat is a target name, and the
+                # srpm inside still holds acl.spec.
+                "source_name": (args.source_variant.get(src) or {}).get(
+                    "source") or src,
                 "evr": "{}-{}".format(record.get("version"), record.get("release")),
                 "location": record.get("location"),
                 "sha256": record.get("checksum")
@@ -957,10 +1357,15 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
                 else None,
                 "repo": record.get("repo"),
             },
-            "subpackages": universe["subpackages"].get(src, []),
+            "subpackages": (variant_subpackages.get(src)
+                            or universe["subpackages"].get(src, [])),
+            # Set on a second build of a source package at another
+            # version; the generator keeps it out of the default
+            # binary-to-recipe map so only routed consumers reach it.
+            "variant_of": (args.source_variant.get(src) or {}).get("source"),
             "build_requires_resolved": resolutions.get(src, {}),
             # The cut: which deps are built here vs taken from the seed.
-            "deps_built": [pin_binary(d) for d in built],
+            "deps_built": [routed_binary(src, d) for d in built],
             "deps_seed": [pin_binary(d) for d in seeded],
             # Where this package's BuildRequires came from, and what the
             # generator added if one ran.  A record rather than a list
@@ -986,8 +1391,14 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
     # excluded from the seed, so nothing could be built -- including
     # zlib-ng.  Fedora's own bootstrap has exactly this shape; stage 1
     # compiles against the previous release's binaries.
+    #
+    # Every prebuilt rpm the build references, which is the base, plus what
+    # each package overlays on top of it, plus whatever --seed-package
+    # named.  A pin table -- what may need downloading -- rather than a
+    # description of any one tree; no build sees all of this at once.
     seed_closure = sorted(
-        {d for deps in build_deps.values() for d in deps} | set(seed_packages)
+        {d for deps in build_deps.values() for d in deps}
+        | set(seed_packages) | set(base_closure)
     )
 
     lock = {
@@ -1023,6 +1434,11 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             "implicit_group": list(args.implicit_group),
             "seed_only": args.seed_only,
             "seed_packages": sorted(args.seed_package),
+            "source_variants": [
+                "{}={}@{}:{}".format(k, v["source"], v["evr"],
+                                     ",".join(v["consumers"]))
+                for k, v in sorted(args.source_variant.items())
+            ],
             "stages": args.stages,
             "images": sorted(args.image),
             "image_overrides": sorted(args.image_override),
@@ -1059,6 +1475,21 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             superseded=len(replacements),
         ),
         "buildroot_seed": [pin_binary(d) for d in seed_closure],
+        # The variant-routed pins, kept in their own list rather than mixed
+        # into buildroot_seed.  A cycle stage falls back to a prebuilt, and
+        # for a routed dependency that prebuilt must be the variant's build,
+        # so it has to be fetchable -- but buildroot_seed is filtered by
+        # *name* to form the shared base, and libacl is in that base.  Mixed
+        # in, both builds of libacl would be installed into one buildroot.
+        "variant_seed": _dedupe_pins([
+            routed_binary(src, name)
+            for src in sorted(variant_routes)
+            for name in sorted(variant_routes[src])
+        ]),
+        # Which of those form the shared tree.  Names rather than pins:
+        # the pin lives in buildroot_seed above, and repeating it would be
+        # two records of one fact.
+        "base_seed": sorted(base_closure),
         # Runtime closures, one per --image.  Kept apart from
         # buildroot_seed because they answer a different question and are
         # consumed by a different rule; an image that happened to equal the
@@ -1140,6 +1571,11 @@ def main(argv=None):
                          "seed (repeatable)")
     ap.add_argument("--override", action="append", default=[],
                     help="capability=package to break an ambiguity (repeatable)")
+    ap.add_argument("--source-variant", action="append", default=[],
+                    metavar="NAME=SOURCE@EVR:CONSUMER[,...]",
+                    help="build SOURCE a second time at EVR under NAME, and "
+                         "route the named consumers' build deps to it "
+                         "(repeatable)")
     ap.add_argument("--image", action="append", default=[], metavar="NAME=PKGS",
                     help="named image set: comma-separated *binary* package "
                          "names, closed over their runtime Requires "
@@ -1187,6 +1623,10 @@ def main(argv=None):
         cap, pkg = parse_override(item, "--override")
         overrides[cap] = pkg
 
+    source_variants = parse_source_variants(args.source_variant)
+    args.source_variant = source_variants
+
+
     image_roots = {}
     for item in args.image:
         if "=" not in item:
@@ -1225,8 +1665,10 @@ def main(argv=None):
         print("  {} packages".format(len(packages)), file=sys.stderr)
         groups[repo["kind"]].append((repo["name"], packages))
 
-    binary_pkgs, binary_updates = merge_packages(groups["binary"])
-    source_pkgs, source_updates = merge_packages(groups["source"])
+    binary_pkgs, binary_updates, binary_superseded = merge_packages(
+        groups["binary"])
+    source_pkgs, source_updates, source_superseded = merge_packages(
+        groups["source"])
     replacements = binary_updates + source_updates
     print(
         "universe: {} binary, {} source packages "
@@ -1238,16 +1680,27 @@ def main(argv=None):
     )
 
     universe = build_universe(binary_pkgs, source_pkgs,
-                              target_cpu=args.target_cpu)
-    build_deps, resolutions, problems, dynamic = solve(
+                              target_cpu=args.target_cpu,
+                              superseded=binary_superseded)
+    variant_problems, variant_subpackages, variant_routes = \
+        add_source_variants(source_variants, universe, source_superseded,
+                            binary_superseded, build_set)
+
+    build_deps, resolutions, problems, dynamic, base_closure = solve(
         universe, build_set, overrides, strict=args.strict,
         probe=load_probe(args.probe, build_set),
         implicit=args.implicit_group,
     )
+    # A rotted pin is reported with everything else rather than fatally:
+    # it means the build it protected will fail later, which the reviewer
+    # should see alongside the rest of the run.
+    problems.extend(variant_problems)
     plan = plan_build_order(
-        build_deps, universe["source_of"], build_set, stages=args.stages
+        build_deps, universe["source_of"], build_set, stages=args.stages,
+        routes=variant_routes,
     )
-    depth = bootstrap_depth(build_deps, universe["source_of"], build_set)
+    depth = bootstrap_depth(build_deps, universe["source_of"], build_set,
+                            routes=variant_routes)
 
     image_sets, image_problems = solve_image_sets(
         universe, image_roots, overrides, image_overrides
@@ -1275,7 +1728,11 @@ def main(argv=None):
 
     lock = emit_lockfile(
         universe, build_set, build_deps, resolutions, problems,
-        dynamic, plan, depth, image_sets, seed_packages, replacements, args,
+        dynamic, plan, depth, image_sets, seed_packages, replacements,
+        base_closure, args,
+        variant_subpackages=variant_subpackages,
+        variant_routes=variant_routes,
+        binary_superseded=binary_superseded,
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)

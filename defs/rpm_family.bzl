@@ -14,6 +14,7 @@ load("//defs:flavor.bzl", "package", "subpackage_rpm_target", "subpackage_target
 load("//defs:releases.bzl", "release_suffix")
 load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_buildroot")
+load("//defs/rules/srpm.bzl", "prebuilt_rpm")
 load("//defs/rules/image.bzl", "iso_image", "squashfs")
 load("//defs/rules/rootfs.bzl", "rootfs")
 
@@ -264,6 +265,9 @@ def rpm_downloads(flavor, data, suffix):
     for entry in data.SEED_RPMS:
         _rpm_download(flavor, data, entry, suffix, defined)
 
+    for entry in getattr(data, "VARIANT_SEED_RPMS", []):
+        _rpm_download(flavor, data, entry, suffix, defined)
+
     for name in sorted(data.IMAGE_SETS):
         for entry in data.IMAGE_SETS[name]:
             _rpm_download(flavor, data, entry, suffix, defined)
@@ -329,11 +333,20 @@ def rpm_buildroots(flavor, release, suffix, data = None):
     # list, at the exact versions that release shipped.  The host
     # buildroot above uses whatever the machine happens to have, which is a
     # different distro's toolchain wearing the target release's dist tag.
+    #
+    # BASE_SEED, not every rpm in the pin table.  The table is the union of
+    # what every package needs; the buildroot is @buildsys-build closed over
+    # its Requires, and each package overlays its own extras on top (see
+    # _rpm_one_package).  Handing every package the union is how libmnl got
+    # a doxygen its spec never asked for and emitted files its %files does
+    # not list -- tools/solve.py's base_seed comment has the whole argument.
     seed_rpms = []
     if data != None:
+        base = {name: True for name in data.BASE_SEED}
         seed_rpms = [
             ":" + entry["target"] + suffix
             for entry in data.SEED_RPMS
+            if entry["name"] in base
         ]
 
     seeded_buildroot(
@@ -384,10 +397,48 @@ def rpm_packages(flavor, data, suffix):
     by_source = {entry["name"]: entry for entry in data.SOURCE_RPMS}
     buildroot = rpm_buildroot_target(flavor, suffix)
 
+    # The prebuilt trees recipes overlay.  Defined here rather than from
+    # the fan-out so it cannot be called for one release and forgotten for
+    # another -- every path that defines packages needs them.
+    rpm_seed_installroots(data, suffix)
+
+    # binary package name -> its pinned download, for the overlay half.
+    base_names = {name: True for name in data.BASE_SEED}
+    seed_rpm = {
+        entry["name"]: entry
+        for entry in data.SEED_RPMS
+        if entry["name"] not in base_names
+    }
+
     # Which recipe produces a given binary package.  Built from the
     # subpackage lists, which are the binary names rpm will emit.
+    # Version variants are excluded: a variant builds the same binary names
+    # as the package it varies, so letting it into this map would reroute
+    # every consumer instead of the ones that asked.  Consumers that want it
+    # name it in dep_variants, which _rpm_one_package consults first.
+    # Packages this host cannot build.  Left out of the map that answers
+    # "who builds this binary", which is all it takes: every consumer's
+    # lookup then misses and falls through to the pinned rpm already in the
+    # seed, and rpm_image_rootfs does the same for the image.  The targets
+    # are still defined -- an unreferenced target costs nothing, and
+    # deleting them would dangle anything that names one directly.
+    prebuilt = prebuilt_sources(flavor)
+    skip = {name: True for name in prebuilt}
+    if prebuilt:
+        print(("buckos-distro: WARNING: {} come from upstream binaries, not " +
+               "from source -- [buckos.{}] prebuilt says this host cannot " +
+               "build them. `buck2 run //tools:hostcheck` says why. The " +
+               "image is still complete; its provenance is not.").format(
+            ", ".join(prebuilt), flavor))
+
     provider = {}
+    variant_recipe = {}
     for recipe in data.RECIPES:
+        if recipe.get("variant_of"):
+            variant_recipe[recipe["name"]] = recipe
+            continue
+        if recipe["name"] in skip:
+            continue
         for sub in recipe["subpackages"]:
             provider[sub] = recipe
 
@@ -403,6 +454,10 @@ def rpm_packages(flavor, data, suffix):
 
     # The default answer to "which variant of this source do I depend on":
     # its shipping stage if it is staged, else the package itself.
+    # Variants included here even though they are kept out of `provider`:
+    # this map answers "which build of <recipe> do I depend on", and a
+    # variant that lands in a cycle is staged like anything else.  Only the
+    # binary-to-recipe lookup has to exclude them.
     default_variant = {}
     for recipe in data.RECIPES:
         default_variant[recipe["name"]] = ships.get(recipe["name"], recipe["name"])
@@ -417,6 +472,8 @@ def rpm_packages(flavor, data, suffix):
             recipe["name"],
             _variant_map(default_variant, recipe["name"], {}, ""),
             provider,
+            seed_rpm,
+            variant_recipe,
         )
 
     for entry in data.STAGED:
@@ -437,6 +494,8 @@ def rpm_packages(flavor, data, suffix):
                 stage_target,
             ),
             provider,
+            seed_rpm,
+            variant_recipe,
         )
 
     # The stable names.  Everything downstream -- an image set, another
@@ -491,6 +550,70 @@ def rpm_packages(flavor, data, suffix):
             visibility = ["PUBLIC"],
         )
 
+def prebuilt_sources(flavor):
+    """Source packages to take from upstream instead of building.
+
+        [buckos.fedora]
+          prebuilt = kernel, libxcrypt
+
+    For a package this host cannot build at all.  `tools/hostcheck.py`
+    probes the capabilities a build reaches for outside the sandbox and
+    prints exactly this stanza; the case it exists for is a kernel without
+    CONFIG_CRYPTO_USER, where libkcapi's sha512hmac cannot look up an
+    algorithm and kernel.spec's FIPS signing step dies an hour into
+    %install.  Unlike a %bcond those specs offer no switch, so the choice
+    is a prebuilt binary or no image at all.
+
+    Configuration rather than a committed default, and local rather than
+    solved.  The lockfile has to stay host-independent -- it is reviewed as
+    a diff and must describe the same distro everywhere -- so this belongs
+    at the build layer, where it changes which target satisfies a
+    dependency and nothing about what was pinned.
+
+    Not silent.  Every one of these is a package this repo is supposed to
+    build and did not, so rpm_packages says so on every evaluation.
+    """
+    raw = read_config("buckos." + flavor, "prebuilt", "")
+    return sorted([name.strip() for name in raw.split(",") if name.strip()])
+
+def _disabled_bconds(flavor):
+    """Per-package `--without` from local config, as {source: [bcond]}.
+
+        [buckos.fedora]
+          without = gmp:fips, nettle:fipshmac
+
+    Configuration rather than a table in this file, because what it is for
+    is a property of the *build host* rather than of the distro.  The case
+    it exists for: libkcapi's fipshmac opens a NETLINK_CRYPTO socket to ask
+    the kernel about an algorithm, and a kernel built without
+    CONFIG_CRYPTO_USER answers EPROTONOSUPPORT -- which surfaces as
+
+        Allocation of hmac(sha256) cipher failed (ret=-93)
+
+    in %install, for gmp, nettle and libxcrypt.  Nothing to do with the
+    sandbox: the same binary fails the same way run directly on the host,
+    and the AF_ALG socket it actually hashes with binds fine.  A stock
+    Fedora kernel enables CONFIG_CRYPTO_USER and needs none of this, so
+    defaulting to it here would ship a distro without FIPS integrity
+    hashes to work around one machine.
+
+    libxcrypt cannot be helped this way and is not worth pretending
+    otherwise: it calls fipshmac from %__spec_install_post with no bcond
+    guarding it, and the spec even says why a %global will not work.  On a
+    host without CONFIG_CRYPTO_USER that package does not build.
+    """
+    raw = read_config("buckos." + flavor, "without", "")
+    out = {}
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" not in item:
+            fail("[buckos.{}] without expects source:bcond entries, got {}".format(flavor, item))
+        source, bcond = item.split(":", 1)
+        out.setdefault(source.strip(), []).append(bcond.strip())
+    return out
+
 def _stage_key(source, stage):
     return "{}/stage{}".format(source, stage)
 
@@ -523,6 +646,64 @@ def _variant_map(default_variant, exclude, cycle_deps, from_stage, stage_target 
             out[source] = variant
     return out
 
+def seed_installroot_target(entry, suffix):
+    """Target name for a prebuilt binary package unpacked as an installroot.
+
+    Distinct from the `rpm-*` http_file that downloads it: that is a file,
+    and what a build overlays is a tree.
+
+    Keyed on that download's target rather than on the binary package name,
+    which it used to be.  The name is not unique once a version variant is
+    in the graph: acl builds twice in Fedora 43, so the pin table carries
+    libacl-devel at both 2.4.0 and 2.3.2, and one installroot per name gave
+    whichever the loop saw last to everybody.
+    """
+    return "seedroot-" + entry["target"] + suffix
+
+def rpm_seed_installroots(data, suffix):
+    """One installroot per prebuilt package some recipe overlays.
+
+    Defined once per release and shared by every recipe that names it --
+    two packages needing the same prebuilt dependency unpack it once, which
+    is what keeps base-plus-overlay cheaper than a buildroot per package.
+
+    Only the ones actually overlaid.  The base is already in the shared
+    tree, and an installroot for it would be a second copy of a package the
+    buildroot has.
+    """
+    if data == None:
+        return
+
+    base = {name: True for name in data.BASE_SEED}
+    # Keyed by download target, not by name: two builds of one package can
+    # both be pinned, and each needs its own tree.
+    by_target = {}
+    for entry in data.SEED_RPMS:
+        if entry["name"] not in base:
+            by_target[entry["target"]] = entry
+
+    # One for every pinned package outside the base, not only the ones a
+    # recipe's seed_deps names.  A cycle stage also reaches for prebuilts
+    # that the solver classified as built -- zlib-ng-compat-devel for
+    # lzo-stage1 -- and those appear in no seed_deps list, so filtering by
+    # that would leave the fallback in _rpm_one_package pointing at a
+    # target nobody defined.  An unreferenced target costs nothing; a
+    # missing one is an analysis error a long way from its cause.
+    # Variant pins get an installroot unconditionally: they exist only
+    # because something routed to them, and the base filter above is by
+    # name, which is exactly the test they would fail.
+    for entry in getattr(data, "VARIANT_SEED_RPMS", []):
+        by_target[entry["target"]] = entry
+
+    for target in sorted(by_target):
+        entry = by_target[target]
+        prebuilt_rpm(
+            name = seed_installroot_target(entry, suffix),
+            rpm = ":" + entry["target"] + suffix,
+            package_name = entry["name"],
+            visibility = ["PUBLIC"],
+        )
+
 def _rpm_one_package(
         flavor,
         data,
@@ -532,9 +713,13 @@ def _rpm_one_package(
         recipe,
         target_name,
         variant,
-        provider):
+        provider,
+        seed_rpm,
+        variant_recipe = {}):
     """One package() call, with build_deps resolved to subpackage labels."""
-    source = by_source[recipe["source_name"]]
+    # Keyed on the recipe, not the spec: a version variant shares its
+    # spec name with the package it varies and must not share its srpm.
+    source = by_source[recipe["name"]]
     version, _, release = recipe["evr"].rpartition("-")
 
     # Drop any epoch: rpm writes "1:5.8.1" in metadata but %{version} is
@@ -542,19 +727,135 @@ def _rpm_one_package(
     _, _, version = version.rpartition(":")
 
     build_deps = []
+    # The .rpm behind each installroot, so the sysroot's database can be
+    # told what the overlay put on disk.  Assembled here rather than
+    # derived later: only this loop knows which target produced which
+    # dependency, and an installroot does not carry the file it came from.
+    dep_rpms = []
+    dep_variants = recipe.get("dep_variants", {})
+    seed_dep_names = {name: True for name in recipe.get("seed_deps", [])}
+    # Pin-table entries for the routed binaries, by download target, so a
+    # cycle stage that falls back to a prebuilt gets the variant's build.
+    seed_by_target = {}
+    for entry in data.SEED_RPMS:
+        seed_by_target[entry["target"]] = entry
+    for entry in getattr(data, "VARIANT_SEED_RPMS", []):
+        seed_by_target[entry["target"]] = entry
+    variant_seed = {}
+    for binary, target in recipe.get("variant_seed", {}).items():
+        found = seed_by_target.get(target)
+        if found != None:
+            variant_seed[binary] = found
     for binary in recipe["build_deps"]:
+        # A version variant wins over the default producer, and only for
+        # the packages that named it.  acl builds twice in Fedora 43: 2.4.0
+        # for everyone, because rsync needs a symbol it added, and 2.3.2 for
+        # tar, whose 1.35 source cannot compile against 2.4.0's header.
+        # Routed by the solver rather than guessed here.
+        routed = dep_variants.get(binary)
+        if routed != None:
+            spec = variant_recipe.get(routed)
+            if spec == None:
+                fail("{} routes {} to variant {}, which no recipe defines".format(
+                    recipe["name"], binary, routed))
+            # Through the stage map like any other built dep.  A variant can
+            # land in a cycle -- acl-compat does, via zstd and zlib-ng back
+            # to tar -- and a stage that must take this from the seed gets
+            # None here, exactly as it would for a non-variant.
+            chosen = variant.get(routed)
+            if chosen == None:
+                # The stage takes it prebuilt -- and it must be the
+                # variant's build, not the newest.  tar-stage1 is exactly
+                # this: it is in a cycle, so it gets acl from the pin table,
+                # and the pin table's newest libacl-devel is the 2.4.0 whose
+                # header tar cannot compile against.
+                fallback = variant_seed.get(binary) or seed_rpm.get(binary)
+                if fallback != None:
+                    build_deps.append(
+                        ":" + seed_installroot_target(fallback, suffix),
+                    )
+                    dep_rpms.append(":" + fallback["target"] + suffix)
+                continue
+            build_deps.append(":" + subpackage_target(
+                chosen + suffix, spec["source_name"], binary,
+            ))
+            dep_rpms.append(":" + subpackage_rpm_target(
+                chosen + suffix, spec["source_name"], binary,
+            ))
+            continue
         producer = provider.get(binary)
         if producer == None:
-            # Not built by this repo, so it is in the seed already.
+            # Not built by this repo -- either never was, or its source
+            # package is on the prebuilt list for this host.
+            #
+            # The two need different handling and used to get the same.  A
+            # genuine seed dep is either in the shared base or in the
+            # recipe's own seed_deps, and the loop below overlays it.  A
+            # *declassified* one is in neither: the solver put it in
+            # deps_built because it is a package this repo builds, so no
+            # seed_deps entry was ever emitted for it.  Falling through
+            # left systemd without the kernel-devel it BuildRequires:
+            #
+            #   error: Failed build dependencies:
+            #       kernel-devel is needed by systemd-258.10-1.fc43.x86_64
+            #
+            # So overlay it from the pin table here, skipping anything the
+            # seed_deps loop will handle to avoid naming it twice.
+            fallback = seed_rpm.get(binary)
+            if fallback != None and binary not in seed_dep_names:
+                build_deps.append(
+                    ":" + seed_installroot_target(fallback, suffix),
+                )
+                dep_rpms.append(":" + fallback["target"] + suffix)
             continue
         chosen = variant.get(producer["name"])
         if chosen == None:
-            # Excluded by _variant_map: self-reference, or a cycle dep this
-            # stage deliberately takes from the seed.
+            # Excluded by _variant_map: a cycle dependency this stage takes
+            # from the seed rather than from a sibling stage, or the
+            # package's own earlier self.
+            #
+            # "From the seed" used to need no wiring, because the shared
+            # buildroot was the union of every package's closure and so
+            # already contained the prebuilt copy.  With the buildroot
+            # narrowed to @buildsys-build it does not, and the stage fails
+            # on a dependency the solver correctly classified as built:
+            #
+            #   error: Failed build dependencies:
+            #       zlib-devel is needed by lzo-2.10-15.fc43.x86_64
+            #
+            # -- zlib-devel being provided by zlib-ng-compat-devel, which
+            # this repo builds, which is exactly why stage 1 may not use it.
+            # So the prebuilt is overlaid explicitly here.
+            fallback = variant_seed.get(binary) or seed_rpm.get(binary)
+            if fallback != None:
+                build_deps.append(
+                    ":" + seed_installroot_target(fallback, suffix),
+                )
+                dep_rpms.append(":" + fallback["target"] + suffix)
             continue
         build_deps.append(":" + subpackage_target(
             chosen + suffix, producer["source_name"], binary,
         ))
+        dep_rpms.append(":" + subpackage_rpm_target(
+            chosen + suffix, producer["source_name"], binary,
+        ))
+
+    # And the prebuilt half.  The shared buildroot carries @buildsys-build
+    # and nothing else, so whatever else this package's BuildRequires
+    # closed over is overlaid here, as an installroot per binary package.
+    #
+    # Same mechanism the source-built deps above use -- srpm_build takes
+    # them all through dep_installroot_args -- so a dependency being
+    # compiled here or fetched is invisible to the replay, which is the
+    # property that lets the build set grow one package at a time.
+    for binary in recipe.get("seed_deps", []):
+        entry = seed_rpm.get(binary)
+        if entry == None:
+            # In the base, or absent from the pin table -- the first needs
+            # no overlay and the second the solver already reported.
+            continue
+        build_deps.append(":" + seed_installroot_target(entry, suffix))
+        dep_rpms.append(":" + entry["target"] + suffix)
 
     package(
         name = target_name + suffix,
@@ -565,6 +866,19 @@ def _rpm_one_package(
         version = version,
         release = release,
         build_deps = sorted(build_deps),
+        dep_rpms = sorted(dep_rpms),
+        # Keyed on the source package, not the target: gmp-stage1 and
+        # gmp-stage2 replay one spec and must be told the same thing.
+        #
+        # Mapped flag-to-itself with `use` left empty, which is how
+        # _resolve_bconds spells "pass --without": every bcond in the map
+        # gets an explicit --with or --without, so the spec never silently
+        # keeps its own default.
+        use = [],
+        use_bcond = {
+            b: b
+            for b in _disabled_bconds(flavor).get(recipe["source_name"], [])
+        },
         subpackages = recipe["subpackages"],
         supplier = _flavor_config(flavor)["supplier"],
         visibility = ["PUBLIC"],
@@ -615,8 +929,13 @@ def rpm_image_rootfs(flavor, data, suffix):
     # zlib-ng means the image gets this repo's zlib-ng-compat too, not a
     # locally built zlib-ng beside a downloaded compat library from a
     # different compile.
+    skip = {name: True for name in prebuilt_sources(flavor)}
     built = {}
     for recipe in data.RECIPES:
+        if recipe["name"] in skip:
+            # Falls through to the pinned rpm below, which is the whole
+            # mechanism -- see prebuilt_sources.
+            continue
         for sub in recipe["subpackages"]:
             built[sub] = subpackage_rpm_target(
                 recipe["name"] + suffix, recipe["source_name"], sub,

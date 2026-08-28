@@ -42,10 +42,12 @@ import shlex
 import shutil
 import sys
 
-from _isolation import resolve_isolation, run_isolated
+from _isolation import remove_tree, resolve_isolation, run_isolated
 from _rpm import (
     extract_rpm,
+    make_dirs_writable,
     overlay_tree,
+    stage_rpms,
     reproducible_env,
     require_tool,
     run,
@@ -108,6 +110,109 @@ def compose_buildroot(seed_root, dep_roots, dest):
             continue
         overlay_tree(layer, dest)
     return dest
+
+
+
+def install_deps(sysroot, dep_rpms, args, work, env):
+    """Install the resolved BuildRequires into the composed sysroot.
+
+    compose_buildroot has already overlaid their *files*; this is the rpm
+    transaction that makes the sysroot agree with itself.  Three things
+    only a transaction supplies:
+
+      * the database.  rpmbuild resolves BuildRequires against it, not
+        against the filesystem, so an overlay alone fails on a package
+        whose files are demonstrably present:
+
+            error: Failed build dependencies:
+                autoconf is needed by xz-1:5.8.1-4.fc43.x86_64
+
+      * %post.  golang-bin registers /usr/bin/go through
+        update-alternatives, and /usr/bin/go ships as a symlink into
+        /etc/alternatives.  Without the scriptlet it dangles, libcap
+        autodetects no Go, silently omits its captree program and fails in
+        %files on a file nothing said it was skipping.
+
+      * ownership and modes, as the package declares them rather than as
+        the overlay copied them.
+
+    --replacepkgs --replacefiles, because superseding is the normal case
+    here rather than an error.  A bootstrap stage rebuilds something the
+    base already carries at the same NEVRA, so rpm sees a reinstall of a
+    package it knows and a file conflict against the copy the overlay just
+    wrote -- the tree describing itself.  Replacing is the intent: this
+    build's zlib-ng-compat is the locally built one, not the seed's.
+
+    --oldpackage, because the overlay is authoritative in both directions.
+    Superseding with something *newer* is the ordinary bootstrap case, and
+    rpm allows it; superseding with something older it refuses, and that is
+    exactly what a version variant does.  tar builds against acl 2.3.2 while
+    the shared base carries the 2.4.0 everything else needs, so without this
+    the transaction stops at
+
+        package libacl-2.4.0-1.fc43.x86_64 (which is newer than
+        libacl-2.3.2-4.fc43.x86_64) is already installed
+
+    The solver decided which build this package compiles against; rpm's
+    downgrade guard is protecting a running system from an accident, and
+    this is neither.
+
+    --nodeps, because this is a partial view by construction.  These
+    packages' own dependencies are in the base, already installed and
+    already in the database; the closure was decided by the solver and
+    this is installation, not resolution.
+
+    Triggers stay *on*, unlike everywhere else in this repo, and the
+    reason is ldconfig.  glibc ships a file trigger that rebuilds
+    /etc/ld.so.cache whenever a library lands, and a package installing
+    into a non-default directory relies on it: llvm20-libs puts
+    libLLVM.so.20.1 under /usr/lib64/llvm20/lib64 and drops a conf file
+    naming that path.  With --notriggers the cache is never refreshed, and
+    bpftool -- which libcap-ng runs during %build -- dies with
+
+        bpftool: error while loading shared libraries: libLLVM.so.20.1:
+                 cannot open shared object file
+
+    on a library that is sitting in the sysroot.  The base buildroot gets
+    away without triggers because everything in it lives on the default
+    search path; an overlay is exactly where that stops being true.
+
+    The sandbox's mount points are excluded for the same reason
+    tools/buildroot_assemble.py excludes them: /proc, /dev, /sys and /tmp
+    are live mounts inside the chroot, and the package that owns them
+    cannot chown a mount point -- "cpio: chown failed - Device or resource
+    busy".  They are in the base already, so nothing is lost.
+    """
+    # Refused rather than attempted without a sandbox.  run_isolated's
+    # "none" mode runs the command directly, with no chroot, so `sysroot`
+    # would be ignored and this would install the overlay into the
+    # developer's own machine -- with --replacefiles, over their own
+    # packages.  Nothing routes host provenance here today, since --dep-rpm
+    # is only emitted for a seeded buildroot, and that is precisely why the
+    # guard belongs here: the day something does, the failure is silent and
+    # off-target.
+    if args.isolation == "none":
+        sys.exit(
+            "install_deps needs a sandbox: isolation=none would install "
+            "these {} package(s) onto the host rather than into {}".format(
+                len(dep_rpms), sysroot)
+        )
+
+    staging = os.path.join(work, "deprpms")
+    stage_rpms([os.path.abspath(path) for path in dep_rpms], staging)
+
+    script = (
+        "set -e\n"
+        'exec rpm --install --nosignature --nodeps '
+        '--replacepkgs --replacefiles --oldpackage '
+        '--excludepath /dev --excludepath /proc '
+        '--excludepath /sys --excludepath /tmp '
+        '"$1"/*.rpm\n'
+    )
+    run_isolated(
+        ["/bin/sh", "-c", script, "sh", staging],
+        args.isolation, work=work, chdir=work, sysroot=sysroot, env=env,
+    )
 
 
 def sysroot_env(sysroot, env):
@@ -469,6 +574,10 @@ def main():
                     choices=["host", "binary-seed", "bootstrapped"])
     ap.add_argument("--isolation", default="none",
                     choices=["none", "bwrap", "unshare", "auto"])
+    ap.add_argument("--dep-rpm", action="append", default=[],
+                    help="the .rpm a --dep-installroot was unpacked from, "
+                         "registered in the sysroot's database so rpmbuild's "
+                         "BuildRequires check can see it (repeatable)")
     ap.add_argument("--dep-installroot", action="append", default=[],
                     help="dependency installroot to overlay (repeatable)")
 
@@ -541,7 +650,8 @@ def main():
         # key differently and produce different build-ids for identical
         # sources.  Which would make the shared cache a liar.
         work = scratch_dir("buckos-distro-replay-",
-                           key=args.out_installroot or args.out_buildrequires)
+                           key=args.out_installroot or args.out_buildrequires,
+                           remove=remove_tree)
 
     topdir = os.path.join(work, "topdir")
     copy_topdir(args.topdir, topdir)
@@ -577,6 +687,17 @@ def main():
         )
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
+
+    # Shaped before anything runs inside the sandbox, not after.  This used
+    # to sit below install_deps, which meant the overlay transaction ran
+    # with reproducible_env's inherited *host* PATH -- and inside the
+    # chroot those directories do not exist, so `rpm` was simply not found
+    # and every affected replay died on exit 127 with no other explanation.
+    #
+    # It survived early testing because a host PATH usually contains
+    # /usr/bin, which does resolve in the chroot, to the buildroot's own
+    # rpm.  That is the bad kind of working: the command found was
+    # whichever one the ambient environment happened to expose.
     if sysroot and args.isolation == "none":
         env.update(sysroot_env(sysroot, env))
     elif args.isolation != "none":
@@ -585,6 +706,32 @@ def main():
         # that either do not exist there or, worse, do.
         env["PATH"] = "/usr/bin:/usr/sbin:/bin:/sbin"
         env["HOME"] = "/builddir"
+
+        # We are uid 0 in this namespace, and gnulib's configure objects:
+        #
+        #     configure: error: you should not run configure as root
+        #     (set FORCE_UNSAFE_CONFIGURE=1 in environment to bypass this
+        #     check)
+        #
+        # coreutils and tar both stop there.  The check exists because
+        # gnulib's chown/chmod feature tests can damage a real system when
+        # run by a real root -- the classic case is a test creating a file
+        # under /tmp and chowning it away.  Neither hazard exists here: the
+        # root is the namespace's, mapped to our own unprivileged uid, and
+        # the only writable path is a scratch tree that gets deleted.
+        #
+        # mock avoids this by building as an unprivileged mockbuild user
+        # instead.  That is not available to us for the reason the whole
+        # sandbox is shaped this way: rpm has to chown payload files to the
+        # ids their packages declare, which needs uid 0 inside the
+        # namespace.  So we take the escape hatch upstream provides, rather
+        # than the user account it assumes.
+        #
+        # Set for every package rather than listed per package, because the
+        # reasoning is a property of the sandbox and not of any spec, and a
+        # list would grow an entry for every gnulib-based configure in
+        # Fedora, discovered one build failure at a time.
+        env["FORCE_UNSAFE_CONFIGURE"] = "1"
 
         # Same class of problem, and it is the one that actually bites.
         # Buck2 points TMPDIR at a per-action directory under buck-out,
@@ -602,6 +749,10 @@ def main():
         os.makedirs(sandbox_tmp, exist_ok=True)
         for var in ("TMPDIR", "TMP", "TEMP"):
             env[var] = sandbox_tmp
+
+    if sysroot and args.dep_rpm:
+        install_deps(sysroot, args.dep_rpm, args, work, env)
+
     for assignment in args.env:
         key, _, value = assignment.partition("=")
         env[key] = value
@@ -627,7 +778,7 @@ def main():
             file=sys.stderr,
         )
         if not args.keep_work and not args.work:
-            shutil.rmtree(work, ignore_errors=True)
+            remove_tree(work)
         return
 
     cmd = build_rpmbuild_cmd(spec, topdir, args, buildroot_dir)
@@ -653,6 +804,19 @@ def main():
         if rpm_path.endswith(".src.rpm"):
             continue
         extract_rpm(rpm_path, out_installroot)
+
+    # Buck2 hashes every byte of an action's output to key its cache, and
+    # rpm ships files it cannot open: `setup` owns /etc/gshadow at mode
+    # 0000, which is correct on a real system and fatal here --
+    #
+    #   Internal error (stage: calculate_output_values_failed):
+    #     open_file(.../installroot/etc/gshadow): Permission denied
+    #
+    # -- an error raised *after* the action succeeded, naming a path the
+    # rule never mentions.  _rpm.make_dirs_writable forces owner bits for
+    # exactly this, and the buildroot assembler already calls it; an
+    # installroot is the same kind of tree and needs the same treatment.
+    make_dirs_writable(out_installroot)
 
     if args.out_manifest:
         with open(args.out_manifest, "w") as fh:
@@ -680,8 +844,14 @@ def main():
 
     # Only on success: a failed replay leaves its BUILD tree behind, which
     # is the whole reason you want to look at it.
+    #
+    # remove_tree rather than rmtree, because the overlay transaction has
+    # chowned files to ids we do not own.  ignore_errors used to hide that
+    # -- the tree simply stayed -- and the cost landed on the next build of
+    # the same package, where scratch_dir reuses this keyed path and cannot
+    # clear it.
     if not args.keep_work and not args.work:
-        shutil.rmtree(work, ignore_errors=True)
+        remove_tree(work)
 
 
 if __name__ == "__main__":

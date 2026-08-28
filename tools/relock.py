@@ -232,10 +232,19 @@ def solve_argv(lock, repos, out, probe=None):
         argv += ["--{}-repo".format(repo["kind"]), repo["name"],
                  "--{}-base".format(repo["kind"]), repo["base"],
                  "--{}-primary".format(repo["kind"]), repo["path"]]
+    # Replayed like the rest, and not optional: solve refuses a run with no
+    # --build, --seed-only or --seed-package, so a flavor that pins a
+    # buildroot without building anything from source -- CentOS today --
+    # cannot be refreshed at all if these are dropped.  It fails loudly
+    # rather than quietly, which is the only reason this was survivable.
+    if recorded.get("seed_only"):
+        argv.append("--seed-only")
     for flag, key in (("--build", "build"), ("--override", "overrides"),
                       ("--image", "images"),
-                      ("--image-override", "image_overrides")):
-        for item in recorded[key]:
+                      ("--image-override", "image_overrides"),
+                      ("--seed-package", "seed_packages"),
+                      ("--source-variant", "source_variants")):
+        for item in recorded.get(key, []):
             argv += [flag, item]
     return argv
 

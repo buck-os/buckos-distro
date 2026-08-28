@@ -29,6 +29,9 @@ python_library(
     name = "depgraph",
     srcs = ["depgraph.py"],
     base_module = "",
+    # For compare_evr: a capability's version constraint is compared with
+    # rpm's rules, not Python's, or 0.10 sorts below 0.9.
+    deps = [":rpmvercmp"],
     visibility = ["PUBLIC"],
 )
 
@@ -305,11 +308,36 @@ python_binary(
     visibility = ["PUBLIC"],
 )
 
+# What this host can do, and which packages need it.
+#
+#     buck2 run //tools:hostcheck
+#
+# Out of the build graph deliberately: it probes the *running* kernel, so
+# as an action its answer would be cached against inputs that do not
+# describe it.  It writes advice for .buckconfig.local instead.
+python_binary(
+    name = "hostcheck",
+    main = "hostcheck.py",
+    deps = [":_isolation"],
+    visibility = ["PUBLIC"],
+)
+
 python_test(
     name = "depgraph_test",
     srcs = ["depgraph_test.py"],
     base_module = "",
     deps = [":depgraph"],
+)
+
+# Covers solve_argv only.  A refresh rebuilds solve's command line from
+# what the lockfile recorded, so an input the lockfile stores and that
+# function forgets is an input that stops applying the first time anyone
+# refreshes -- silently, for the ones that only change the answer.
+python_test(
+    name = "relock_test",
+    srcs = ["relock_test.py"],
+    base_module = "",
+    deps = [":relock_lib"],
 )
 
 python_test(

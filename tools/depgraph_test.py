@@ -12,6 +12,7 @@ import sys
 import unittest
 
 from depgraph import (
+    satisfies_constraint,
     AmbiguousProvider,
     UnresolvedCapability,
     bootstrap_depth,
@@ -847,3 +848,99 @@ class TestAmbiguityDeferral(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestVersionConstraints(unittest.TestCase):
+    """Picking a provider by the version range the requirement states.
+
+    Fedora keeps several majors of a Rust crate side by side --
+    rust-base64-devel is current, rust-base64_0.21-devel and friends are
+    compat packages -- and every one of them provides `crate(base64)`.  The
+    range is the only thing that tells them apart.
+    """
+
+    PROVIDES = {"crate(base64)": [
+        "rust-base64-devel", "rust-base64_0.21-devel", "rust-base64_0.22-devel",
+    ]}
+    EVR = {"crate(base64)": {
+        "rust-base64-devel": [("0", "0.23.1", None)],
+        "rust-base64_0.21-devel": [("0", "0.21.7", None)],
+        "rust-base64_0.22-devel": [("0", "0.22.1", None)],
+    }}
+
+    def resolve(self, cap):
+        return resolve_capability(cap, self.PROVIDES, "test",
+                                  provide_evr=self.EVR)
+
+    def test_an_upper_bound_excludes_the_current_major(self):
+        self.assertEqual(self.resolve("crate(base64) < 0.23"),
+                         "rust-base64_0.22-devel")
+
+    def test_the_newest_satisfying_build_wins(self):
+        # Two satisfy `>= 0.21`; picking the newest is what rpm, dnf and
+        # cargo all do, and is not the judgement call an unconstrained
+        # ambiguity is.
+        self.assertEqual(self.resolve("crate(base64) >= 0.21"),
+                         "rust-base64-devel")
+
+    def test_without_a_constraint_it_still_refuses(self):
+        with self.assertRaises(AmbiguousProvider):
+            self.resolve("crate(base64)")
+
+    def test_a_range_nothing_satisfies_is_unresolved(self):
+        with self.assertRaises(UnresolvedCapability):
+            self.resolve("crate(base64) >= 9.0")
+
+    def test_a_with_chain_is_a_range(self):
+        """`(a >= x with a < y)` is how rpm spells a range."""
+        closure, problems = runtime_closure(
+            [], {}, self.PROVIDES, provide_evr=self.EVR,
+            extra=[("(crate(base64) >= 0.21 with crate(base64) < 0.23)",
+                    "rpm-sequoia")],
+        )
+        self.assertEqual(problems, [])
+        self.assertEqual(sorted(closure), ["rust-base64_0.22-devel"])
+
+    def test_an_or_of_ranges_is_not_intersected(self):
+        """Fedora writes these, and intersecting them satisfies nothing.
+
+            ((rpm-build >= 4.14 with rpm-build < 4.19) or rpm-build >= 4.20)
+        """
+        provides = {"rpm-build": ["rpm-build"]}
+        evr = {"rpm-build": {"rpm-build": [("0", "4.20.1", None)]}}
+        closure, problems = runtime_closure(
+            [], {}, provides, provide_evr=evr,
+            extra=[("((rpm-build >= 4.14 with rpm-build < 4.19) "
+                    "or rpm-build >= 4.20)", "pyproject-rpm-macros")],
+        )
+        self.assertEqual(problems, [])
+        self.assertEqual(sorted(closure), ["rpm-build"])
+
+    def test_release_is_ignored_when_the_requirement_omits_it(self):
+        # `Requires: automake = 1.18.1` is satisfied by 1.18.1-2.fc43.
+        self.assertTrue(satisfies_constraint(
+            ("0", "1.18.1", "2.fc43"), "=", "1.18.1"))
+        self.assertFalse(satisfies_constraint(
+            ("0", "1.18.1", "2.fc43"), "=", "1.18.1-3.fc43"))
+
+    def test_an_epoch_overrules_the_version(self):
+        # emacs-filesystem 1:30.0-5.fc43 satisfies `>= 30.2`, because that
+        # is what an epoch is for.
+        self.assertTrue(satisfies_constraint(
+            ("1", "30.0", "5.fc43"), ">=", "30.2"))
+
+    def test_an_unversioned_provide_satisfies_anything(self):
+        # File paths and virtual names have no meaningful version.
+        self.assertTrue(satisfies_constraint(None, ">=", "1.0"))
+
+    def test_one_package_may_provide_several_versions(self):
+        """texlive-kpathsea carries its NEVR and an upstream svn revision."""
+        provides = {"texlive-kpathsea": ["texlive-kpathsea"]}
+        evr = {"texlive-kpathsea": {"texlive-kpathsea": [
+            ("11", "svn66209", "95.fc43.1"),
+            ("11", "20230311", "95.fc43.1"),
+        ]}}
+        self.assertEqual(
+            resolve_capability("texlive-kpathsea = 11:20230311-95.fc43.1",
+                               provides, "test", provide_evr=evr),
+            "texlive-kpathsea")

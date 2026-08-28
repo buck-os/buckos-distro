@@ -156,3 +156,30 @@ def dep_installroot_args(deps):
         prefix = dep[PackageInfo].prefix
         args.append(cmd_args("--dep-installroot", prefix, hidden = prefix))
     return args
+
+def dep_rpm_args(deps):
+    """Flags registering each dependency in the sysroot's rpm database.
+
+    The companion to dep_installroot_args, and needed because the two
+    halves of "this dependency is available" live in different places: the
+    installroot supplies the files, the .rpm supplies the database entry
+    that rpmbuild's BuildRequires check actually consults.  Supply only the
+    first and a build fails on a package whose files are demonstrably in
+    the tree.
+
+    A plain dep rather than one carrying PackageInfo: what is wanted here
+    is the rpm file, which is what built_rpm and an http_file both produce
+    as their default output, and requiring a provider would rule out the
+    downloads that make up most of a buildroot.
+
+    Hidden, like the installroots, so the file materialises on an RE
+    worker rather than being named on a command line that then cannot
+    find it.
+    """
+    args = []
+    for dep in deps:
+        outputs = dep[DefaultInfo].default_outputs
+        if not outputs:
+            fail("{} produces no rpm to register".format(dep.label))
+        args.append(cmd_args("--dep-rpm", outputs[0], hidden = outputs[0]))
+    return args

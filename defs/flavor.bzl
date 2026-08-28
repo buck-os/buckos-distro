@@ -62,6 +62,7 @@ def _rpm_package(
         version = "",
         release = "",
         build_deps = None,
+        dep_rpms = None,
         subpackages = None,
         use = None,
         use_bcond = None,
@@ -91,6 +92,7 @@ def _rpm_package(
     """
     source_name = source_name or name
     build_deps = build_deps or []
+    dep_rpms = dep_rpms or []
     subpackages = subpackages or [source_name]
     defines = defines or []
 
@@ -122,6 +124,7 @@ def _rpm_package(
         topdir = ":" + name + "-topdir",
         package_name = source_name,
         build_deps = build_deps,
+        dep_rpms = dep_rpms,
         defines = defines,
         with_bconds = with_bconds,
         without_bconds = without_bconds,
@@ -137,6 +140,7 @@ def _rpm_package(
         version = version,
         release = release,
         build_deps = build_deps,
+        dep_rpms = dep_rpms,
         defines = defines,
         with_bconds = with_bconds,
         without_bconds = without_bconds,
@@ -209,15 +213,31 @@ def subpackage_rpm_target(name, source_name, sub):
     """
     return _subpackage_target(name, source_name, sub) + "-rpm"
 
+# The suffixes _rpm_package hangs off `name` for its own machinery.  A
+# subpackage projection that landed on one of these would be the second
+# target registered under that name, and buck2 reports the collision at the
+# *second* registration -- so the error names rpm_subpackage and says
+# nothing about the srpm_build it actually clashed with.
+_RESERVED_SUFFIXES = ("topdir", "buildrequires", "build")
+
 def _subpackage_target(name, source_name, sub):
     """Target name for a subpackage projection.
 
     Must not collide with `:name` itself, which is the alias, hence the
     "-main" suffix for the subpackage that shares the source name.
+
+    Nor with the intermediates `:name-build` and friends, which is not
+    hypothetical: the rpm source package builds a subpackage called
+    rpm-build, whose tail after stripping the source name is exactly
+    "build".  Those keep their prefix instead of losing it, so the target
+    is `rpm-stage1-43-rpm-build` -- longer, and unambiguous.
     """
     if sub == source_name:
         return name + "-main"
-    return name + "-" + _strip_prefix(sub, source_name + "-")
+    tail = _strip_prefix(sub, source_name + "-")
+    if tail in _RESERVED_SUFFIXES:
+        tail = sub
+    return name + "-" + tail
 
 def _strip_prefix(value, prefix):
     if value.startswith(prefix):

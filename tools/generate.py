@@ -114,6 +114,38 @@ def collect(lock):
     # comment on seed_closure in tools/solve.py.
     seed = _dedupe(lock["buildroot_seed"])
 
+    # Pins that exist only because a version variant is routed somewhere.
+    # Separate from `seed` because that list is filtered by name to build
+    # the shared base, and a variant is by definition a second build of a
+    # name the base may already carry.
+    variant_seed = _dedupe(lock.get("variant_seed", []))
+
+    # Which of those form the shared buildroot.  The rest are overlaid per
+    # package, from each recipe's seed_deps below -- see the base_seed
+    # comment in tools/solve.py for why a union is not a buildroot.
+    #
+    # A lockfile solved before the field existed does not carry it, and the
+    # two cases are not equally recoverable.  With nothing built from
+    # source there is nothing to overlay, so `buildroot_seed` is the base by
+    # construction rather than by approximation -- seed_closure is the union
+    # of the per-package deps (empty) with the seed, and that is the whole
+    # of it.  With a build list, the split is exactly the information the
+    # old solver did not record, and defaulting to either end of it is
+    # wrong quietly: an empty base builds every package in a tree with no
+    # compiler, and a full one is the union this field exists to stop.
+    if "base_seed" in lock:
+        base = sorted(lock["base_seed"])
+    elif not lock["solve"]["build"]:
+        base = sorted(entry["name"] for entry in seed)
+    else:
+        sys.exit(
+            "lockfile predates base_seed and builds {} source package(s); "
+            "re-run the solve to record which of its {} pinned rpms form "
+            "the shared buildroot".format(
+                len(lock["solve"]["build"]), len(seed))
+        )
+    base_set = set(base)
+
     # Runtime closures, one per --image.  Deduped within a set but not
     # across sets or against the seed: each set has to stay a complete
     # install list, and the sharing is recovered at the target level, where
@@ -138,7 +170,9 @@ def collect(lock):
         })
         recipes.append({
             "name": name,
-            "source_name": source["name"],
+            # The spec's name, not the recipe's: a version variant is a
+            # distinct target built from the same spec.
+            "source_name": source.get("source_name") or source["name"],
             "evr": source["evr"],
             "subpackages": pkg.get("subpackages", [name]),
             # Deps that come from other source packages we build.  Kept
@@ -147,6 +181,33 @@ def collect(lock):
             "build_deps": sorted({
                 dep["name"] for dep in pkg.get("deps_built", [])
             }),
+            # Prebuilt deps this package needs that the shared buildroot
+            # does not carry.  Binary package names; the pin for each is in
+            # the seed table, which is the union of these plus the base.
+            "seed_deps": sorted({
+                dep["name"] for dep in pkg.get("deps_seed", [])
+                if dep["name"] not in base_set
+            }),
+            # A second build of a source package at another version, and
+            # which of this package's build deps come from one.  Both are
+            # absent for all but the handful of packages that need them.
+            "variant_of": pkg.get("variant_of"),
+            "dep_variants": {
+                dep["name"]: dep["variant"]
+                for dep in sorted(pkg.get("deps_built", []),
+                                  key=lambda d: d["name"])
+                if dep.get("variant")
+            },
+            # And where to find each routed binary in the pin table, for a
+            # cycle stage that takes it prebuilt rather than from a sibling
+            # stage.  By download target, which is unique per NEVRA -- the
+            # name is not, once two builds of one package are pinned.
+            "variant_seed": {
+                dep["name"]: _target_name(dep)
+                for dep in sorted(pkg.get("deps_built", []),
+                                  key=lambda d: d["name"])
+                if dep.get("variant")
+            },
         })
 
     # The cycle-breaking plan, carried through verbatim.  Deciding it is
@@ -168,10 +229,11 @@ def collect(lock):
         )
     ]
 
-    return seed, image_sets, sources, recipes, staged
+    return seed, base, image_sets, sources, recipes, staged, variant_seed
 
 
-def render(lock, lockfile, seed, image_sets, sources, recipes, staged):
+def render(lock, lockfile, seed, base_seed, image_sets, sources, recipes,
+           staged, variant_seed=()):
     out = [HEADER.format(lockfile=lockfile)]
     out.append("FLAVOR = {}\n".format(json.dumps(lock["flavor"])))
     out.append("RELEASE = {}\n".format(json.dumps(lock["release"])))
@@ -228,6 +290,27 @@ def render(lock, lockfile, seed, image_sets, sources, recipes, staged):
     out.append("]\n\n")
 
     out.append("# One package() call per entry.\n")
+    out.append("# The shared buildroot: @buildsys-build closed over its\n")
+    out.append("# Requires, by binary package name.  Every package builds in\n")
+    out.append("# this and overlays its own seed_deps on top; handing every\n")
+    out.append("# package the union of everyone's build deps is what let\n")
+    out.append("# libmnl find an undeclared doxygen and emit files its\n")
+    out.append("# %files does not list.  See base_seed in tools/solve.py.\n")
+    out.append("BASE_SEED = [\n")
+    for name in base_seed:
+        out.append("    {},\n".format(json.dumps(name)))
+    out.append("]\n\n")
+
+    out.append("# Pins that exist only to serve a version variant.  Kept out\n")
+    out.append("# of SEED_RPMS because that list is filtered by name to form\n")
+    out.append("# the shared base, and a variant is a second build of a name\n")
+    out.append("# the base may already carry -- mixed in, both would be\n")
+    out.append("# installed into one buildroot.\n")
+    out.append("VARIANT_SEED_RPMS = [\n")
+    for entry in variant_seed:
+        out.append("    {},\n".format(_entry_literal(entry)))
+    out.append("]\n\n")
+
     out.append("RECIPES = [\n")
     for entry in recipes:
         out.append("    {},\n".format(_recipe_literal(entry)))
@@ -329,7 +412,8 @@ def main(argv=None):
             sys.exit("{}: unsupported RPM flavor {!r}".format(
                 lockfile, lock.get("flavor")))
 
-        seed, image_sets, sources, recipes, staged = collect(lock)
+        (seed, base_seed, image_sets, sources, recipes, staged,
+         variant_seed) = collect(lock)
 
         out_dir = args.out_dir
         if out_dir is None:
@@ -340,12 +424,13 @@ def main(argv=None):
             )
         os.makedirs(out_dir, exist_ok=True)
 
-        base = os.path.basename(lockfile).replace(".lock.json", "")
-        out_path = os.path.join(out_dir, base + ".bzl")
+        stem = os.path.basename(lockfile).replace(".lock.json", "")
+        out_path = os.path.join(out_dir, stem + ".bzl")
         rel_lock = os.path.relpath(os.path.abspath(lockfile), os.getcwd())
         with open(out_path, "w") as fh:
             fh.write(render(
-                lock, rel_lock, seed, image_sets, sources, recipes, staged,
+                lock, rel_lock, seed, base_seed, image_sets, sources, recipes,
+                staged, variant_seed,
             ))
 
         print(
@@ -396,7 +481,9 @@ def write_index(out_dir, flavor):
             '    {a}_recipes = "RECIPES",\n'
             '    {a}_release = "RELEASE",\n'
             '    {a}_repo_base = "REPO_BASE",\n'
+            '    {a}_base_seed = "BASE_SEED",\n'
             '    {a}_seed = "SEED_RPMS",\n'
+            '    {a}_variant_seed = "VARIANT_SEED_RPMS",\n'
             '    {a}_sources = "SOURCE_RPMS",\n'
             '    {a}_staged = "STAGED",\n'
             '    {a}_target_cpu = "TARGET_CPU",\n'
@@ -414,6 +501,8 @@ def write_index(out_dir, flavor):
             '        TARGET_CPU = {a}_target_cpu,\n'
             '        REPO_BASE = {a}_repo_base,\n'
             '        SEED_RPMS = {a}_seed,\n'
+            '        VARIANT_SEED_RPMS = {a}_variant_seed,\n'
+            '        BASE_SEED = {a}_base_seed,\n'
             '        IMAGE_SETS = {a}_image_sets,\n'
             '        SOURCE_RPMS = {a}_sources,\n'
             '        RECIPES = {a}_recipes,\n'

@@ -33,6 +33,7 @@ load(
     "buildroot_info",
     "buildroot_local_only",
     "dep_installroot_args",
+    "dep_rpm_args",
 )
 load("//defs:providers.bzl", "PackageInfo", "RpmArtifactInfo")
 
@@ -105,6 +106,7 @@ def _srpm_buildrequires_impl(ctx: AnalysisContext) -> list[Provider]:
     cmd.add(buildroot_args(ctx))
     cmd.add(buildroot_env(ctx))
     cmd.add(dep_installroot_args(ctx.attrs.build_deps))
+    cmd.add(dep_rpm_args(ctx.attrs.dep_rpms))
 
     if ctx.attrs.fedora_release:
         cmd.add("--fedora-release", ctx.attrs.fedora_release)
@@ -137,6 +139,12 @@ srpm_buildrequires = rule(
         # learning the dynamic set and learning that cargo is not
         # installed.
         "build_deps": attrs.list(attrs.dep(providers = [PackageInfo]), default = []),
+        # The .rpm each build_dep was unpacked from, so the sysroot's
+        # database can be told about it.  Parallel to build_deps rather
+        # than derived from it: an installroot does not carry the file it
+        # came from, and the two lists are assembled together by the
+        # flavor frontend.
+        "dep_rpms": attrs.list(attrs.dep(), default = []),
         "defines": attrs.list(attrs.string(), default = []),
         "fedora_release": attrs.option(attrs.string(), default = None),
         "package_name": attrs.string(),
@@ -177,6 +185,7 @@ def _srpm_build_impl(ctx: AnalysisContext) -> list[Provider]:
 
     # BuildRequires: each dep is one binary package's installroot.
     cmd.add(dep_installroot_args(ctx.attrs.build_deps))
+    cmd.add(dep_rpm_args(ctx.attrs.dep_rpms))
 
     if ctx.attrs.rpmbuild:
         cmd.add("--rpmbuild", ctx.attrs.rpmbuild)
@@ -249,6 +258,12 @@ srpm_build = rule(
         # Resolved BuildRequires. Each must be an rpm_subpackage or a
         # prebuilt_rpm -- one binary package, never a whole srpm output.
         "build_deps": attrs.list(attrs.dep(providers = [PackageInfo]), default = []),
+        # The .rpm each build_dep was unpacked from, so the sysroot's
+        # database can be told about it.  Parallel to build_deps rather
+        # than derived from it: an installroot does not carry the file it
+        # came from, and the two lists are assembled together by the
+        # flavor frontend.
+        "dep_rpms": attrs.list(attrs.dep(), default = []),
         "cpe": attrs.option(attrs.string(), default = None),
         "defines": attrs.list(attrs.string(), default = []),
         "description": attrs.string(default = ""),

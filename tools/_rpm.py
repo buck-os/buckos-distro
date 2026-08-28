@@ -50,7 +50,7 @@ SCRATCH_ROOT_ENV = "BUCKOS_SCRATCH_ROOT"
 _DEFAULT_SCRATCH_ROOT = "/var/tmp"
 
 
-def scratch_dir(prefix, key=None):
+def scratch_dir(prefix, key=None, remove=None):
     """A private scratch directory for a tree Buck must not walk.
 
     `key` makes the name a function of the action instead of random, and
@@ -73,6 +73,17 @@ def scratch_dir(prefix, key=None):
     So: pass something that identifies the action and is stable across
     runs of it -- an output path is both.  Callers that only need a
     private directory can leave it None and keep mkdtemp semantics.
+
+    `remove` overrides how a leftover from a previous run is deleted, and
+    a caller that ran an rpm transaction in here has to supply one.  The
+    transaction chowns files to the ids their packages declare -- bind's
+    /var/named/slaves comes back owned by a subordinate uid, mode 0770 --
+    and we own neither the directory nor the right to chmod it, so
+    make_dirs_writable below cannot reach it and rmtree stops on
+    EPERM.  _isolation.remove_tree deletes it from inside a namespace with
+    the same maps, which is the only thing that can.  Not the default
+    because this module is the layer _isolation is built on, and the
+    dependency only runs one way.
     """
     base = os.environ.get(SCRATCH_ROOT_ENV) or _DEFAULT_SCRATCH_ROOT
     os.makedirs(base, exist_ok=True)
@@ -85,8 +96,9 @@ def scratch_dir(prefix, key=None):
     # or its debris after a kill -- would otherwise be inherited as build
     # inputs.  mkdtemp got this for free by never repeating a name.
     if os.path.exists(path):
-        make_dirs_writable(path)
-        shutil.rmtree(path)
+        if remove is None or not remove(path):
+            make_dirs_writable(path)
+            shutil.rmtree(path)
     os.makedirs(path, mode=0o700)
     return path
 
@@ -234,7 +246,35 @@ def overlay_tree(src, dest):
 
 
 def _overlay_dir(src, dest):
-    """Make dest a directory mirroring src, keeping anything already in it."""
+    """Make dest a directory mirroring src, keeping anything already in it.
+
+    A symlink to a directory is followed rather than replaced, and that is
+    the merged-usr rule rather than a convenience.  Fedora's `filesystem`
+    ships /lib64 as a symlink to usr/lib64, and a handful of packages --
+    libtirpc is the one that found this -- still declare their files under
+    /lib64.  On a real system that path *resolves through* the symlink and
+    the file lands in /usr/lib64; that is what the merge means.
+
+    Replacing the symlink with a real directory instead forks the two
+    apart, and the way it fails is nasty.  The buildroot ends up with
+    /lib64 holding one library and /usr/lib64 holding everything else,
+    including ld-linux-x86-64.so.2 -- which is every binary's ELF
+    interpreter, named absolutely as /lib64/ld-linux-x86-64.so.2.  Exec
+    then fails on the interpreter rather than on the binary, so the kernel
+    returns ENOENT for a file that plainly exists, the shell reports it as
+    127, and nothing is written to stderr at all:
+
+        Stdout: <empty>
+        Stderr:
+
+    26 of 126 probes died that way, each one reporting only that `rpm`
+    could not be found in a tree containing /usr/bin/rpm.
+    """
+    if os.path.islink(dest) and os.path.isdir(dest):
+        # Nothing to create: writes below here resolve through the link on
+        # their own.  Mode is forced on the target, which is what needs it.
+        _force_mode(dest, 0o700)
+        return
     if os.path.lexists(dest) and not _is_real_dir(dest):
         _remove_any(dest)
     if not os.path.lexists(dest):
@@ -503,8 +543,26 @@ def reproducible_env(env=None, source_date_epoch="1700000000"):
     """
     out = dict(env or os.environ)
     out.setdefault("SOURCE_DATE_EPOCH", source_date_epoch)
-    out.setdefault("LC_ALL", "C")
-    out.setdefault("LANG", "C")
+    # C.UTF-8 rather than C, and the difference is not cosmetic.  Plain C
+    # implies a US-ASCII charset, and a tool that takes its encoding from
+    # the locale then cannot read a UTF-8 source file:
+    #
+    #     po-man/translations/cs/write.1.adoc: "\xC3" on US-ASCII
+    #     (Encoding::InvalidByteSequenceError)
+    #
+    # That is util-linux, whose %build runs asciidoctor over translated man
+    # pages -- Ruby sets Encoding.default_external from the locale, so the
+    # Czech translation is unreadable and the build stops.  Any locale-aware
+    # tool over non-ASCII input has the same problem; util-linux is just
+    # where it surfaced first.
+    #
+    # Reproducibility is unaffected, which is the reason this is the right
+    # fix rather than a trade.  C.UTF-8 keeps C's collation exactly --
+    # codepoint order, no locale data consulted -- and only changes the
+    # charset.  glibc has provided it unconditionally since 2.35, so it
+    # needs no langpack in the buildroot.
+    out.setdefault("LC_ALL", "C.UTF-8")
+    out.setdefault("LANG", "C.UTF-8")
     out.setdefault("TZ", "UTC")
     # rpm bakes the build host into package metadata; pin it.
     out.setdefault("RPM_BUILD_HOST", "buckos-distro")
