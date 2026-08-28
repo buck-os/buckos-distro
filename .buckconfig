@@ -99,8 +99,38 @@
 # hermetic, and defs/buildroot_helpers.bzl turns that into local_only =
 # False with cache upload enabled, where `host` forces the opposite.
 [buckos.fedora]
-  releases = 43,44
+  releases = 43,44,45
+  # 45 has branched from rawhide but has not reached GA, so it is served
+  # from development/ rather than releases/ and has no updates tree --
+  # tools/relock.py --branched 45 is what records that.  It is deliberately
+  # not the default: `release` would otherwise follow the newest entry and
+  # point every unsuffixed target at a release whose packages still move
+  # daily.  Drop this line at F45 GA.
+  release = 44
   buildroot = binary-seed
+
+  # gnutls.spec enables mingw whenever %{fedora} is defined, so the replay
+  # configures build_win32 and build_win64 cross trees beside the native
+  # one.  Fedora 44's i686-w64-mingw32 gcc 16.1.1 segfaults compiling
+  # gnulib's localename-unsafe.c:
+  #
+  #   during GIMPLE pass: strlen
+  #   internal compiler error: Segmentation fault
+  #
+  # The native x86_64 tree builds fine -- only the Windows DLLs fail, and
+  # a Linux image has no use for them.  This lives here rather than in
+  # .buckconfig.local because it is not a fact about any one machine: the
+  # compiler is a pinned Fedora package, so every host hits the same ICE,
+  # and a fresh clone cannot build gnutls without it.
+  #
+  # Two costs, stated rather than discovered.  gnutls still builds from
+  # source but no longer produces mingw32-gnutls or mingw64-gnutls, so
+  # those two projection targets are unbuildable; nothing in the live or
+  # image-tools sets asks for them.  And `without` is flavor-wide rather
+  # than per-release, so this also disables the cross build on 43 and 45,
+  # whose older compilers may not have the bug.  Narrowing it needs a
+  # per-release form of this setting, which does not exist yet.
+  without = gnutls:mingw
 
 # Release 9 layers EPEL and EPEL Next; release 10 is plain Stream and stays
 # the default because releases are listed oldest first.
