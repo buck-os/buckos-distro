@@ -733,6 +733,7 @@ def _rpm_one_package(
     # dependency, and an installroot does not carry the file it came from.
     dep_rpms = []
     dep_variants = recipe.get("dep_variants", {})
+    seed_dep_names = {name: True for name in recipe.get("seed_deps", [])}
     # Pin-table entries for the routed binaries, by download target, so a
     # cycle stage that falls back to a prebuilt gets the variant's build.
     seed_by_target = {}
@@ -784,7 +785,28 @@ def _rpm_one_package(
             continue
         producer = provider.get(binary)
         if producer == None:
-            # Not built by this repo, so it is in the seed already.
+            # Not built by this repo -- either never was, or its source
+            # package is on the prebuilt list for this host.
+            #
+            # The two need different handling and used to get the same.  A
+            # genuine seed dep is either in the shared base or in the
+            # recipe's own seed_deps, and the loop below overlays it.  A
+            # *declassified* one is in neither: the solver put it in
+            # deps_built because it is a package this repo builds, so no
+            # seed_deps entry was ever emitted for it.  Falling through
+            # left systemd without the kernel-devel it BuildRequires:
+            #
+            #   error: Failed build dependencies:
+            #       kernel-devel is needed by systemd-258.10-1.fc43.x86_64
+            #
+            # So overlay it from the pin table here, skipping anything the
+            # seed_deps loop will handle to avoid naming it twice.
+            fallback = seed_rpm.get(binary)
+            if fallback != None and binary not in seed_dep_names:
+                build_deps.append(
+                    ":" + seed_installroot_target(fallback, suffix),
+                )
+                dep_rpms.append(":" + fallback["target"] + suffix)
             continue
         chosen = variant.get(producer["name"])
         if chosen == None:
