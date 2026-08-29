@@ -367,7 +367,51 @@ if [ -n "${{FAKE_SDME_BLOCK_READY:-}}" ] && [ ! -e "$FAKE_SDME_BLOCK_READY" ]; t
   : > "$FAKE_SDME_BLOCK_READY"
   while [ ! -e "$FAKE_SDME_BLOCK_RELEASE" ]; do /bin/sleep 0.05; done
 fi
-if [ "$1" = fs ] && [ "$2" = ls ]; then
+if [ "$1" = ps ] && [ "$2" = --json ]; then
+  if [ ! -e {state}/container.json ]; then
+    printf '[]\n'
+    exit 0
+  fi
+  counter={state}/ps-count
+  count=0
+  if [ -e "$counter" ]; then count=$(cat "$counter"); fi
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$counter"
+  if [ "${{FAKE_SDME_PS_HANG_AT:-0}}" -eq "$count" ]; then /bin/sleep 10; fi
+  if [ "${{FAKE_SDME_PS_FAIL_AT:-0}}" -eq "$count" ]; then exit 1; fi
+  if [ "${{FAKE_SDME_PS_INVALID_JSON_AT:-0}}" -eq "$count" ]; then
+    printf '{{\n'
+    exit 0
+  fi
+  if [ "${{FAKE_SDME_CONTAINER_DISAPPEAR_AT:-0}}" -eq "$count" ]; then
+    printf '[]\n'
+    exit 0
+  fi
+  python3 - {state}/container.json "$count" <<'PY'
+import json
+import os
+import sys
+
+path, count_text = sys.argv[1:]
+count = int(count_text)
+with open(path, encoding="utf-8") as stream:
+    record = json.load(stream)
+if count == int(os.environ.get("FAKE_SDME_BAD_ADDRESSES_AT", "0")):
+    record["addresses"] = "invalid"
+elif count == int(os.environ.get("FAKE_SDME_MALFORMED_ADDRESS_AT", "0")):
+    record["addresses"] = ["not-an-ip"]
+elif count > int(os.environ.get("FAKE_SDME_ADDRESS_READY_AFTER", "0")):
+    configured = os.environ.get("FAKE_SDME_ADDRESSES")
+    record["addresses"] = (
+        json.loads(configured)
+        if configured
+        else [os.environ.get("FAKE_SDME_ADDRESS", "169.254.42.8")]
+    )
+else:
+    record["addresses"] = []
+print(json.dumps([record], sort_keys=True))
+PY
+elif [ "$1" = fs ] && [ "$2" = ls ]; then
   first=1
   printf '['
   for record in {state}/*.fs; do
@@ -479,6 +523,48 @@ PY
     'ubuntu_image={ubuntu_reference}' \\
     'nativelink_image={nativelink_reference}' \\
     'architecture={architecture}' > {state}/"$name".runtime-images
+elif [ "$1" = create ]; then
+  python3 - {state}/container.json "$@" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+arguments = sys.argv[2:]
+
+def values(option):
+    return [
+        arguments[index + 1]
+        for index, argument in enumerate(arguments[:-1])
+        if argument == option
+    ]
+
+def value(option):
+    selected = values(option)
+    if not selected:
+        raise SystemExit("missing fake create option: {{}}".format(option))
+    return selected[-1]
+
+record = dict(
+    addresses=[],
+    binds=[item + ":rw" for item in values("--bind")],
+    enabled="--enable" in arguments,
+    limits=dict(cpus=value("--cpus"), memory=value("--memory")),
+    name=value("--name"),
+    network=dict(
+        network_bridge=None,
+        network_zone=value("--network-zone"),
+        oci_pod=False,
+        pod=False,
+        ports=values("--port"),
+        private_network=True,
+    ),
+    rootfs=value("--fs"),
+    status="running",
+    userns=True,
+)
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(record, stream, sort_keys=True)
+PY
 elif [ "$1" = cp ]; then
   source=$2
   destination=$3
@@ -491,34 +577,39 @@ elif [ "$1" = cp ]; then
       cp {state}/"$fs.$base" "$destination/$base"
       ;;
     *)
-      remote=$(printf '%s' "$destination" | cut -c4-)
-      fs=$(printf '%s' "$remote" | cut -d: -f1)
-      path=$(printf '%s' "$remote" | cut -d: -f2-)
-      base=$(basename "$path")
-      if [ "$base" = buckos-re-image-provenance.json ] && \
-         [ {fail_image_provenance} -eq 1 ] && [ ! -e {image_failure} ]; then
-        : > {image_failure}
-        exit 1
-      fi
-      if [ "$base" = buckos-re-runtime-provenance.json ] && \
-         [ {fail_runtime_provenance} -eq 1 ] && [ ! -e {runtime_failure} ]; then
-        : > {runtime_failure}
-        exit 1
-      fi
-      cp "$source" {state}/"$fs.$base"
-      if [ "$base" = buckos-re-runtime-provenance.json ] && \
-         [ {fail_after_runtime_provenance} -eq 1 ] && \
-         [ ! -e {post_provenance_failure} ]; then
-        : > {post_provenance_failure}
-        exit 1
-      fi
-      if [ "$base" = buckos-re-runtime-provenance.json ] && \
-         [ {leak_after_runtime_provenance} -eq 1 ] && \
-         [ ! -e {post_provenance_failure} ]; then
-        printf '%s\\n' buckos-sdme-proxy-transport-v1 > {state}/"$fs".proxy-sentinel
-        : > {post_provenance_failure}
-        exit 1
-      fi
+      case "$destination" in
+        fs:*)
+          remote=$(printf '%s' "$destination" | cut -c4-)
+          fs=$(printf '%s' "$remote" | cut -d: -f1)
+          path=$(printf '%s' "$remote" | cut -d: -f2-)
+          base=$(basename "$path")
+          if [ "$base" = buckos-re-image-provenance.json ] && \
+             [ {fail_image_provenance} -eq 1 ] && [ ! -e {image_failure} ]; then
+            : > {image_failure}
+            exit 1
+          fi
+          if [ "$base" = buckos-re-runtime-provenance.json ] && \
+             [ {fail_runtime_provenance} -eq 1 ] && [ ! -e {runtime_failure} ]; then
+            : > {runtime_failure}
+            exit 1
+          fi
+          cp "$source" {state}/"$fs.$base"
+          if [ "$base" = buckos-re-runtime-provenance.json ] && \
+             [ {fail_after_runtime_provenance} -eq 1 ] && \
+             [ ! -e {post_provenance_failure} ]; then
+            : > {post_provenance_failure}
+            exit 1
+          fi
+          if [ "$base" = buckos-re-runtime-provenance.json ] && \
+             [ {leak_after_runtime_provenance} -eq 1 ] && \
+             [ ! -e {post_provenance_failure} ]; then
+            printf '%s\\n' buckos-sdme-proxy-transport-v1 > {state}/"$fs".proxy-sentinel
+            : > {post_provenance_failure}
+            exit 1
+          fi
+          ;;
+        *) : ;;
+      esac
       ;;
   esac
 fi
@@ -572,7 +663,17 @@ fi
         (fake_bin / "systemctl").write_text(
             """#!/bin/sh
 printf 'systemctl %s\\n' "$*" >> {log}
+if [ "$1" = is-active ]; then exit 0; fi
 exit 1
+""".format(log=quoted_log),
+            encoding="utf-8",
+        )
+        (fake_bin / "sleep").write_text(
+            """#!/bin/sh
+set -eu
+printf 'sleep %s\\n' "$*" >> {log}
+if [ "${{FAKE_FAST_SLEEP:-0}}" -eq 1 ]; then exit 0; fi
+exec /bin/sleep "$@"
 """.format(log=quoted_log),
             encoding="utf-8",
         )
@@ -648,6 +749,71 @@ exec /bin/mv -- "$@"
             "--nativelink-oci-archive",
             str(self.archives["nativelink"][architecture]),
         ]
+
+    def control_arguments(self, data_root: Path, architecture: str) -> list[str]:
+        return [
+            "apply",
+            "control",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(data_root),
+            "--ubuntu-oci-archive",
+            str(self.archives["ubuntu"][architecture]),
+            "--nativelink-oci-archive",
+            str(self.archives["nativelink"][architecture]),
+        ]
+
+    def prepare_control_runtime(self) -> tuple[str, Path, Path]:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        prepared = self.run_script(*self.runtime_arguments(data_root, architecture))
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        return architecture, data_root, log
+
+    def seed_matching_control(self, data_root: Path) -> None:
+        state = self.external / "fake-sdme-state"
+        (state / "container.json").write_text(
+            json.dumps(
+                {
+                    "addresses": [],
+                    "binds": [
+                        "{}:/var/lib/nativelink:rw".format(data_root / "control")
+                    ],
+                    "enabled": True,
+                    "limits": {"cpus": "8", "memory": "32G"},
+                    "name": "buckos-re-control",
+                    "network": {
+                        "network_bridge": None,
+                        "network_zone": "buckos-re",
+                        "oci_pod": False,
+                        "pod": False,
+                        "ports": [],
+                        "private_network": True,
+                    },
+                    "rootfs": RUNTIME_FS,
+                    "status": "running",
+                    "userns": True,
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+    def prepare_matching_control(self) -> tuple[str, Path, Path]:
+        architecture, data_root, log = self.prepare_control_runtime()
+        self.seed_matching_control(data_root)
+        return architecture, data_root, log
+
+    def set_test_control_address_wait_seconds(self, seconds: int) -> None:
+        source = self.script.read_text(encoding="utf-8")
+        updated = source.replace(
+            "readonly CONTROL_ADDRESS_WAIT_SECONDS='30'",
+            "readonly CONTROL_ADDRESS_WAIT_SECONDS='{}'".format(seconds),
+        )
+        self.assertNotEqual(source, updated)
+        self.script.write_text(updated, encoding="utf-8")
 
     def test_worker_plan_has_required_isolation_and_storage(self) -> None:
         result = self.run_script(*self.worker_arguments())
@@ -1764,6 +1930,175 @@ exec /bin/mv -- "$@"
         self.assertIn("--name buckos-re-worker-aarch64", result.stdout)
         self.assertIn("--platform linux/arm64", result.stdout)
 
+    def test_control_apply_waits_for_delayed_zone_address(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        state = self.external / "fake-sdme-state"
+        cases = (
+            (["169.254.42.8", "10.77.0.3"], "10.77.0.3"),
+            (["fe80::193", "fd00::77"], "[fd00::77]"),
+            (["169.254.42.8"], "169.254.42.8"),
+        )
+
+        for addresses, expected in cases:
+            with self.subTest(expected=expected):
+                (state / "ps-count").unlink(missing_ok=True)
+                log.write_text("", encoding="utf-8")
+                result = self.run_script(
+                    *self.control_arguments(data_root, architecture),
+                    "-v",
+                    environment={
+                        "FAKE_FAST_SLEEP": "1",
+                        "FAKE_SDME_ADDRESSES": json.dumps(addresses),
+                        "FAKE_SDME_ADDRESS_READY_AFTER": "3",
+                    },
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    result.stderr.count("waiting for control container"), 1
+                )
+                commands = log.read_text(encoding="utf-8")
+                self.assertEqual(commands.count("sdme ps --json"), 4)
+                self.assertEqual(commands.count("sleep 1.000"), 1)
+                self.assertNotIn("sdme create", commands)
+                self.assertNotIn("sdme start", commands)
+                environment = data_root / "provision/buckos-re-control.env"
+                self.assertIn(
+                    "NATIVELINK_WORKER_BIND_ADDRESS={}".format(expected),
+                    environment.read_text(encoding="utf-8"),
+                )
+
+    def test_fresh_control_create_waits_for_its_zone_address(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+
+        result = self.run_script(
+            *self.control_arguments(data_root, architecture),
+            "-v",
+            environment={
+                "FAKE_FAST_SLEEP": "1",
+                "FAKE_SDME_ADDRESS_READY_AFTER": "2",
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertEqual(commands.count("sdme create"), 1)
+        self.assertNotIn("sdme start", commands)
+        self.assertNotIn("sdme restart", commands)
+        self.assertEqual(result.stderr.count("waiting for control container"), 1)
+        environment = data_root / "provision/buckos-re-control.env"
+        self.assertIn(
+            "NATIVELINK_WORKER_BIND_ADDRESS=169.254.42.8",
+            environment.read_text(encoding="utf-8"),
+        )
+
+    def test_control_address_wait_has_a_fixed_timeout(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        self.set_test_control_address_wait_seconds(1)
+
+        result = self.run_script(
+            *self.control_arguments(data_root, architecture),
+            environment={"FAKE_SDME_ADDRESS_READY_AFTER": "999"},
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "timed out after 1s waiting for control container "
+            "buckos-re-control SDME zone address",
+            result.stderr,
+        )
+        commands = log.read_text(encoding="utf-8")
+        self.assertEqual(commands.count("sdme ps --json"), 3)
+        self.assertNotIn("systemctl restart nativelink.service", commands)
+
+    def test_control_address_wait_bounds_a_stalled_inventory_query(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        self.set_test_control_address_wait_seconds(1)
+
+        started = time.monotonic()
+        result = self.run_script(
+            *self.control_arguments(data_root, architecture),
+            environment={"FAKE_SDME_PS_HANG_AT": "3"},
+        )
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "timed out after 1s waiting for control container "
+            "buckos-re-control SDME zone address",
+            result.stderr,
+        )
+        self.assertGreater(elapsed, 0.5)
+        self.assertLess(elapsed, 3.0)
+        commands = log.read_text(encoding="utf-8")
+        self.assertEqual(commands.count("sdme ps --json"), 3)
+        self.assertNotIn("sleep ", commands)
+        self.assertNotIn("systemctl restart nativelink.service", commands)
+
+    def test_control_address_wait_fails_immediately_on_inventory_errors(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        scenarios = (
+            (
+                {"FAKE_SDME_PS_FAIL_AT": "3"},
+                "could not inspect container while waiting for its SDME zone address",
+            ),
+            (
+                {"FAKE_SDME_PS_INVALID_JSON_AT": "3"},
+                "could not inspect container while waiting for its SDME zone address",
+            ),
+            (
+                {"FAKE_SDME_CONTAINER_DISAPPEAR_AT": "3"},
+                "container disappeared while waiting for its SDME zone address",
+            ),
+            (
+                {"FAKE_SDME_BAD_ADDRESSES_AT": "3"},
+                "invalid SDME address inventory shape",
+            ),
+            (
+                {"FAKE_SDME_MALFORMED_ADDRESS_AT": "3"},
+                "invalid SDME address inventory member",
+            ),
+        )
+        state = self.external / "fake-sdme-state"
+
+        for environment, expected_error in scenarios:
+            with self.subTest(expected_error=expected_error):
+                (state / "ps-count").unlink(missing_ok=True)
+                log.write_text("", encoding="utf-8")
+                result = self.run_script(
+                    *self.control_arguments(data_root, architecture),
+                    environment=environment,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected_error, result.stderr)
+                commands = log.read_text(encoding="utf-8")
+                self.assertEqual(commands.count("sdme ps --json"), 3)
+                self.assertNotIn("sleep ", commands)
+                self.assertNotIn("systemctl restart nativelink.service", commands)
+
+    def test_control_apply_retries_a_matching_partially_applied_container(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        self.set_test_control_address_wait_seconds(1)
+        arguments = self.control_arguments(data_root, architecture)
+        first = self.run_script(
+            *arguments,
+            environment={"FAKE_SDME_ADDRESS_READY_AFTER": "999"},
+        )
+        self.assertEqual(first.returncode, 2)
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn("sdme create", commands)
+        self.assertNotIn("sdme start", commands)
+        self.assertEqual(commands.count("systemctl restart nativelink.service"), 1)
+        environment = data_root / "provision/buckos-re-control.env"
+        self.assertIn(
+            "NATIVELINK_WORKER_BIND_ADDRESS=169.254.42.8",
+            environment.read_text(encoding="utf-8"),
+        )
+
     def test_control_is_private_until_publish_is_explicit(self) -> None:
         result = self.run_script(
             "plan",
@@ -2029,7 +2364,7 @@ exec /bin/mv -- "$@"
 
 
 class AddressSelectionTest(unittest.TestCase):
-    def select(self, addresses: list[str]) -> subprocess.CompletedProcess[str]:
+    def select(self, addresses: list[object]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [str(ADDRESS_SELECTOR)],
             input=json.dumps({"addresses": addresses}),
@@ -2049,10 +2384,35 @@ class AddressSelectionTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "169.254.42.8")
 
-    def test_rejects_non_routable_candidates(self) -> None:
+    def test_reports_not_ready_for_non_routable_candidates(self) -> None:
         result = self.select(["127.0.0.1", "0.0.0.0", "224.0.0.1", "::", "ff02::1"])
-        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.returncode, 3)
         self.assertIn("no private or link-local non-wildcard", result.stderr)
+
+    def test_reports_not_ready_for_an_empty_inventory(self) -> None:
+        result = self.select([])
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("no private or link-local non-wildcard", result.stderr)
+
+    def test_rejects_malformed_address_members(self) -> None:
+        for addresses in (["not-an-ip"], [42]):
+            with self.subTest(addresses=addresses):
+                result = self.select(addresses)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("invalid SDME address inventory member", result.stderr)
+
+    def test_rejects_malformed_address_inventory(self) -> None:
+        for value in ("{", json.dumps({"addresses": "169.254.42.8"})):
+            with self.subTest(value=value):
+                result = subprocess.run(
+                    [str(ADDRESS_SELECTOR)],
+                    input=value,
+                    check=False,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(result.returncode, 2)
 
 
 if __name__ == "__main__":

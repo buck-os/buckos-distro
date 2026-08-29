@@ -21,6 +21,13 @@ readonly RUNTIME_PROVENANCE_PATH='/etc/buckos-re-runtime-provenance.json'
 readonly BUILD_PROXY_PATH='/etc/buckos-re-build-proxy.env'
 readonly BUILD_PROXY_SENTINEL='buckos-sdme-proxy-transport-v1'
 readonly TRANSACTION_SCHEMA_VERSION='1'
+readonly CONTROL_ADDRESS_WAIT_SECONDS='30'
+readonly CONTROL_ADDRESS_POLL_SECONDS='1'
+readonly CONTROL_ADDRESS_KILL_GRACE_MILLISECONDS='100'
+readonly ADDRESS_NOT_READY_EXIT='3'
+readonly ADDRESS_QUERY_TIMEOUT_EXIT='3'
+readonly TIMEOUT_EXIT='124'
+readonly TIMEOUT_KILLED_EXIT='137'
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 repo_root=$(CDPATH='' cd -- "$script_dir/../../.." && pwd -P)
@@ -62,6 +69,8 @@ tar_bin=''
 sha256_bin=''
 systemctl_bin=''
 flock_bin=''
+sleep_bin=''
+timeout_bin=''
 oci_archive_tool=''
 oci_archive_metadata=''
 cleanup_paths=()
@@ -170,6 +179,12 @@ run_sdme() {
 
 query_sdme() {
     (umask 022; run_command "$sdme_bin" "$@")
+}
+
+query_sdme_with_timeout() {
+    local duration="$1"
+    shift
+    (umask 022; run_command "$timeout_bin" --kill-after=0.100s "$duration" "$sdme_bin" "$@")
 }
 
 normalize_arch() {
@@ -611,6 +626,10 @@ prepare_tools() {
     fi
     if [[ "$operation" == apply ]]; then
         systemctl_bin=$(resolve_command systemctl)
+        if [[ "$role" == control ]]; then
+            sleep_bin=$(resolve_command sleep)
+            timeout_bin=$(resolve_command timeout)
+        fi
     fi
     oci_archive_tool="$asset_root/scripts/oci_archive.py"
     oci_archive_metadata="$asset_root/sdme/offline-oci-archives.json"
@@ -931,11 +950,28 @@ raise SystemExit(0 if any(item.get("name") == name for item in items) else 1)
 }
 
 container_record() {
-    local inventory
-    inventory=$(query_sdme ps --json) || {
+    local name="$1"
+    local timeout_milliseconds="${2:-}"
+    local inventory result timeout_duration
+    if [[ -n "$timeout_milliseconds" ]]; then
+        printf -v timeout_duration '%d.%03ds' \
+            "$((timeout_milliseconds / 1000))" \
+            "$((timeout_milliseconds % 1000))"
+        if inventory=$(query_sdme_with_timeout "$timeout_duration" ps --json); then
+            :
+        else
+            result=$?
+            ((result == TIMEOUT_EXIT || result == TIMEOUT_KILLED_EXIT)) && \
+                return "$ADDRESS_QUERY_TIMEOUT_EXIT"
+            log "failed to query SDME containers"
+            return 2
+        fi
+    elif inventory=$(query_sdme ps --json); then
+        :
+    else
         log "failed to query SDME containers"
         return 2
-    }
+    fi
     printf '%s' "$inventory" | "$python_bin" -c '
 import json
 import sys
@@ -954,7 +990,7 @@ for item in items:
         print(json.dumps(item, sort_keys=True))
         raise SystemExit(0)
 raise SystemExit(1)
-' "$1"
+' "$name"
 }
 
 container_status() {
@@ -1937,21 +1973,65 @@ prepare_container_storage() {
     fi
 }
 
+monotonic_milliseconds() {
+    "$python_bin" -c 'import time; print(time.monotonic_ns() // 1_000_000)'
+}
+
 discover_control_worker_bind_address() {
-    local record result address
-    if record=$(container_record "$container_name"); then
-        :
-    else
-        result=$?
-        ((result == 1)) && die "container disappeared: $container_name"
-        die "could not inspect container: $container_name"
+    local record result address now deadline remaining
+    local query_budget sleep_duration sleep_milliseconds
+    if ! now=$(monotonic_milliseconds) || [[ ! "$now" =~ ^[0-9]+$ ]]; then
+        die "could not start control address readiness deadline"
     fi
-    if address=$(printf '%s' "$record" | "$python_bin" "$asset_root/scripts/sdme_select_address.py" 2>&1); then
-        :
-    else
-        die "$address"
-    fi
-    control_worker_bind_address="$address"
+    deadline=$((now + CONTROL_ADDRESS_WAIT_SECONDS * 1000))
+
+    while :; do
+        if ! now=$(monotonic_milliseconds) || [[ ! "$now" =~ ^[0-9]+$ ]]; then
+            die "could not evaluate control address readiness deadline"
+        fi
+        if ((now >= deadline)); then
+            die "timed out after ${CONTROL_ADDRESS_WAIT_SECONDS}s waiting for control container $container_name SDME zone address"
+        fi
+        remaining=$((deadline - now))
+        if ((remaining <= CONTROL_ADDRESS_KILL_GRACE_MILLISECONDS)); then
+            die "timed out after ${CONTROL_ADDRESS_WAIT_SECONDS}s waiting for control container $container_name SDME zone address"
+        fi
+        query_budget=$((remaining - CONTROL_ADDRESS_KILL_GRACE_MILLISECONDS))
+        if record=$(container_record "$container_name" "$query_budget"); then
+            :
+        else
+            result=$?
+            ((result == ADDRESS_QUERY_TIMEOUT_EXIT)) && \
+                die "timed out after ${CONTROL_ADDRESS_WAIT_SECONDS}s waiting for control container $container_name SDME zone address"
+            ((result == 1)) && die "container disappeared while waiting for its SDME zone address: $container_name"
+            die "could not inspect container while waiting for its SDME zone address: $container_name"
+        fi
+        if address=$(printf '%s' "$record" | "$python_bin" "$asset_root/scripts/sdme_select_address.py" 2>&1); then
+            control_worker_bind_address="$address"
+            debug "control container $container_name SDME zone address is ready: $address"
+            return
+        else
+            result=$?
+        fi
+        ((result == ADDRESS_NOT_READY_EXIT)) || die "$address"
+
+        if ! now=$(monotonic_milliseconds) || [[ ! "$now" =~ ^[0-9]+$ ]]; then
+            die "could not evaluate control address readiness deadline"
+        fi
+        if ((now >= deadline)); then
+            die "timed out after ${CONTROL_ADDRESS_WAIT_SECONDS}s waiting for control container $container_name SDME zone address"
+        fi
+        remaining=$((deadline - now))
+        sleep_milliseconds=$((CONTROL_ADDRESS_POLL_SECONDS * 1000))
+        if ((remaining < sleep_milliseconds)); then
+            sleep_milliseconds=$remaining
+        fi
+        printf -v sleep_duration '%d.%03d' \
+            "$((sleep_milliseconds / 1000))" \
+            "$((sleep_milliseconds % 1000))"
+        debug "waiting for control container $container_name SDME zone address (${remaining}ms before timeout)"
+        "$sleep_bin" "$sleep_duration" || die "control address readiness wait was interrupted"
+    done
 }
 
 apply_deployment() {

@@ -18,6 +18,10 @@ ULA = ipaddress.ip_network("fc00::/7")
 IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
 
+class AddressNotReadyError(ValueError):
+    """No usable address has appeared in an otherwise valid inventory."""
+
+
 def _priority(address: IPAddress) -> Optional[int]:
     if address.is_loopback or address.is_multicast or address.is_unspecified:
         return None
@@ -35,16 +39,20 @@ def select_worker_bind_address(values: Sequence[object]) -> str:
     candidates: list[tuple[int, int, int, IPAddress]] = []
     for value in values:
         if not isinstance(value, str):
-            continue
+            raise ValueError("invalid SDME address inventory member")
         try:
             address = ipaddress.ip_address(value)
-        except ValueError:
-            continue
+        except ValueError as error:
+            raise ValueError(
+                "invalid SDME address inventory member: {!r}".format(value)
+            ) from error
         priority = _priority(address)
         if priority is not None:
             candidates.append((priority, address.version != 4, int(address), address))
     if not candidates:
-        raise ValueError("no private or link-local non-wildcard SDME zone address is available")
+        raise AddressNotReadyError(
+            "no private or link-local non-wildcard SDME zone address is available"
+        )
     selected = min(candidates)[3]
     return "[{}]".format(selected) if selected.version == 6 else str(selected)
 
@@ -56,6 +64,9 @@ def main() -> int:
         if not isinstance(values, list):
             raise ValueError("invalid SDME address inventory shape")
         print(select_worker_bind_address(values))
+    except AddressNotReadyError as error:
+        print("sdme-address: {}".format(error), file=sys.stderr)
+        return 3
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         print("sdme-address: {}".format(error), file=sys.stderr)
         return 2
