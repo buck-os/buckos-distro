@@ -41,6 +41,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 
 from rpmvercmp import package_is_newer
+from source_policy import SourcePolicyError, build_source_policy
 
 from depgraph import (
     AmbiguousProvider,
@@ -1329,6 +1330,18 @@ def rpm_source_policy_inputs(lock):
     return images, producers
 
 
+def parse_source_exception(value):
+    """Parse one reviewed JSON exception from the command line."""
+    try:
+        exception = json.loads(value)
+    except ValueError as exc:
+        raise ValueError("--source-exception is not valid JSON: {}".format(
+            exc)) from exc
+    if not isinstance(exception, dict):
+        raise ValueError("--source-exception must be a JSON object")
+    return exception
+
+
 def _count_pins_by_repo(lock):
     """How many pinned entries each repo accounts for.
 
@@ -1612,6 +1625,16 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
         ],
     }
     lock["summary"]["pins_by_repo"] = _count_pins_by_repo(lock)
+    if args.source_image:
+        images, producers = rpm_source_policy_inputs(lock)
+        lock["source_policy"] = build_source_policy(
+            images,
+            producers,
+            args.source_exception,
+            args.source_image,
+        )
+        lock["solve"]["source_exceptions"] = \
+            lock["source_policy"]["exceptions"]
     return lock
 
 
@@ -1674,6 +1697,10 @@ def main(argv=None):
                     metavar="SOURCE",
                     help="source selected by --source-image that remains "
                          "pinned (repeatable)")
+    ap.add_argument("--source-exception", action="append", default=[],
+                    metavar="JSON",
+                    help="approved per-payload source exception as one JSON "
+                         "object (repeatable)")
     ap.add_argument("--flavor", choices=sorted(IMPLICIT_GROUPS),
                     default="fedora")
     ap.add_argument("--seed-only", action="store_true",
@@ -1713,6 +1740,12 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
     args.implicit_group = IMPLICIT_GROUPS[args.flavor]
+    try:
+        args.source_exception = [
+            parse_source_exception(value) for value in args.source_exception
+        ]
+    except ValueError as exc:
+        sys.exit(str(exc))
 
     # Before the solve, not after: a solve is minutes of work and a
     # mispaired repo list is worth reporting before spending them.
@@ -1736,6 +1769,8 @@ def main(argv=None):
     if overlap:
         sys.exit("source packages cannot be both explicitly built and "
                  "prebuilt: {}".format(", ".join(overlap)))
+    if args.source_exception and not args.source_image:
+        sys.exit("--source-exception requires --source-image")
 
     overrides = {}
     for item in args.override:
@@ -1863,14 +1898,17 @@ def main(argv=None):
         sys.exit("solve failed with {} unresolved buildroot item(s)".format(
             len(seed_problems)))
 
-    lock = emit_lockfile(
-        universe, build_set, build_deps, resolutions, problems,
-        dynamic, plan, depth, image_sets, seed_packages, replacements,
-        base_closure, args,
-        variant_subpackages=variant_subpackages,
-        variant_routes=variant_routes,
-        binary_superseded=binary_superseded,
-    )
+    try:
+        lock = emit_lockfile(
+            universe, build_set, build_deps, resolutions, problems,
+            dynamic, plan, depth, image_sets, seed_packages, replacements,
+            base_closure, args,
+            variant_subpackages=variant_subpackages,
+            variant_routes=variant_routes,
+            binary_superseded=binary_superseded,
+        )
+    except SourcePolicyError as exc:
+        sys.exit("source policy: {}".format(exc))
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w") as fh:

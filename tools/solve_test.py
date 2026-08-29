@@ -26,6 +26,7 @@ from solve import (
     load_probe,
     merge_packages,
     parse_override,
+    parse_source_exception,
     probe_identity_errors,
     probed_buildrequires,
     rpm_source_policy_inputs,
@@ -44,6 +45,17 @@ class TestOverrideParsing(unittest.TestCase):
             parse_override(expression + "=centos-stream-release", "--override"),
             (expression, "centos-stream-release"),
         )
+
+    def test_source_exception_is_one_json_object(self):
+        self.assertEqual(
+            parse_source_exception(
+                '{"package":"kernel-core","kind":"host-kernel-capability",'
+                '"reason":"Host capability is absent."}'
+            )["package"],
+            "kernel-core",
+        )
+        with self.assertRaisesRegex(ValueError, "must be a JSON object"):
+            parse_source_exception('["kernel-core"]')
 
 
 def binary(name, requires=(), provides=(), source="src-1.fc43.src.rpm",

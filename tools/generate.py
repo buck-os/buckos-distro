@@ -28,10 +28,10 @@ import json
 import os
 import sys
 
-# The one definition, imported rather than repeated: solve.py writes the
-# schema this reads, and a version that lives in two files is a version
-# that gets bumped in one.
-from solve import LOCK_SCHEMA
+# Imported rather than repeated: solve.py writes the lock schema and adapts
+# RPM records into the common source-policy vocabulary.
+from solve import LOCK_SCHEMA, rpm_source_policy_inputs
+from source_policy import SourcePolicyError, validate_source_policy
 
 ARCHITECTURES = ("x86_64", "aarch64")
 
@@ -234,6 +234,22 @@ def collect(lock):
     return seed, base, image_sets, sources, recipes, staged, variant_seed
 
 
+def validate_lock_source_policy(lock, lockfile):
+    """Reject a persisted policy that no longer matches the RPM lock."""
+    recorded = lock.get("source_policy")
+    selected = lock.get("solve", {}).get("source_image_sets", [])
+    if recorded is None:
+        if selected:
+            sys.exit("{}: source-derived lock has no source_policy".format(
+                lockfile))
+        return
+    images, producers = rpm_source_policy_inputs(lock)
+    try:
+        validate_source_policy(recorded, images, producers)
+    except SourcePolicyError as exc:
+        sys.exit("{}: invalid source_policy: {}".format(lockfile, exc))
+
+
 def render(lock, lockfile, seed, base_seed, image_sets, sources, recipes,
            staged, variant_seed=()):
     out = [HEADER.format(lockfile=lockfile)]
@@ -241,6 +257,8 @@ def render(lock, lockfile, seed, base_seed, image_sets, sources, recipes,
     out.append("RELEASE = {}\n".format(json.dumps(lock["release"])))
     out.append("DIST_TAG = {}\n".format(json.dumps(lock["dist_tag"])))
     out.append("TARGET_CPU = {}\n".format(json.dumps(lock["target_cpu"])))
+    out.append("SOURCE_POLICY = {}\n".format(
+        _bzl_literal(lock.get("source_policy"))))
     out.append("\n")
 
     # The upstream URL each repo's `location` paths are relative to.  Carried
@@ -414,6 +432,8 @@ def main(argv=None):
             sys.exit("{}: unsupported RPM flavor {!r}".format(
                 lockfile, lock.get("flavor")))
 
+        validate_lock_source_policy(lock, lockfile)
+
         (seed, base_seed, image_sets, sources, recipes, staged,
          variant_seed) = collect(lock)
 
@@ -491,6 +511,7 @@ def write_index(out_dir, flavor):
             '    {a}_image_sets = "IMAGE_SETS",\n'
             '    {a}_recipes = "RECIPES",\n'
             '    {a}_release = "RELEASE",\n'
+            '    {a}_source_policy = "SOURCE_POLICY",\n'
             '    {a}_repo_base = "REPO_BASE",\n'
             '    {a}_base_seed = "BASE_SEED",\n'
             '    {a}_seed = "SEED_RPMS",\n'
@@ -516,6 +537,7 @@ def write_index(out_dir, flavor):
                 '            RELEASE = {a}_release,\n'
                 '            DIST_TAG = {a}_dist_tag,\n'
                 '            TARGET_CPU = {a}_target_cpu,\n'
+                '            SOURCE_POLICY = {a}_source_policy,\n'
                 '            REPO_BASE = {a}_repo_base,\n'
                 '            SEED_RPMS = {a}_seed,\n'
                 '            VARIANT_SEED_RPMS = {a}_variant_seed,\n'

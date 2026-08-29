@@ -23,7 +23,7 @@ def architecture_base(base, source_cpu, target_cpu, kind):
     raise ValueError("cannot replace architecture in repository base {}".format(base))
 
 
-def architecture_solve(recorded, target_cpu):
+def architecture_solve(recorded, source_cpu, target_cpu):
     result = copy.deepcopy(recorded)
     if target_cpu == "aarch64":
         replacements = {
@@ -45,8 +45,20 @@ def architecture_solve(recorded, target_cpu):
             value.replace("x86-64", "aarch-64")
             for value in result.get("overrides", [])
         ]
-    result["probe"] = None
+    if target_cpu != source_cpu:
+        result["probe"] = None
     return result
+
+
+def recorded_probe_path(template_path, recorded):
+    name = recorded.get("probe")
+    if not name:
+        return None
+    path = os.path.join(os.path.dirname(os.path.abspath(template_path)),
+                        os.path.basename(name))
+    if not os.path.exists(path):
+        sys.exit("recorded probe is missing: {}".format(path))
+    return path
 
 
 def solve_argv(template, recorded, repos, target_cpu, output, probe=None):
@@ -73,6 +85,9 @@ def solve_argv(template, recorded, repos, target_cpu, output, probe=None):
         builds = [] if recorded.get("source_image_sets") else recorded.get("build", [])
     for value in builds:
         argv += ["--build", value]
+    for exception in recorded.get("source_exceptions", []):
+        argv += ["--source-exception", json.dumps(
+            exception, sort_keys=True, separators=(",", ":"))]
     for flag, key in (
         ("--seed-package", "seed_packages"),
         ("--override", "overrides"),
@@ -111,7 +126,9 @@ def converged(state):
 
 
 def describe_state(state):
-    return "{} unresolved problem(s), {} unprobed package(s), {} unmet probe(s)".format(
+    return (
+        "{} unresolved problem(s), {} unprobed package(s), {} unmet probe(s)"
+    ).format(
         len(state["problems"]),
         len(state["unprobed"]),
         len(state["unmet"]),
@@ -145,6 +162,18 @@ def main(argv=None):
     parser.add_argument("-c", "--config", action="append", default=[],
                         metavar="SECTION.KEY=VALUE",
                         help="extra buck2 -c flag for probes (repeatable)")
+    parser.add_argument("--source-image", action="append", default=[],
+                        metavar="NAME",
+                        help="replace source derivation with this image set "
+                             "(repeatable)")
+    parser.add_argument("--prebuilt-source", action="append", default=[],
+                        metavar="SOURCE",
+                        help="replace the explicit prebuilt source list "
+                             "(repeatable)")
+    parser.add_argument("--source-exception", action="append", default=[],
+                        metavar="JSON",
+                        help="replace source exceptions with JSON objects "
+                             "(repeatable)")
     args = parser.parse_args(argv)
     if args.probe and args.no_generate:
         parser.error("--probe requires generated Buck targets")
@@ -152,7 +181,21 @@ def main(argv=None):
     with open(args.template, encoding="utf-8") as stream:
         template = json.load(stream)
     source_cpu = template["target_cpu"]
-    recorded = architecture_solve(template["solve"], args.target_cpu)
+    recorded = architecture_solve(
+        template["solve"], source_cpu, args.target_cpu)
+    if args.source_image:
+        recorded["source_image_sets"] = sorted(set(args.source_image))
+        recorded["explicit_build"] = []
+    if args.prebuilt_source:
+        recorded["prebuilt_sources"] = sorted(set(args.prebuilt_source))
+    if args.source_exception:
+        try:
+            recorded["source_exceptions"] = [
+                solve.parse_source_exception(value)
+                for value in args.source_exception
+            ]
+        except ValueError as exc:
+            parser.error(str(exc))
     cache = args.repo_cache or os.path.join(
         os.path.dirname(os.path.abspath(args.output)),
         "repodata",
@@ -161,7 +204,8 @@ def main(argv=None):
     )
     repos = []
     for repo in template["repos"]:
-        base = architecture_base(repo["base"], source_cpu, args.target_cpu, repo["kind"])
+        base = architecture_base(
+            repo["base"], source_cpu, args.target_cpu, repo["kind"])
         path = relock.sync_repo(base, os.path.join(cache, repo["name"]), repo["name"])
         if path:
             repos.append({
@@ -170,13 +214,30 @@ def main(argv=None):
                 "name": repo["name"],
                 "path": path,
             })
+    initial_probe = (
+        recorded_probe_path(args.template, recorded)
+        if args.target_cpu == source_cpu
+        else None
+    )
     if args.no_generate:
         solve.main(solve_argv(
-            template, recorded, repos, args.target_cpu, args.output))
+            template,
+            recorded,
+            repos,
+            args.target_cpu,
+            args.output,
+            probe=initial_probe,
+        ))
         return
 
     solve_and_generate(
-        template, recorded, repos, args.target_cpu, args.output)
+        template,
+        recorded,
+        repos,
+        args.target_cpu,
+        args.output,
+        probe_path=initial_probe,
+    )
     if not args.probe:
         return
 

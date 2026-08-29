@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for the generic RPM-family relock loop."""
 
+import json
 import unittest
 
 import rpm_relock
@@ -25,6 +26,12 @@ def recorded(**overrides):
         "source_variants": [],
         "source_image_sets": ["live"],
         "prebuilt_sources": ["kernel"],
+        "source_exceptions": [{
+            "kind": "host-kernel-capability",
+            "package": "kernel-core",
+            "reason": "Host kernel interface is unavailable.",
+            "source": "kernel",
+        }],
         "seed_only": False,
         "stages": 3,
     }
@@ -56,6 +63,26 @@ class TestSolveArgv(unittest.TestCase):
         self.assertEqual(flags(argv, "--source-image"), ["live"])
         self.assertEqual(flags(argv, "--prebuilt-source"), ["kernel"])
         self.assertEqual(flags(argv, "--build"), [])
+        self.assertEqual(
+            [json.loads(value) for value in flags(argv, "--source-exception")],
+            recorded()["source_exceptions"],
+        )
+
+    def test_same_architecture_keeps_the_recorded_probe(self):
+        result = rpm_relock.architecture_solve(
+            {"probe": "fedora-44-x86_64.probe.json"},
+            "x86_64",
+            "x86_64",
+        )
+        self.assertEqual(result["probe"], "fedora-44-x86_64.probe.json")
+
+    def test_cross_architecture_drops_the_recorded_probe(self):
+        result = rpm_relock.architecture_solve(
+            {"probe": "fedora-44-x86_64.probe.json"},
+            "x86_64",
+            "aarch64",
+        )
+        self.assertIsNone(result["probe"])
 
 
 class TestConvergence(unittest.TestCase):

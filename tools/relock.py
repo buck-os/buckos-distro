@@ -266,6 +266,9 @@ def solve_argv(lock, repos, out, probe=None):
         builds = [] if recorded.get("source_image_sets") else recorded.get("build", [])
     for item in builds:
         argv += ["--build", item]
+    for exception in recorded.get("source_exceptions", []):
+        argv += ["--source-exception", json.dumps(
+            exception, sort_keys=True, separators=(",", ":"))]
     for flag, key in (("--override", "overrides"),
                       ("--image", "images"),
                       ("--image-override", "image_overrides"),

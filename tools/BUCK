@@ -330,6 +330,7 @@ python_library(
     deps = [
         ":depgraph",
         ":rpmvercmp",
+        ":source_policy",
     ],
 )
 
@@ -453,6 +454,13 @@ python_test(
     srcs = ["rpm_relock_test.py"],
     base_module = "",
     deps = [":rpm_relock_lib"],
+)
+
+python_test(
+    name = "generate_test",
+    srcs = ["generate_test.py"],
+    base_module = "",
+    deps = [":relock_lib"],
 )
 
 python_test(

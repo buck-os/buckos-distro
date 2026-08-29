@@ -7,6 +7,7 @@ that silently stops applying the first time anyone refreshes.  The rest of
 relock is network and file movement.
 """
 
+import json
 import os
 import tempfile
 import unittest
@@ -22,6 +23,7 @@ def lock(**solve):
         "overrides": [],
         "images": [],
         "image_overrides": [],
+        "source_exceptions": [],
         "seed_packages": [],
         "seed_only": False,
         "stages": 3,
@@ -51,6 +53,12 @@ class TestSolveArgv(unittest.TestCase):
                 image_overrides=["live:/usr/bin/systemd-sysusers=systemd"],
                 source_image_sets=["live"],
                 prebuilt_sources=["kernel"],
+                source_exceptions=[{
+                    "kind": "host-kernel-capability",
+                    "package": "kernel-core",
+                    "reason": "Host kernel interface is unavailable.",
+                    "source": "kernel",
+                }],
             ),
             repos=[],
             out="/tmp/out.json",
@@ -63,6 +71,15 @@ class TestSolveArgv(unittest.TestCase):
                          ["live:/usr/bin/systemd-sysusers=systemd"])
         self.assertEqual(flags(argv, "--source-image"), ["live"])
         self.assertEqual(flags(argv, "--prebuilt-source"), ["kernel"])
+        self.assertEqual(
+            [json.loads(value) for value in flags(argv, "--source-exception")],
+            [{
+                "kind": "host-kernel-capability",
+                "package": "kernel-core",
+                "reason": "Host kernel interface is unavailable.",
+                "source": "kernel",
+            }],
+        )
 
     def test_a_seed_only_lockfile_can_be_refreshed(self):
         # The case this exists for.  A flavor that pins a buildroot and
@@ -107,6 +124,7 @@ class TestSolveArgv(unittest.TestCase):
         del stale["solve"]["seed_packages"]
         del stale["solve"]["seed_only"]
         del stale["solve"]["explicit_build"]
+        del stale["solve"]["source_exceptions"]
         argv = relock.solve_argv(stale, repos=[], out="/o")
         self.assertEqual(flags(argv, "--build"), ["acl"])
         self.assertNotIn("--seed-only", argv)
