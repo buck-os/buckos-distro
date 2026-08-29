@@ -13,7 +13,6 @@ import stat
 import struct
 import subprocess
 import sys
-import tempfile
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -46,6 +45,10 @@ class PreparationError(RuntimeError):
     pass
 
 
+class SdmeCopyError(PreparationError):
+    pass
+
+
 @dataclass(frozen=True)
 class ElfMetadata:
     machine: int
@@ -58,6 +61,245 @@ class ExistingProbeRoot:
     digest: str
     runtime_fs: str
     architecture: str
+
+
+@dataclass(frozen=True)
+class PathIdentity:
+    device: int
+    inode: int
+
+
+class DestinationGuard:
+    def __init__(
+        self,
+        destination: Path,
+        ancestors: tuple[tuple[Path, PathIdentity], ...],
+        require_safe_ancestors: bool,
+    ) -> None:
+        self.destination = destination
+        self.ancestors = ancestors
+        self.require_safe_ancestors = require_safe_ancestors
+        self.directories: dict[Path, PathIdentity] = {}
+
+    @classmethod
+    def capture(
+        cls,
+        destination: Path,
+        require_safe_ancestors: bool = True,
+    ) -> "DestinationGuard":
+        ancestors = []
+        for path in reversed((destination.parent, *destination.parent.parents)):
+            try:
+                metadata = path.lstat()
+            except OSError as exc:
+                raise PreparationError(str(exc)) from exc
+            cls._validate_directory(path, metadata)
+            if require_safe_ancestors:
+                cls._validate_privileged_ancestor(path, metadata)
+            ancestors.append((path, cls._identity(metadata)))
+        return cls(destination, tuple(ancestors), require_safe_ancestors)
+
+    @staticmethod
+    def _identity(metadata: os.stat_result) -> PathIdentity:
+        return PathIdentity(metadata.st_dev, metadata.st_ino)
+
+    @staticmethod
+    def _validate_directory(path: Path, metadata: os.stat_result) -> None:
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise PreparationError("path component is not a real directory: {}".format(path))
+
+    @staticmethod
+    def _validate_privileged_ancestor(path: Path, metadata: os.stat_result) -> None:
+        if metadata.st_uid != 0:
+            raise PreparationError("apply ancestor is not root-owned: {}".format(path))
+        if stat.S_IMODE(metadata.st_mode) & 0o022:
+            raise PreparationError(
+                "apply ancestor is writable by group or other: {}".format(path)
+            )
+
+    def verify_ancestors(self) -> None:
+        for path, expected in self.ancestors:
+            try:
+                metadata = path.lstat()
+            except OSError as exc:
+                raise PreparationError(
+                    "destination ancestor changed: {}: {}".format(path, exc)
+                ) from exc
+            self._validate_directory(path, metadata)
+            if self.require_safe_ancestors:
+                self._validate_privileged_ancestor(path, metadata)
+            if self._identity(metadata) != expected:
+                raise PreparationError("destination ancestor was replaced: {}".format(path))
+
+    def _relative_parts(self, path: Path) -> tuple[str, ...]:
+        if not path.is_absolute():
+            raise PreparationError("destination-tree path is not absolute: {}".format(path))
+        try:
+            relative = path.relative_to(self.destination)
+        except ValueError as exc:
+            raise PreparationError(
+                "destination-tree path escapes {}: {}".format(self.destination, path)
+            ) from exc
+        if any(component in ("", ".", "..") for component in relative.parts):
+            raise PreparationError("invalid destination-tree path: {}".format(path))
+        return relative.parts
+
+    def _record_directory(self, path: Path, metadata: os.stat_result) -> None:
+        self._validate_directory(path, metadata)
+        self.directories[path] = self._identity(metadata)
+
+    def bind_existing_root(self) -> None:
+        self.verify_ancestors()
+        try:
+            metadata = self.destination.lstat()
+        except OSError as exc:
+            raise PreparationError(str(exc)) from exc
+        self._record_directory(self.destination, metadata)
+
+    def create_root(self) -> None:
+        self.verify_ancestors()
+        os.mkdir(self.destination, 0o700)
+        self.verify_ancestors()
+        self._record_directory(self.destination, self.destination.lstat())
+
+    def verify_directory(self, path: Path) -> None:
+        parts = self._relative_parts(path)
+        self.verify_ancestors()
+        current = self.destination
+        for component in (None, *parts):
+            if component is not None:
+                current /= component
+            try:
+                metadata = current.lstat()
+            except OSError as exc:
+                raise PreparationError(
+                    "destination directory changed: {}: {}".format(current, exc)
+                ) from exc
+            self._validate_directory(current, metadata)
+            expected = self.directories.get(current)
+            if expected is None:
+                raise PreparationError("untracked destination directory: {}".format(current))
+            if self._identity(metadata) != expected:
+                raise PreparationError("destination directory was replaced: {}".format(current))
+
+    def ensure_directory(self, path: Path, mode: int = 0o755) -> None:
+        parts = self._relative_parts(path)
+        self.verify_directory(self.destination)
+        current = self.destination
+        for component in parts:
+            self.verify_directory(current)
+            candidate = current / component
+            try:
+                metadata = candidate.lstat()
+            except FileNotFoundError:
+                self.verify_directory(current)
+                os.mkdir(candidate, mode)
+                self.verify_directory(current)
+                metadata = candidate.lstat()
+                self._record_directory(candidate, metadata)
+            except OSError as exc:
+                raise PreparationError(str(exc)) from exc
+            else:
+                self._validate_directory(candidate, metadata)
+                expected = self.directories.get(candidate)
+                if expected is None:
+                    raise PreparationError(
+                        "untracked destination directory: {}".format(candidate)
+                    )
+                if self._identity(metadata) != expected:
+                    raise PreparationError(
+                        "destination directory was replaced: {}".format(candidate)
+                    )
+            current = candidate
+
+    def _record_subtree_directories(self, root: Path) -> None:
+        if root.is_symlink() or not root.is_dir():
+            return
+        self._record_directory(root, root.lstat())
+        for current, directories, _files in os.walk(root, followlinks=False):
+            parent = Path(current)
+            for name in directories:
+                path = parent / name
+                metadata = path.lstat()
+                if stat.S_ISLNK(metadata.st_mode):
+                    continue
+                self._record_directory(path, metadata)
+
+    def rename_into(self, source: Path, destination: Path) -> None:
+        self._relative_parts(source)
+        self._relative_parts(destination)
+        self.verify_directory(source.parent)
+        source_metadata = source.lstat()
+        source_identity = self._identity(source_metadata)
+        self.ensure_directory(destination.parent)
+        self.verify_directory(destination.parent)
+        if os.path.lexists(destination):
+            raise PreparationError("destination path already exists: {}".format(destination))
+        os.rename(source, destination)
+        self.verify_directory(source.parent)
+        self.verify_directory(destination.parent)
+        if not os.path.lexists(destination):
+            raise PreparationError("renamed destination disappeared: {}".format(destination))
+        if self._identity(destination.lstat()) != source_identity:
+            raise PreparationError(
+                "destination entry was replaced during rename: {}".format(destination)
+            )
+        self._record_subtree_directories(destination)
+
+    def verify_entry(self, path: Path) -> os.stat_result:
+        self._relative_parts(path)
+        if path == self.destination:
+            self.verify_directory(path)
+        else:
+            self.verify_directory(path.parent)
+        try:
+            metadata = path.lstat()
+        except OSError as exc:
+            raise PreparationError(str(exc)) from exc
+        if stat.S_ISDIR(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode):
+            expected = self.directories.get(path)
+            if expected is None or self._identity(metadata) != expected:
+                raise PreparationError("destination directory was replaced: {}".format(path))
+        return metadata
+
+    def chmod(self, path: Path, mode: int) -> None:
+        self._relative_parts(path)
+        if path == self.destination:
+            self.verify_directory(path)
+        else:
+            self.verify_directory(path.parent)
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise PreparationError("refusing to chmod symlink: {}".format(path))
+        identity = self._identity(metadata)
+        os.chmod(path, mode, follow_symlinks=False)
+        self.verify_directory(path.parent if path != self.destination else path)
+        if self._identity(path.lstat()) != identity:
+            raise PreparationError("destination entry was replaced during chmod: {}".format(path))
+
+    def remove_subtree(self, path: Path) -> None:
+        self._relative_parts(path)
+        if path == self.destination:
+            self.verify_directory(path)
+        else:
+            self.verify_directory(path.parent)
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            os.unlink(path)
+        else:
+            expected = self.directories.get(path)
+            if expected is None or self._identity(metadata) != expected:
+                raise PreparationError(
+                    "destination directory was replaced before removal: {}".format(path)
+                )
+            if not shutil.rmtree.avoids_symlink_attacks:
+                raise PreparationError("platform lacks symlink-safe recursive removal")
+            shutil.rmtree(path)
+        if os.path.lexists(path):
+            raise PreparationError("destination subtree remains at {}".format(path))
+        for recorded in tuple(self.directories):
+            if recorded == path or _path_is_beneath(recorded, path):
+                self.directories.pop(recorded)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -142,6 +384,10 @@ def validate_destination(path: Path, repo_root: Path = REPO_ROOT) -> Path:
             "destination parent does not exist: {}".format(destination.parent)
         )
     return destination
+
+
+def admit_apply_destination(destination: Path) -> DestinationGuard:
+    return DestinationGuard.capture(destination, require_safe_ancestors=True)
 
 
 def _normalize_cpu(value: str) -> str:
@@ -239,7 +485,7 @@ class SdmeClient:
             str(destination),
         ])
         if result.returncode != 0:
-            raise PreparationError(result.stderr.strip() or "SDME copy failed")
+            raise SdmeCopyError(result.stderr.strip() or "SDME copy failed")
 
 
 def _normalize_root_path(path: PurePosixPath) -> PurePosixPath:
@@ -270,12 +516,13 @@ class SourceTree:
         self,
         client: SdmeClient,
         runtime_fs: str,
-        output: Path,
+        guard: DestinationGuard,
         fetch_root: Path,
     ) -> None:
         self.client = client
         self.runtime_fs = runtime_fs
-        self.output = output
+        self.guard = guard
+        self.output = guard.destination
         self.fetch_root = fetch_root
         self.counter = 0
 
@@ -287,11 +534,12 @@ class SourceTree:
         remote = _normalize_root_path(remote)
         local = self.local_path(remote)
         if os.path.lexists(local):
+            self.guard.verify_entry(local)
             return local
 
         self.counter += 1
         attempt = self.fetch_root / "fetch-{:04d}".format(self.counter)
-        attempt.mkdir(mode=0o700)
+        self.guard.ensure_directory(attempt, mode=0o700)
         try:
             self.client.copy(self.runtime_fs, remote, attempt)
             fetched = attempt / remote.name
@@ -299,11 +547,11 @@ class SourceTree:
                 raise PreparationError(
                     "SDME did not materialize requested path {}".format(remote)
                 )
-            local.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
-            os.rename(fetched, local)
+            self.guard.rename_into(fetched, local)
             LOG.debug("copied %s", remote)
         finally:
-            shutil.rmtree(attempt, ignore_errors=True)
+            if os.path.lexists(attempt):
+                self.guard.remove_subtree(attempt)
         return local
 
     def copy_directory(self, remote: PurePosixPath) -> Path:
@@ -498,7 +746,7 @@ def _copy_library(
     for candidate in _library_candidates(architecture, name):
         try:
             return source.copy_symlink_chain(candidate)
-        except PreparationError:
+        except SdmeCopyError:
             pass
     raise PreparationError(
         "cannot copy ELF dependency {} from {}".format(name, source.runtime_fs)
@@ -571,48 +819,51 @@ def copy_runtime_closure(
                 queued.add(library_remote)
 
 
-def create_mountpoints(destination: Path) -> None:
+def create_mountpoints(guard: DestinationGuard) -> None:
     for name in ("proc", "dev", "tmp"):
-        path = destination / name
-        path.mkdir(mode=0o755, exist_ok=True)
-        if path.is_symlink() or not path.is_dir():
-            raise PreparationError("mountpoint is not a directory: /{}".format(name))
+        guard.ensure_directory(guard.destination / name)
 
 
-def freeze_tree(destination: Path) -> None:
+def freeze_tree(guard: DestinationGuard) -> None:
+    destination = guard.destination
+    guard.verify_directory(destination)
     for current, directories, files in os.walk(destination, topdown=False):
         root = Path(current)
         for name in files:
             path = root / name
-            metadata = path.lstat()
+            metadata = guard.verify_entry(path)
             if stat.S_ISLNK(metadata.st_mode):
                 continue
             if not stat.S_ISREG(metadata.st_mode):
                 raise PreparationError("unsupported file in probe root: {}".format(path))
             mode = 0o555 if stat.S_IMODE(metadata.st_mode) & 0o111 else 0o444
-            path.chmod(mode)
+            guard.chmod(path, mode)
         for name in directories:
             path = root / name
             if not path.is_symlink():
-                path.chmod(0o555)
-    destination.chmod(0o555)
+                guard.chmod(path, 0o555)
+    guard.chmod(destination, 0o555)
 
 
-def _make_tree_writable(destination: Path) -> None:
+def _make_tree_writable(guard: DestinationGuard) -> None:
+    destination = guard.destination
     if not os.path.lexists(destination):
         return
+    guard.verify_directory(destination)
     for current, directories, files in os.walk(destination, topdown=False):
         root = Path(current)
         for name in files:
             path = root / name
             if not path.is_symlink():
-                path.chmod(stat.S_IMODE(path.stat().st_mode) | 0o600)
+                metadata = guard.verify_entry(path)
+                guard.chmod(path, stat.S_IMODE(metadata.st_mode) | 0o600)
         for name in directories:
             path = root / name
             if not path.is_symlink():
-                path.chmod(stat.S_IMODE(path.stat().st_mode) | 0o700)
-    if not destination.is_symlink():
-        destination.chmod(stat.S_IMODE(destination.stat().st_mode) | 0o700)
+                metadata = guard.verify_entry(path)
+                guard.chmod(path, stat.S_IMODE(metadata.st_mode) | 0o700)
+    metadata = guard.verify_entry(destination)
+    guard.chmod(destination, stat.S_IMODE(metadata.st_mode) | 0o700)
 
 
 def validate_frozen_tree(destination: Path) -> None:
@@ -669,6 +920,7 @@ def _read_existing(
     runtime_fs: str,
     architecture: str,
     tar: Path,
+    guard: DestinationGuard | None = None,
 ) -> ExistingProbeRoot | None:
     marker = manifest_path(destination)
     destination_exists = os.path.lexists(destination)
@@ -679,6 +931,8 @@ def _read_existing(
         raise PreparationError("incomplete existing probe root or manifest")
     if destination.is_symlink() or not destination.is_dir():
         raise PreparationError("existing destination is not a directory")
+    if guard is not None:
+        guard.bind_existing_root()
     if marker.is_symlink() or not marker.is_file():
         raise PreparationError("probe-root manifest is not a regular file")
     try:
@@ -716,11 +970,12 @@ def _read_existing(
 
 
 def _write_manifest(
-    destination: Path,
+    guard: DestinationGuard,
     runtime_fs: str,
     architecture: str,
     digest: str,
 ) -> None:
+    destination = guard.destination
     marker = manifest_path(destination)
     temporary = marker.with_name(".{}.tmp.{}".format(marker.name, os.getpid()))
     payload = json.dumps(
@@ -735,21 +990,26 @@ def _write_manifest(
     descriptor = None
     linked = False
     try:
+        guard.verify_ancestors()
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             descriptor = None
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
+        guard.verify_ancestors()
         temporary.chmod(0o444)
+        guard.verify_ancestors()
         os.link(temporary, marker)
         linked = True
+        guard.verify_ancestors()
         temporary.unlink()
     except OSError as exc:
         if linked:
             try:
+                guard.verify_ancestors()
                 marker.unlink()
-            except OSError:
+            except (OSError, PreparationError):
                 pass
         raise PreparationError("cannot write probe-root manifest: {}".format(exc)) from exc
     finally:
@@ -757,24 +1017,27 @@ def _write_manifest(
             os.close(descriptor)
         if os.path.lexists(temporary):
             try:
+                guard.verify_ancestors()
                 temporary.unlink()
-            except OSError:
+            except (OSError, PreparationError):
                 pass
 
 
-def _remove_created_output(destination: Path, marker_created: bool) -> None:
+def _remove_created_output(guard: DestinationGuard, marker_created: bool) -> None:
     errors = []
+    destination = guard.destination
     marker = manifest_path(destination)
     if marker_created:
         try:
+            guard.verify_ancestors()
             marker.unlink()
         except OSError as exc:
             errors.append("manifest: {}".format(exc))
     if os.path.lexists(destination):
         try:
-            _make_tree_writable(destination)
-            shutil.rmtree(destination)
-        except OSError as exc:
+            _make_tree_writable(guard)
+            guard.remove_subtree(destination)
+        except (OSError, PreparationError) as exc:
             errors.append("destination: {}".format(exc))
     if os.path.lexists(destination):
         errors.append("destination remains at {}".format(destination))
@@ -792,6 +1055,12 @@ def plan(
     print("PLAN runtime-fs fs:{}".format(runtime_fs))
     print("PLAN architecture {}".format(architecture))
     print("PLAN destination {}".format(destination))
+    try:
+        admit_apply_destination(destination)
+    except PreparationError as exc:
+        print("PLAN apply-admission FAIL {}".format(exc))
+    else:
+        print("PLAN apply-admission PASS root-owned non-writable ancestry")
     if existing is not None:
         print("PLAN reuse sha256={}".format(existing.digest))
         return existing.digest
@@ -807,37 +1076,43 @@ def apply(
     client: SdmeClient,
     runtime_fs: str,
     architecture: str,
-    destination: Path,
+    guard: DestinationGuard,
     tar: Path,
 ) -> str:
+    destination = guard.destination
     names = client.rootfs_names()
     if runtime_fs not in names:
         raise PreparationError("SDME runtime rootfs is not imported: {}".format(runtime_fs))
-    existing = _read_existing(destination, runtime_fs, architecture, tar)
+    existing = _read_existing(
+        destination,
+        runtime_fs,
+        architecture,
+        tar,
+        guard,
+    )
     if existing is not None:
         return existing.digest
 
     created = False
     marker_created = False
     try:
-        with tempfile.TemporaryDirectory(
-            prefix=".{}-fetch-".format(destination.name),
-            dir=destination.parent,
-        ) as temporary:
-            destination.mkdir(mode=0o700)
-            created = True
-            source = SourceTree(client, runtime_fs, destination, Path(temporary))
-            copy_runtime_closure(source, architecture)
-            create_mountpoints(destination)
-            freeze_tree(destination)
-            digest = tree_digest(destination, tar)
-            _write_manifest(destination, runtime_fs, architecture, digest)
-            marker_created = True
+        guard.create_root()
+        created = True
+        fetch_root = destination / ".fetch"
+        guard.ensure_directory(fetch_root, mode=0o700)
+        source = SourceTree(client, runtime_fs, guard, fetch_root)
+        copy_runtime_closure(source, architecture)
+        guard.remove_subtree(fetch_root)
+        create_mountpoints(guard)
+        freeze_tree(guard)
+        digest = tree_digest(destination, tar)
+        _write_manifest(guard, runtime_fs, architecture, digest)
+        marker_created = True
         return digest
     except BaseException as exc:
         if created:
             try:
-                _remove_created_output(destination, marker_created)
+                _remove_created_output(guard, marker_created)
             except PreparationError as cleanup_error:
                 raise PreparationError(
                     "preparation failed: {}; {}".format(exc, cleanup_error)
@@ -863,12 +1138,13 @@ def main(argv: list[str] | None = None, effective_uid: int | None = None) -> int
         uid = os.geteuid() if effective_uid is None else effective_uid
         if uid != 0:
             raise PreparationError("apply must run as root")
+        guard = admit_apply_destination(destination)
         sdme = resolve_executable(args.sdme)
         digest = apply(
             SdmeClient(sdme, args.verbose),
             args.runtime_fs,
             args.arch,
-            destination,
+            guard,
             tar,
         )
         print(digest)

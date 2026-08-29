@@ -129,7 +129,7 @@ class FakeSdme:
             raise prepare.PreparationError("missing fake rootfs")
         local = self.source.joinpath(*source.parts[1:])
         if not os.path.lexists(local):
-            raise prepare.PreparationError("missing fake path {}".format(source))
+            raise prepare.SdmeCopyError("missing fake path {}".format(source))
         target = destination / source.name
         if local.is_symlink():
             target.symlink_to(os.readlink(local))
@@ -187,6 +187,12 @@ class ProbeRootTest(unittest.TestCase):
         self.destination = self.base / "probe-root"
         self.tar = Path(shutil.which("tar") or "/usr/bin/tar").resolve()
         self._create_source()
+
+    def _guard(self, destination: Path | None = None) -> prepare.DestinationGuard:
+        return prepare.DestinationGuard.capture(
+            destination or self.destination,
+            require_safe_ancestors=False,
+        )
 
     def _create_source(
         self,
@@ -247,7 +253,7 @@ class ProbeRootTest(unittest.TestCase):
             client,
             "runtime",
             "x86_64",
-            self.destination,
+            self._guard(),
             self.tar,
         )
 
@@ -288,7 +294,7 @@ class ProbeRootTest(unittest.TestCase):
             client,
             "runtime",
             "x86_64",
-            self.destination,
+            self._guard(),
             self.tar,
         )
         copy_count = len(client.copies)
@@ -297,7 +303,7 @@ class ProbeRootTest(unittest.TestCase):
             client,
             "runtime",
             "x86_64",
-            self.destination,
+            self._guard(),
             self.tar,
         )
 
@@ -311,7 +317,7 @@ class ProbeRootTest(unittest.TestCase):
             FakeSdme(self.source),
             "runtime",
             "aarch64",
-            self.destination,
+            self._guard(),
             self.tar,
         )
 
@@ -333,7 +339,7 @@ class ProbeRootTest(unittest.TestCase):
                 FakeSdme(self.source),
                 "runtime",
                 "x86_64",
-                self.destination,
+                self._guard(),
                 self.tar,
             )
 
@@ -341,7 +347,7 @@ class ProbeRootTest(unittest.TestCase):
 
     def test_rejects_changed_existing_destination(self) -> None:
         client = FakeSdme(self.source)
-        prepare.apply(client, "runtime", "x86_64", self.destination, self.tar)
+        prepare.apply(client, "runtime", "x86_64", self._guard(), self.tar)
         module = self.destination / "usr/lib/python3.14/os.py"
         module.chmod(0o644)
         module.write_text("changed\n", encoding="utf-8")
@@ -352,7 +358,7 @@ class ProbeRootTest(unittest.TestCase):
                 client,
                 "runtime",
                 "x86_64",
-                self.destination,
+                self._guard(),
                 self.tar,
             )
 
@@ -366,7 +372,7 @@ class ProbeRootTest(unittest.TestCase):
                 client,
                 "runtime",
                 "x86_64",
-                self.destination,
+                self._guard(),
                 self.tar,
             )
 
@@ -380,7 +386,7 @@ class ProbeRootTest(unittest.TestCase):
                 FakeSdme(self.source),
                 "runtime",
                 "x86_64",
-                self.destination,
+                self._guard(),
                 self.tar,
             )
 
@@ -405,6 +411,7 @@ class ProbeRootTest(unittest.TestCase):
 
         self.assertEqual(status, 0, errors.getvalue())
         self.assertIn("PLAN copy /usr/bin/python3", output.getvalue())
+        self.assertIn("PLAN apply-admission FAIL", output.getvalue())
         self.assertFalse(self.destination.exists())
         self.assertFalse(prepare.manifest_path(self.destination).exists())
 
@@ -440,6 +447,10 @@ class ProbeRootTest(unittest.TestCase):
         with (
             patch("prepare_worker_probe_root.platform.machine", return_value="x86_64"),
             patch("prepare_worker_probe_root.resolve_executable", side_effect=resolve),
+            patch(
+                "prepare_worker_probe_root.admit_apply_destination",
+                return_value=self._guard(),
+            ),
             patch("prepare_worker_probe_root.SdmeClient", return_value=client),
             redirect_stdout(output),
             redirect_stderr(errors),
@@ -461,6 +472,109 @@ class ProbeRootTest(unittest.TestCase):
             prepare.validate_destination(Path("/home/operator/probe"))
         with self.assertRaisesRegex(prepare.PreparationError, "repository checkout"):
             prepare.validate_destination(prepare.REPO_ROOT / "probe")
+
+    def test_apply_admission_rejects_world_writable_ancestor(self) -> None:
+        with self.assertRaisesRegex(
+            prepare.PreparationError,
+            "writable by group or other: /tmp",
+        ):
+            prepare.admit_apply_destination(self.destination)
+
+    def test_guard_rejects_replaced_destination_parent(self) -> None:
+        parent = self.base / "trusted-parent"
+        parent.mkdir(mode=0o755)
+        destination = parent / "probe"
+        guard = self._guard(destination)
+        guard.create_root()
+        displaced = self.base / "displaced-parent"
+        parent.rename(displaced)
+        parent.mkdir(mode=0o755)
+
+        with self.assertRaisesRegex(prepare.PreparationError, "ancestor was replaced"):
+            guard.ensure_directory(destination / "usr")
+
+        self.assertFalse(destination.exists())
+        self.assertTrue((displaced / "probe").is_dir())
+
+    def test_fetch_rejects_symlinked_output_parent(self) -> None:
+        payload = self.source / "usr/lib/payload"
+        payload.write_text("payload\n", encoding="utf-8")
+        external = self.base / "outside"
+        external.mkdir()
+        guard = self._guard()
+        guard.create_root()
+        fetch_root = self.destination / ".fetch"
+        guard.ensure_directory(fetch_root, mode=0o700)
+        guard.ensure_directory(self.destination / "usr")
+        (self.destination / "usr/lib").symlink_to(external)
+        source = prepare.SourceTree(
+            FakeSdme(self.source),
+            "runtime",
+            guard,
+            fetch_root,
+        )
+
+        with self.assertRaisesRegex(prepare.PreparationError, "real directory"):
+            source._fetch(PurePosixPath("/usr/lib/payload"))
+
+        self.assertFalse((external / "payload").exists())
+
+    def test_fetch_rejects_parent_symlink_copied_with_stdlib(self) -> None:
+        external = self.base / "outside"
+        external.mkdir()
+        payload = external / "payload"
+        payload.write_text("preserve\n", encoding="utf-8")
+        (self.source / "usr/lib/python3.14/escape").symlink_to(external)
+        guard = self._guard()
+        guard.create_root()
+        fetch_root = self.destination / ".fetch"
+        guard.ensure_directory(fetch_root, mode=0o700)
+        source = prepare.SourceTree(
+            FakeSdme(self.source),
+            "runtime",
+            guard,
+            fetch_root,
+        )
+        source.copy_directory(PurePosixPath("/usr/lib/python3.14"))
+
+        with self.assertRaisesRegex(prepare.PreparationError, "real directory"):
+            source._fetch(PurePosixPath("/usr/lib/python3.14/escape/payload"))
+
+        self.assertEqual(payload.read_text(encoding="utf-8"), "preserve\n")
+
+    def test_cleanup_refuses_replaced_root_symlink(self) -> None:
+        guard = self._guard()
+        guard.create_root()
+        original = self.base / "original-probe"
+        self.destination.rename(original)
+        external = self.base / "outside"
+        external.mkdir()
+        sentinel = external / "sentinel"
+        sentinel.write_text("preserve\n", encoding="utf-8")
+        self.destination.symlink_to(external, target_is_directory=True)
+
+        with self.assertRaisesRegex(prepare.PreparationError, "cleanup failed"):
+            prepare._remove_created_output(guard, marker_created=False)
+
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+        self.assertTrue(original.is_dir())
+
+    def test_cleanup_refuses_replaced_subdirectory(self) -> None:
+        guard = self._guard()
+        guard.create_root()
+        subtree = self.destination / "subtree"
+        guard.ensure_directory(subtree)
+        original = self.destination / "original-subtree"
+        subtree.rename(original)
+        subtree.mkdir()
+        sentinel = subtree / "sentinel"
+        sentinel.write_text("preserve\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(prepare.PreparationError, "replaced before removal"):
+            guard.remove_subtree(subtree)
+
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+        self.assertTrue(original.is_dir())
 
     def test_rejects_invalid_fake_sdme_inventory(self) -> None:
         with self.assertRaisesRegex(prepare.PreparationError, "inventory shape"):
