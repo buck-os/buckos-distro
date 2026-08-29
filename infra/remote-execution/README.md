@@ -38,6 +38,30 @@ infra/remote-execution/scripts/sdme-provision.sh plan worker \
 
 Use `--min-scratch-inodes 0` only for a filesystem such as Btrfs that reports dynamic inode accounting. Fixed-inode filesystems require a measured positive value.
 
+On a fresh worker, prepare the native runtime before creating the immutable probe root. The preparation phase acquires and imports the pinned images, builds the runtime filesystem, and validates its provenance without creating a container or writing service state:
+
+```sh
+infra/remote-execution/scripts/sdme-provision.sh prepare-runtime worker \
+  --arch x86_64 \
+  --data-root /srv/buckos-re
+
+probe_sha256=$(infra/remote-execution/scripts/prepare-worker-probe-root.sh apply \
+  --runtime-fs buckos-re-runtime-5c2e6eca51c6 \
+  --arch x86_64 \
+  --destination /srv/buckos-re/probe-root)
+
+infra/remote-execution/scripts/sdme-provision.sh plan worker \
+  --arch x86_64 \
+  --data-root /srv/buckos-re \
+  --control-address CONTROL_ADDRESS \
+  --probe-sysroot /srv/buckos-re/probe-root \
+  --probe-sysroot-sha256 "$probe_sha256" \
+  --min-scratch-bytes BYTES \
+  --min-scratch-inodes 0
+```
+
+After reviewing the worker plan, replace `plan` with `apply` while retaining the probe path and digest. Run each mutating command as root and select the host's native architecture.
+
 ## Apply the deployment
 
 After reviewing the plan, replace `plan` with `apply` and run as root. Applying imports the pinned Ubuntu and NativeLink images, builds a native runtime rootfs, creates or validates the requested SDME container, installs the tracked configuration, and starts the systemd service.

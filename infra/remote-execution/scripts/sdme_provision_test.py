@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import platform
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -14,6 +16,7 @@ SCRIPT = ROOT / "infra/remote-execution/scripts/sdme-provision.sh"
 ROOTFS = ROOT / "infra/remote-execution/sdme/worker-rootfs.sdme"
 DROP_IN = ROOT / "infra/remote-execution/sdme/worker-preflight.conf"
 ADDRESS_SELECTOR = ROOT / "infra/remote-execution/scripts/sdme_select_address.py"
+RUNTIME_FS = "buckos-re-runtime-5c2e6eca51c6"
 
 
 def tree_digest(path: Path) -> str:
@@ -91,6 +94,59 @@ class ProvisionPlanTest(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
 
+    def install_fake_runtime_tools(self, architecture: str) -> Path:
+        fake_bin = self.external / "fake-bin"
+        fake_bin.mkdir(mode=0o755)
+        log = self.external / "commands.log"
+        quoted_log = shlex.quote(str(log))
+        (fake_bin / "sdme").write_text(
+            """#!/bin/sh
+set -eu
+printf 'sdme %s\\n' "$*" >> {log}
+if [ "$1" = fs ] && [ "$2" = ls ]; then
+  printf '[]\\n'
+elif [ "$1" = cp ]; then
+  printf '%s\\n' \\
+    'ubuntu_image=docker.io/library/ubuntu@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b' \\
+    'nativelink_image=ghcr.io/tracemachina/nativelink@sha256:5c2e6eca51c6d3ac40b94f703e08a243fd036cc136cc858a99040ca90fa57d61' \\
+    'architecture={architecture}' > "$3/runtime-images"
+fi
+""".format(log=quoted_log, architecture=architecture),
+            encoding="utf-8",
+        )
+        (fake_bin / "podman").write_text(
+            """#!/bin/sh
+set -eu
+printf 'podman %s\\n' "$*" >> {log}
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --output ]; then
+    shift
+    : > "$1"
+  fi
+  shift
+done
+""".format(log=quoted_log),
+            encoding="utf-8",
+        )
+        (fake_bin / "systemctl").write_text(
+            """#!/bin/sh
+printf 'systemctl %s\\n' "$*" >> {log}
+exit 1
+""".format(log=quoted_log),
+            encoding="utf-8",
+        )
+        for executable in fake_bin.iterdir():
+            executable.chmod(0o755)
+
+        fixed_path = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        script = self.script.read_text(encoding="utf-8")
+        self.script.write_text(
+            script.replace(fixed_path, "PATH={}:{}".format(fake_bin, fixed_path[5:])),
+            encoding="utf-8",
+        )
+        self.script.chmod(0o755)
+        return log
+
     def worker_arguments(self) -> list[str]:
         return [
             "plan",
@@ -123,7 +179,90 @@ class ProvisionPlanTest(unittest.TestCase):
         self.assertNotIn("--hardened", result.stdout)
         self.assertIn("sha256:2260313b31c8", result.stdout)
         self.assertIn("sha256:5c2e6eca51c6", result.stdout)
+        self.assertIn("prepare-runtime worker", result.stdout)
+        self.assertIn("prepare-worker-probe-root.sh apply", result.stdout)
+        self.assertIn("# 3. Apply the worker with that probe path and digest:", result.stdout)
         self.assertFalse((self.external / "data").exists())
+
+    def test_prepare_runtime_has_no_container_or_service_operations(self) -> None:
+        architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+            platform.machine(), platform.machine()
+        )
+        if architecture not in ("x86_64", "aarch64"):
+            self.skipTest("unsupported test architecture")
+        log = self.install_fake_runtime_tools(architecture)
+        data_root = self.external / "data"
+
+        result = self.run_script(
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(data_root),
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertIn("podman pull", commands)
+        self.assertIn("sdme fs import", commands)
+        self.assertIn("sdme fs build {}".format(RUNTIME_FS), commands)
+        self.assertIn("sdme cp fs:{}:".format(RUNTIME_FS), commands)
+        for forbidden in (
+            "sdme create",
+            "sdme start",
+            "sdme exec",
+            "systemctl ",
+            "nativelink.env",
+            "--port",
+        ):
+            self.assertNotIn(forbidden, commands)
+        self.assertTrue((data_root / "images").is_dir())
+        self.assertTrue((data_root / "provision").is_dir())
+        self.assertFalse((data_root / "worker-{}".format(architecture)).exists())
+
+    def test_worker_apply_still_requires_probe_contract(self) -> None:
+        architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+            platform.machine(), platform.machine()
+        )
+        if architecture not in ("x86_64", "aarch64"):
+            self.skipTest("unsupported test architecture")
+        log = self.install_fake_runtime_tools(architecture)
+
+        result = self.run_script(
+            "apply",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(self.external / "data"),
+            "--control-address",
+            "buckos-re-control",
+            "--min-scratch-bytes",
+            "1000000",
+            "--min-scratch-inodes",
+            "0",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--probe-sysroot must be absolute", result.stderr)
+        self.assertFalse(log.exists())
+
+    def test_prepare_runtime_rejects_deployment_options(self) -> None:
+        self.install_fake_runtime_tools("x86_64")
+        result = self.run_script(
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--control-address",
+            "buckos-re-control",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("accepts only --data-root, --arch, and acquisition options", result.stderr)
 
     def test_rootfs_and_drop_in_preserve_worker_contract(self) -> None:
         rootfs = ROOTFS.read_text(encoding="utf-8")

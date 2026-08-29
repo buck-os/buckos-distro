@@ -26,6 +26,7 @@ role=''
 arch=''
 data_root=''
 zone='buckos-re'
+zone_supplied=0
 container_name=''
 control_address=''
 control_worker_bind_address=''
@@ -69,6 +70,8 @@ usage: sdme-provision.sh OPERATION ROLE [OPTIONS]
 
 Operations:
   plan       print the planned mutating commands without running them
+  prepare-runtime
+             acquire/import pinned images and build/validate the worker runtime
   apply      import images, build the runtime, and create/update the service
   status     show the container and NativeLink unit status
   start      start the existing container
@@ -79,7 +82,7 @@ Roles:
   control    combined CAS, action cache, scheduler, and REAPI service
   worker     native worker selected from the host architecture
 
-Required for plan/apply:
+Required for plan/prepare-runtime/apply:
   --data-root PATH              absolute persistent data root
 
 Required for worker plan/apply:
@@ -308,7 +311,7 @@ parse_args() {
     shift 2
 
     case "$operation" in
-        plan|apply|status|start|stop|restart) ;;
+        plan|prepare-runtime|apply|status|start|stop|restart) ;;
         *) die "unknown operation: $operation" ;;
     esac
     case "$role" in
@@ -319,7 +322,7 @@ parse_args() {
     while (($#)); do
         case "$1" in
             --data-root) (($# >= 2)) || die "$1 needs a value"; data_root="$2"; shift 2 ;;
-            --zone) (($# >= 2)) || die "$1 needs a value"; zone="$2"; shift 2 ;;
+            --zone) (($# >= 2)) || die "$1 needs a value"; zone="$2"; zone_supplied=1; shift 2 ;;
             --container-name) (($# >= 2)) || die "$1 needs a value"; container_name="$2"; shift 2 ;;
             --arch) (($# >= 2)) || die "$1 needs a value"; arch=$(normalize_arch "$2") || die "unsupported architecture: $2"; shift 2 ;;
             --control-address) (($# >= 2)) || die "$1 needs a value"; control_address="$2"; shift 2 ;;
@@ -348,6 +351,9 @@ set_defaults() {
     if [[ -z "$arch" ]]; then
         arch=$(normalize_arch "$(uname -m)") || die "unsupported native architecture: $(uname -m)"
     fi
+    if [[ "$operation" == prepare-runtime ]]; then
+        return
+    fi
     validate_name "$zone"
 
     if [[ "$role" == control ]]; then
@@ -369,11 +375,18 @@ set_defaults() {
 
 validate_operation_args() {
     case "$operation" in
-        plan|apply)
+        plan|prepare-runtime|apply)
             reject_placeholder '--data-root' "$data_root"
             validate_data_root
             ;;
     esac
+
+    if [[ "$operation" == prepare-runtime ]]; then
+        [[ "$role" == worker ]] || die "prepare-runtime is valid only for the worker role"
+        if [[ -n "$container_name$control_address$memory$cpus$root_disk$probe_sysroot$probe_sysroot_sha256$min_scratch_bytes$min_scratch_inodes$cas_max_bytes$ac_max_bytes$worker_cas_max_bytes$client_cidrs$worker_cidrs$firewall_check" ]] || ((publish || zone_supplied)); then
+            die "prepare-runtime accepts only --data-root, --arch, and acquisition options"
+        fi
+    fi
 
     if [[ "$role" == worker && "$operation" =~ ^(plan|apply)$ ]]; then
         validate_control_address
@@ -405,15 +418,15 @@ validate_operation_args() {
         die "firewall options require --publish"
     fi
 
-    if [[ "$operation" == apply ]]; then
+    if [[ "$operation" =~ ^(prepare-runtime|apply)$ ]]; then
         local native
         native=$(normalize_arch "$(uname -m)") || die "unsupported native architecture: $(uname -m)"
-        [[ "$arch" == "$native" ]] || die "apply requires a native $arch host; this host is $native"
-        ((EUID == 0)) || die "apply must run as root"
+        [[ "$arch" == "$native" ]] || die "$operation requires a native $arch host; this host is $native"
+        ((EUID == 0)) || die "$operation must run as root"
     fi
 }
 
-validate_metadata() {
+validate_runtime_metadata() {
     local metadata="$asset_root/nativelink/deployment.json"
     metadata=$(validate_safe_file 'NativeLink deployment metadata' "$metadata")
     "$python_bin" - "$metadata" "$NATIVELINK_IMAGE" <<'PY'
@@ -429,8 +442,23 @@ if actual != expected:
 if data.get("image", {}).get("version") != "v1.6.6":
     raise SystemExit("NativeLink metadata version is not v1.6.6")
 PY
+}
 
+validate_metadata() {
+    validate_runtime_metadata
     "$python_bin" "$repo_root/tools/nativelink_config.py" "$asset_root/nativelink"
+}
+
+validate_runtime_assets() {
+    local files=(
+        "$asset_root/nativelink/deployment.json"
+        "$asset_root/sdme/worker-rootfs.sdme"
+    )
+    local file
+    for file in "${files[@]}"; do
+        validate_safe_file 'runtime asset' "$file" >/dev/null
+    done
+    validate_runtime_metadata
 }
 
 validate_assets() {
@@ -490,8 +518,10 @@ prepare_tools() {
     if [[ "$operation" != plan ]]; then
         sdme_bin=$(resolve_command sdme)
     fi
-    if [[ "$operation" == apply ]]; then
+    if [[ "$operation" =~ ^(prepare-runtime|apply)$ ]]; then
         podman_bin=$(resolve_command podman)
+    fi
+    if [[ "$operation" == apply ]]; then
         systemctl_bin=$(resolve_command systemctl)
     fi
 }
@@ -502,9 +532,15 @@ validate_host_prerequisites() {
         die "systemd-networkd.service must be active for the private SDME zone"
 }
 
-role_paths() {
+runtime_paths() {
     images_dir="$data_root/images"
     provision_dir="$data_root/provision"
+    ubuntu_archive="$images_dir/ubuntu-2604-${arch}.oci.tar"
+    nativelink_archive="$images_dir/nativelink-166-${arch}.oci.tar"
+}
+
+role_paths() {
+    runtime_paths
     if [[ "$role" == control ]]; then
         state_dir="$data_root/control"
         scratch_dir=''
@@ -515,8 +551,6 @@ role_paths() {
         config_file="$asset_root/nativelink/worker-${arch}.json5"
     fi
     unit_file="$asset_root/nativelink/nativelink.service"
-    ubuntu_archive="$images_dir/ubuntu-2604-${arch}.oci.tar"
-    nativelink_archive="$images_dir/nativelink-166-${arch}.oci.tar"
     env_file="$provision_dir/${container_name}.env"
 }
 
@@ -544,6 +578,35 @@ plan_commands() {
     platform=$(oci_arch "$arch")
     printf '# Native architecture: %s\n' "$arch"
     printf '# Existing matching filesystems and containers are reused. Mismatched containers are refused.\n'
+    if [[ "$role" == worker ]]; then
+        printf '# Fresh worker bootstrap sequence:\n'
+        printf '# 1. Prepare and validate the native runtime without creating a container:\n'
+        print_command "$asset_root/scripts/sdme-provision.sh" prepare-runtime worker \
+            --arch "$arch" --data-root "$data_root"
+        printf '# 2. Create the immutable probe root; its stdout is the probe SHA-256:\n'
+        print_command "$asset_root/scripts/prepare-worker-probe-root.sh" apply \
+            --runtime-fs "$RUNTIME_FS" --arch "$arch" --destination "$probe_sysroot"
+        printf '# 3. Apply the worker with that probe path and digest:\n'
+        local worker_apply=(
+            "$asset_root/scripts/sdme-provision.sh" apply worker
+            --arch "$arch"
+            --data-root "$data_root"
+            --zone "$zone"
+            --container-name "$container_name"
+            --memory "$memory"
+            --cpus "$cpus"
+            --root-disk "$root_disk"
+            --control-address "$control_address"
+            --probe-sysroot "$probe_sysroot"
+            --probe-sysroot-sha256 "$probe_sysroot_sha256"
+            --min-scratch-bytes "$min_scratch_bytes"
+            --min-scratch-inodes "$min_scratch_inodes"
+        )
+        if [[ -n "$worker_cas_max_bytes" ]]; then
+            worker_apply+=(--worker-cas-max-bytes "$worker_cas_max_bytes")
+        fi
+        print_command "${worker_apply[@]}"
+    fi
     print_command install -d -m 0750 "$images_dir" "$provision_dir" "$state_dir"
     if [[ "$role" == worker ]]; then
         print_command install -d -m 0750 "$scratch_dir"
@@ -759,6 +822,11 @@ ensure_runtime_fs() {
             "$asset_root/sdme/worker-rootfs.sdme" --timeout 600
     fi
     validate_runtime_fs
+}
+
+prepare_runtime() {
+    run_command install -d -m 0750 "$images_dir" "$provision_dir"
+    ensure_runtime_fs
 }
 
 validate_runtime_fs() {
@@ -1035,14 +1103,21 @@ main() {
     validate_operation_args
     validate_host_prerequisites
 
-    if [[ "$operation" =~ ^(plan|apply)$ ]]; then
-        role_paths
-        validate_assets
-        validate_probe_digest
-    fi
+    case "$operation" in
+        prepare-runtime)
+            runtime_paths
+            validate_runtime_assets
+            ;;
+        plan|apply)
+            role_paths
+            validate_assets
+            validate_probe_digest
+            ;;
+    esac
 
     case "$operation" in
         plan) plan_commands ;;
+        prepare-runtime) prepare_runtime ;;
         apply) apply_deployment ;;
         status)
             sdme_bin=$(resolve_command sdme)
