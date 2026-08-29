@@ -42,6 +42,20 @@ python_library(
     visibility = ["PUBLIC"],
 )
 
+python_library(
+    name = "nativelink_config_lib",
+    srcs = ["nativelink_config.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "nativelink_config",
+    main_module = "nativelink_config",
+    deps = [":nativelink_config_lib"],
+    visibility = ["PUBLIC"],
+)
+
 # ── Replay pipeline ──────────────────────────────────────────────────
 
 python_binary(
@@ -274,6 +288,13 @@ python_test(
     srcs = ["source_policy_test.py"],
     base_module = "",
     deps = [":source_policy"],
+)
+
+python_test(
+    name = "nativelink_config_test",
+    srcs = ["nativelink_config_test.py"],
+    base_module = "",
+    deps = [":nativelink_config_lib"],
 )
 
 python_test(

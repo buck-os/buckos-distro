@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "image": {
+    "repository": "ghcr.io/tracemachina/nativelink",
+    "version": "v1.6.6",
+    "source_commit": "a21edb0fc56879124e308bb9a67be679f8eaf885",
+    "digest": "sha256:5c2e6eca51c6d3ac40b94f703e08a243fd036cc136cc858a99040ca90fa57d61",
+    "reference": "ghcr.io/tracemachina/nativelink@sha256:5c2e6eca51c6d3ac40b94f703e08a243fd036cc136cc858a99040ca90fa57d61"
+  },
+  "instance_name": "main",
+  "ports": {
+    "reapi": 50051,
+    "worker_api": 50061
+  },
+  "platform_properties": {
+    "platform.OSFamily": [
+      "linux"
+    ],
+    "platform.arch": [
+      "x86_64",
+      "aarch64"
+    ]
+  },
+  "configs": {
+    "control": "control.json5",
+    "workers": {
+      "x86_64": "worker-x86_64.json5",
+      "aarch64": "worker-aarch64.json5"
+    },
+    "systemd_unit": "nativelink.service"
+  }
+}
