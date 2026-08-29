@@ -1,0 +1,9 @@
+python_test(
+    name = "preflight_worker_test",
+    srcs = [
+        "preflight_worker.py",
+        "preflight_worker_test.py",
+    ],
+    base_module = "",
+    deps = ["//tools:_isolation"],
+)
