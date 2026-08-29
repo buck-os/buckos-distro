@@ -1,0 +1,61 @@
+# Ubuntu 26.04 native architecture runtime for the NativeLink control plane and workers.
+# The source filesystem names are digest-specific inputs created by
+# sdme-provision.sh on each native host.
+
+FROM fs:buckos-re-ubuntu-2260313b31c8
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User="" update && \
+    DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User="" install -y --no-install-recommends \
+      bash \
+      bubblewrap \
+      build-essential \
+      bzip2 \
+      ca-certificates \
+      cpio \
+      devscripts \
+      dpkg-dev \
+      fakeroot \
+      gzip \
+      passwd \
+      python3 \
+      rpm \
+      rpm2cpio \
+      tar \
+      uidmap \
+      util-linux \
+      xz-utils \
+      zstd && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY fs:buckos-re-nativelink-5c2e6eca51c6:/oci/apps/buckos-re-nativelink-5c2e6eca51c6/root/nix /nix
+COPY fs:buckos-re-nativelink-5c2e6eca51c6:/oci/apps/buckos-re-nativelink-5c2e6eca51c6/root/bin/nativelink /opt/buckos-re/image-bin/nativelink
+
+RUN set -eu; \
+    source=$(readlink -f /opt/buckos-re/image-bin/nativelink); \
+    test -f "$source"; \
+    install -m 0755 "$source" /usr/bin/nativelink; \
+    test "$(/usr/bin/nativelink --version)" = "nativelink 1.6.6"; \
+    rm -rf /nix /opt/buckos-re/image-bin; \
+    getent group nativelink >/dev/null || groupadd --system nativelink; \
+    id nativelink >/dev/null 2>&1 || useradd --system --gid nativelink --home-dir /var/lib/nativelink --shell /usr/sbin/nologin nativelink; \
+    sed -i '/^nativelink:/d' /etc/subuid /etc/subgid; \
+    printf '%s\n' 'nativelink:65536:65536' >> /etc/subuid; \
+    printf '%s\n' 'nativelink:65536:65536' >> /etc/subgid; \
+    chmod 4755 /usr/bin/newuidmap /usr/bin/newgidmap; \
+    install -d -m 0755 /etc/nativelink /etc/systemd/system/nativelink.service.d /usr/local/libexec/buckos-re/tools /opt/buckos-re/probe-sysroot; \
+    install -d -m 0750 -o nativelink -g nativelink /var/lib/nativelink; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) runtime_arch=x86_64 ;; \
+      arm64) runtime_arch=aarch64 ;; \
+      *) exit 1 ;; \
+    esac; \
+    printf '%s\n' \
+      'ubuntu_image=docker.io/library/ubuntu@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b' \
+      'nativelink_image=ghcr.io/tracemachina/nativelink@sha256:5c2e6eca51c6d3ac40b94f703e08a243fd036cc136cc858a99040ca90fa57d61' \
+      "architecture=$runtime_arch" \
+      > /etc/nativelink/runtime-images
+
+RUN for tool in bash bwrap chroot dpkg-buildpackage dpkg-deb dpkg-source mount newgidmap newuidmap python3 rpm rpm2archive tar unshare; do \
+      command -v "$tool" >/dev/null || exit 1; \
+    done
