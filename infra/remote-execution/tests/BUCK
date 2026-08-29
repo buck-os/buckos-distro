@@ -1,0 +1,9 @@
+python_test(
+    name = "smoke_test_test",
+    srcs = ["smoke_test_test.py"],
+    base_module = "",
+    resources = {
+        "reapi_readiness.py": "//infra/remote-execution/scripts:reapi-readiness-source",
+        "smoke-test.sh": "//infra/remote-execution/scripts:smoke-test-script",
+    },
+)

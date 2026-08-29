@@ -11,11 +11,30 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[3]
-SCRIPT = ROOT / "infra/remote-execution/scripts/sdme-provision.sh"
-ROOTFS = ROOT / "infra/remote-execution/sdme/worker-rootfs.sdme"
-DROP_IN = ROOT / "infra/remote-execution/sdme/worker-preflight.conf"
-ADDRESS_SELECTOR = ROOT / "infra/remote-execution/scripts/sdme_select_address.py"
+TEST_ROOT = Path(__file__).resolve().parent
+REPOSITORY_ROOT = TEST_ROOT.parents[2]
+
+
+def test_resource(name: str, checkout_path: str) -> Path:
+    packaged = TEST_ROOT / name
+    if packaged.is_file():
+        return packaged
+    return REPOSITORY_ROOT / checkout_path
+
+
+SCRIPT = test_resource(
+    "sdme-provision.sh", "infra/remote-execution/scripts/sdme-provision.sh"
+)
+ROOTFS = test_resource(
+    "worker-rootfs.sdme", "infra/remote-execution/sdme/worker-rootfs.sdme"
+)
+DROP_IN = test_resource(
+    "worker-preflight.conf", "infra/remote-execution/sdme/worker-preflight.conf"
+)
+ADDRESS_SELECTOR = test_resource(
+    "sdme_select_address.py",
+    "infra/remote-execution/scripts/sdme_select_address.py",
+)
 RUNTIME_FS = "buckos-re-runtime-5c2e6eca51c6"
 
 

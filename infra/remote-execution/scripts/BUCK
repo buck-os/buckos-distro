@@ -25,3 +25,27 @@ python_test(
     ],
     base_module = "",
 )
+
+python_test(
+    name = "sdme_provision_test",
+    srcs = ["sdme_provision_test.py"],
+    base_module = "",
+    resources = {
+        "sdme-provision.sh": "sdme-provision.sh",
+        "sdme_select_address.py": "sdme_select_address.py",
+        "worker-preflight.conf": "//infra/remote-execution/sdme:worker-preflight",
+        "worker-rootfs.sdme": "//infra/remote-execution/sdme:worker-rootfs",
+    },
+)
+
+export_file(
+    name = "reapi-readiness-source",
+    src = "reapi_readiness.py",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "smoke-test-script",
+    src = "smoke-test.sh",
+    visibility = ["PUBLIC"],
+)

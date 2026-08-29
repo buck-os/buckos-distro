@@ -12,8 +12,14 @@ import time
 import unittest
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-SMOKE_TEST = REPOSITORY_ROOT / "infra/remote-execution/scripts/smoke-test.sh"
+TEST_ROOT = Path(__file__).resolve().parent
+PACKAGED_SMOKE_TEST = TEST_ROOT / "smoke-test.sh"
+if PACKAGED_SMOKE_TEST.is_file():
+    REPOSITORY_ROOT = TEST_ROOT
+    SMOKE_TEST = PACKAGED_SMOKE_TEST
+else:
+    REPOSITORY_ROOT = TEST_ROOT.parents[2]
+    SMOKE_TEST = REPOSITORY_ROOT / "infra/remote-execution/scripts/smoke-test.sh"
 
 
 FAKE_BUCK = r"""#!/usr/bin/env bash
