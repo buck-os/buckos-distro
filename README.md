@@ -6,7 +6,7 @@ Fedora 44 and 45, CentOS Stream 9 and 10, CentOS Hyperscale 9 and 10, Debian 13,
 
 ## Quick start
 
-The build runs on Linux. RPM-family builds need Python 3, GNU tar, `rpm2archive`, and either Bubblewrap or util-linux `unshare`. Debian-family builds need Python 3, GNU tar, `dpkg-source`, `dpkg-buildpackage`, `dpkg-deb`, and the same isolation choice. The unshare path also needs `newuidmap`, `newgidmap`, and subordinate UID and GID ranges for the build user.
+The build runs on Linux. RPM-family builds need Python 3, GNU tar, `rpm2archive`, and either Bubblewrap or util-linux `unshare`. Debian-family builds need Python 3, GNU tar, `dpkg-source`, `dpkg-buildpackage`, `dpkg-deb`, and the same isolation choice. Both isolation paths need `newuidmap`, `newgidmap`, and subordinate UID and GID ranges for the build user.
 
 `setup.sh` installs the open-source Buck2 binary under `$HOME/.local/bin` when no working `buck2` is already available. It also creates the ignored `prelude/` mount point and writes `.buckconfig.local` when that file does not exist. It does not install system packages.
 
