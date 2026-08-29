@@ -67,6 +67,18 @@ class TestSolveArgv(unittest.TestCase):
             [json.loads(value) for value in flags(argv, "--source-exception")],
             recorded()["source_exceptions"],
         )
+        self.assertIn("--strict", argv)
+
+    def test_probe_bootstrap_solve_is_not_strict(self):
+        argv = rpm_relock.solve_argv(
+            template(),
+            recorded(),
+            [],
+            "x86_64",
+            "/tmp/out.json",
+            strict=False,
+        )
+        self.assertNotIn("--strict", argv)
 
     def test_same_architecture_keeps_the_recorded_probe(self):
         result = rpm_relock.architecture_solve(
@@ -89,6 +101,11 @@ class TestConvergence(unittest.TestCase):
     def test_complete_lock_is_converged(self):
         state = rpm_relock.convergence_state({"packages": {}, "problems": []})
         self.assertTrue(rpm_relock.converged(state))
+
+    def test_missing_probe_forces_an_initial_pass(self):
+        state = rpm_relock.convergence_state({"packages": {}, "problems": []})
+        self.assertTrue(rpm_relock.probe_required(state, None))
+        self.assertFalse(rpm_relock.probe_required(state, "/tmp/probe.json"))
 
     def test_every_incomplete_state_is_exposed(self):
         state = rpm_relock.convergence_state({

@@ -61,7 +61,8 @@ def recorded_probe_path(template_path, recorded):
     return path
 
 
-def solve_argv(template, recorded, repos, target_cpu, output, probe=None):
+def solve_argv(template, recorded, repos, target_cpu, output, probe=None,
+               strict=True):
     argv = [
         "--flavor", template["flavor"],
         "--release", str(template["release"]),
@@ -99,7 +100,8 @@ def solve_argv(template, recorded, repos, target_cpu, output, probe=None):
     ):
         for value in recorded.get(key, []):
             argv += [flag, value]
-    argv.append("--strict")
+    if strict:
+        argv.append("--strict")
     return argv
 
 
@@ -125,6 +127,11 @@ def converged(state):
     return not any(state.values())
 
 
+def probe_required(state, probe_path):
+    """Whether a probe pass is still required for this solve state."""
+    return probe_path is None or not converged(state)
+
+
 def describe_state(state):
     return (
         "{} unresolved problem(s), {} unprobed package(s), {} unmet probe(s)"
@@ -141,9 +148,16 @@ def read_lock(path):
 
 
 def solve_and_generate(template, recorded, repos, target_cpu, output,
-                       probe_path=None):
+                       probe_path=None, strict=True):
     solve.main(solve_argv(
-        template, recorded, repos, target_cpu, output, probe=probe_path))
+        template,
+        recorded,
+        repos,
+        target_cpu,
+        output,
+        probe=probe_path,
+        strict=strict,
+    ))
     generate.main([output])
 
 
@@ -237,6 +251,7 @@ def main(argv=None):
         args.target_cpu,
         args.output,
         probe_path=initial_probe,
+        strict=not args.probe,
     )
     if not args.probe:
         return
@@ -252,10 +267,28 @@ def main(argv=None):
     for flag in args.config:
         config += ["-c", flag]
 
+    current_probe = initial_probe
     seen = set()
     while True:
         state = convergence_state(read_lock(args.output))
-        if converged(state):
+        if not probe_required(state, current_probe):
+            # Re-run the completed solve with strict diagnostics enabled.
+            # Intermediate probe solves must persist their problem state so
+            # Buck can generate the targets needed to discover the missing
+            # requirements; only the final solve is allowed to be strict.
+            solve_and_generate(
+                template,
+                recorded,
+                repos,
+                args.target_cpu,
+                args.output,
+                probe_path=current_probe,
+                strict=True,
+            )
+            final_state = convergence_state(read_lock(args.output))
+            if not converged(final_state):
+                sys.exit("{}: final strict solve is incomplete: {}".format(
+                    args.output, describe_state(final_state)))
             print("{}: solve/probe converged".format(args.output),
                   file=sys.stderr)
             return
@@ -271,13 +304,15 @@ def main(argv=None):
             config=config,
             buck2=probe_mod.resolve_buck2(root, args.buck2),
         )
+        current_probe = probe_mod.probe_path(args.output)
         solve_and_generate(
             template,
             recorded,
             repos,
             args.target_cpu,
             args.output,
-            probe_path=probe_mod.probe_path(args.output),
+            probe_path=current_probe,
+            strict=False,
         )
 
 
