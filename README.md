@@ -41,8 +41,8 @@ Each x86_64 Fedora release has zero static solve problems and zero unprobed dyna
 
 | Release | Source packages | Live image | Built from source | Staged targets | Probed |
 | ------- | --------------- | ---------- | ----------------- | -------------- | ------ |
-| 44      | 127             | 186        | 181               | 339            | 114    |
-| 45      | 131             | 193        | 187               | 351            | 119    |
+| 44      | 125             | 186        | 181               | 339            | 114    |
+| 45      | 129             | 193        | 187               | 351            | 119    |
 
 Solving, probing, and building are separate milestones. The `Probed` column counts source packages with checked-in dynamic `BuildRequires` reports; it does not claim that every reported requirement was satisfied or that every package builds. A graph is converged only when static solve problems, unprobed dynamic requirements, and dynamic-unmet records are all zero. The current x86_64 locks have zero static problems and zero unprobed requirements, but five dynamic-unmet records each.
 
