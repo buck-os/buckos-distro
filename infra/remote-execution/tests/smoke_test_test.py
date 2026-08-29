@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import textwrap
+import time
 import unittest
 
 
@@ -20,8 +21,24 @@ set -euo pipefail
 
 printf '%s|%s\n' "$(basename "$PWD")" "$*" >>"${FAKE_CALL_LOG:?}"
 
+if [[ ${1:-} != --isolation-dir || -z ${2:-} ]]; then
+    echo 'missing leading --isolation-dir' >&2
+    exit 91
+fi
+isolation=$2
+shift 2
+
 if [[ ${1:-} == --version ]]; then
     echo 'buck2 test-version'
+    exit 0
+fi
+
+if [[ ${1:-} == kill ]]; then
+    echo "cleanup isolation=$isolation"
+    if [[ ${FAKE_SCENARIO:-} == *cleanup_failure* ]]; then
+        echo 'simulated cleanup failure' >&2
+        exit 77
+    fi
     exit 0
 fi
 
@@ -76,6 +93,17 @@ EOF
 fi
 
 if [[ ${1:-} == build ]]; then
+    if [[ ${FAKE_SCENARIO:-} == *command_failure* ]]; then
+        echo 'simulated command failure' >&2
+        exit 42
+    fi
+    if [[ ${FAKE_SCENARIO:-} == signal_wait ]]; then
+        : >"${FAKE_BLOCK_MARKER:?}"
+        trap 'exit 143' TERM
+        while true; do
+            sleep 1
+        done
+    fi
     event_log=''
     while (($#)); do
         if [[ $1 == --event-log ]]; then
@@ -225,6 +253,7 @@ class SmokeTestScriptTest(unittest.TestCase):
         self.call_log = self.root / "buck-calls.log"
         self.helper_call_log = self.root / "helper-calls.log"
         self.python_call_log = self.root / "python-calls.log"
+        self.block_marker = self.root / "buck-blocked"
         self.grpc_helper = self.root / "reapi-helper"
         self.grpc_python = self.root / "python3"
 
@@ -257,6 +286,7 @@ class SmokeTestScriptTest(unittest.TestCase):
         environment["FAKE_HELPER_CALL_LOG"] = str(self.helper_call_log)
         environment["FAKE_PYTHON_CALL_LOG"] = str(self.python_call_log)
         environment["FAKE_SCENARIO"] = scenario
+        environment["FAKE_BLOCK_MARKER"] = str(self.block_marker)
         command = [
             "bash",
             str(SMOKE_TEST),
@@ -287,6 +317,13 @@ class SmokeTestScriptTest(unittest.TestCase):
             capture_output=True,
         )
 
+    def buck_calls(self) -> list[tuple[str, list[str]]]:
+        calls = []
+        for line in self.call_log.read_text(encoding="utf-8").splitlines():
+            client, arguments = line.split("|", 1)
+            calls.append((client, arguments.split()))
+        return calls
+
     def assert_success(self, result: subprocess.CompletedProcess[str]) -> None:
         self.assertEqual(
             result.returncode,
@@ -309,6 +346,14 @@ class SmokeTestScriptTest(unittest.TestCase):
         self.assert_success(result)
         self.assertIn("PASS readiness.capabilities", result.stdout)
         self.assertIn("PASS readiness.cas", result.stdout)
+        self.assertIn(
+            "PASS cleanup.client-a skipped=no-daemon-capable-command",
+            result.stdout,
+        )
+        self.assertIn(
+            "PASS cleanup.client-b skipped=no-daemon-capable-command",
+            result.stdout,
+        )
         calls = self.helper_call_log.read_text(encoding="utf-8")
         self.assertIn(
             "capabilities --endpoint re.test.invalid:50051 --instance-name main --tls false",
@@ -348,7 +393,7 @@ class SmokeTestScriptTest(unittest.TestCase):
             scenario="missing_grpc",
         )
 
-        self.assertEqual(1, result.returncode)
+        self.assertEqual(7, result.returncode)
         self.assertIn("FAIL readiness.python command exited 7", result.stdout)
         calls = self.python_call_log.read_text(encoding="utf-8").splitlines()
         self.assertEqual(1, len(calls))
@@ -394,6 +439,132 @@ class SmokeTestScriptTest(unittest.TestCase):
         )
         self.assertIn("--config buckos.remote_execution=false", calls)
         self.assertNotIn(":iso-", calls)
+
+    def test_every_buck_call_uses_distinct_derived_isolation(self) -> None:
+        result = self.run_smoke("cache")
+
+        self.assert_success(result)
+        calls = self.buck_calls()
+        isolations: dict[str, set[str]] = {"client-a": set(), "client-b": set()}
+        for client, arguments in calls:
+            self.assertGreaterEqual(len(arguments), 3)
+            self.assertEqual("--isolation-dir", arguments[0])
+            isolations[client].add(arguments[1])
+        self.assertEqual(1, len(isolations["client-a"]))
+        self.assertEqual(1, len(isolations["client-b"]))
+        self.assertNotEqual(isolations["client-a"], isolations["client-b"])
+        self.assertIn("PASS lifecycle.isolation", result.stdout)
+        self.assertIn("PASS cleanup.client-a", result.stdout)
+        self.assertIn("PASS cleanup.client-b", result.stdout)
+        for client in ("client-a", "client-b"):
+            evidence = self.event_dir / f"cleanup-{client}.log"
+            self.assertIn("exit_status=0", evidence.read_text(encoding="utf-8"))
+
+    def test_accepts_explicit_distinct_isolation_names(self) -> None:
+        result = self.run_smoke(
+            "cache",
+            "--client-a-isolation", "operator-a",
+            "--client-b-isolation", "operator-b",
+        )
+
+        self.assert_success(result)
+        self.assertIn(
+            "PASS lifecycle.isolation client-a=operator-a client-b=operator-b",
+            result.stdout,
+        )
+        for client, arguments in self.buck_calls():
+            expected = "operator-a" if client == "client-a" else "operator-b"
+            self.assertEqual(["--isolation-dir", expected], arguments[:2])
+
+    def test_rejects_identical_isolation_names(self) -> None:
+        result = self.run_smoke(
+            "cache",
+            "--client-a-isolation", "same",
+            "--client-b-isolation", "same",
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("client isolation directories must be distinct", result.stdout)
+
+    def test_command_failure_preserves_failure_and_cleans_both_clients(self) -> None:
+        result = self.run_smoke("cache", scenario="command_failure")
+
+        self.assertEqual(42, result.returncode)
+        self.assertIn("FAIL cache.client-a.build command exited 42", result.stdout)
+        self.assertIn("PASS cleanup.client-a", result.stdout)
+        self.assertIn("PASS cleanup.client-b", result.stdout)
+        kill_calls = [args for _client, args in self.buck_calls() if args[2:] == ["kill"]]
+        self.assertEqual(2, len(kill_calls))
+
+    def test_cleanup_failure_changes_success_to_failure(self) -> None:
+        result = self.run_smoke("cache", scenario="cleanup_failure")
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("FAIL cleanup.client-a command exited 77", result.stdout)
+        self.assertIn("FAIL cleanup.client-b command exited 77", result.stdout)
+        self.assertIn("FAIL smoke-test post-run validation failed", result.stdout)
+        self.assertIn(
+            "exit_status=77",
+            (self.event_dir / "cleanup-client-a.log").read_text(encoding="utf-8"),
+        )
+
+    def test_cleanup_failure_does_not_hide_command_failure(self) -> None:
+        result = self.run_smoke(
+            "cache", scenario="command_failure,cleanup_failure"
+        )
+
+        self.assertEqual(42, result.returncode)
+        self.assertIn("FAIL cache.client-a.build command exited 42", result.stdout)
+        self.assertIn("FAIL cleanup.client-a command exited 77", result.stdout)
+        self.assertIn("FAIL cleanup.client-b command exited 77", result.stdout)
+        self.assertNotIn("FAIL smoke-test post-run validation failed", result.stdout)
+
+    def test_term_signal_preserves_status_and_runs_cleanup(self) -> None:
+        environment = os.environ.copy()
+        environment["FAKE_CALL_LOG"] = str(self.call_log)
+        environment["FAKE_HELPER_CALL_LOG"] = str(self.helper_call_log)
+        environment["FAKE_SCENARIO"] = "signal_wait"
+        environment["FAKE_BLOCK_MARKER"] = str(self.block_marker)
+        command = [
+            "bash",
+            str(SMOKE_TEST),
+            "--stage", "cache",
+            "--client-a", str(self.client_a),
+            "--client-b", str(self.client_b),
+            "--endpoint", "re.test.invalid:50051",
+            "--instance-name", "main",
+            "--tls", "false",
+            "--event-dir", str(self.event_dir),
+            "--timeout-seconds", "30",
+        ]
+        process = subprocess.Popen(
+            command,
+            cwd=REPOSITORY_ROOT,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 5
+        while not self.block_marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(self.block_marker.exists(), "fake Buck did not enter build")
+        process.terminate()
+        stdout, stderr = process.communicate(timeout=10)
+
+        self.assertEqual(143, process.returncode, stderr)
+        self.assertIn("WARN smoke-test.interrupted signal=TERM", stdout)
+        self.assertIn("PASS cleanup.client-a", stdout)
+        self.assertIn("PASS cleanup.client-b", stdout)
+        self.assertIn(
+            "exit_status=0",
+            (self.event_dir / "cleanup-client-a.log").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "exit_status=0",
+            (self.event_dir / "cleanup-client-b.log").read_text(encoding="utf-8"),
+        )
 
     def test_cache_stage_rejects_missing_second_client_hit(self) -> None:
         result = self.run_smoke("cache", scenario="no_cache_hit")
