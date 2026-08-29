@@ -559,3 +559,25 @@ python_test(
     base_module = "",
     deps = [":_rpm"],
 )
+
+# The escalation itself, shared with the remote-execution tests.  A skip
+# reports as a pass and buck2 counts targets rather than cases, so a lost
+# case is invisible from every summary; this turns an environment-driven
+# skip into a failure when BUCKOS_REQUIRE_FULL_COVERAGE=1.
+python_library(
+    name = "_skips",
+    srcs = ["_skips.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
+# A third source lint.  Enumerates every skip in the tree and requires each
+# to be declared with a classification, so losing a case is a red test
+# rather than a quieter green one.  The module docstring has the incident
+# that motivated it.
+python_test(
+    name = "skip_contract_test",
+    srcs = ["skip_contract_test.py"],
+    base_module = "",
+    deps = [":_skips"],
+)

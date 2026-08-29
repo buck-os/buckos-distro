@@ -17,6 +17,39 @@ import unittest
 from unittest import mock
 
 
+def _load_skips():
+    """tools/_skips.py, whether run under buck2 or straight from this directory.
+
+    buck2 supplies it through the //tools:_skips dep, so the plain import
+    works there.  A direct `python3 -m unittest` from this directory has no
+    tools/ on sys.path, and falling back to a local no-op would disarm
+    BUCKOS_REQUIRE_FULL_COVERAGE exactly where someone is running by hand,
+    so locate the real file instead and fail if it is not there.
+    """
+    try:
+        import _skips
+
+        return _skips
+    except ImportError:
+        pass
+    for start in (Path.cwd(), Path(__file__).resolve().parent):
+        for candidate in [start, *start.parents]:
+            path = candidate / "tools" / "_skips.py"
+            if path.is_file():
+                spec = importlib.util.spec_from_file_location("_skips", path)
+                assert spec is not None and spec.loader is not None
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[spec.name] = module
+                spec.loader.exec_module(module)
+                return module
+    raise ImportError("cannot locate tools/_skips.py")
+
+
+_skips = _load_skips()
+environmental_skip = _skips.environmental_skip
+environmental_skip_unless = _skips.environmental_skip_unless
+
+
 SCRIPT = Path(__file__).with_name("reapi_readiness.py")
 SPEC = importlib.util.spec_from_file_location("reapi_readiness", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
@@ -444,14 +477,17 @@ class CommandTest(unittest.TestCase):
                 reapi._load_grpc()
 
 
-@unittest.skipUnless(shutil.which("openssl"), "openssl is unavailable")
+@environmental_skip_unless(shutil.which("openssl"), "openssl is unavailable")
 class TlsHandshakeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         try:
             cls.grpc = reapi._load_grpc()
         except reapi.CheckFailure as error:
-            raise unittest.SkipTest(str(error)) from error
+            # A second, independent gate. Provisioning openssl alone only
+            # moves the skip here, which is how this coverage stayed dead
+            # while the target reported a pass.
+            environmental_skip(str(error))
         cls.temporary_directory = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.temporary_directory.cleanup)
         cls.root = Path(cls.temporary_directory.name)

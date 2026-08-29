@@ -47,6 +47,7 @@ python_test(
         "reapi_readiness_test.py",
     ],
     base_module = "",
+    deps = ["//tools:_skips"],
 )
 
 python_test(
