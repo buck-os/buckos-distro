@@ -15,8 +15,8 @@ Modes:
 
     none     run against the ambient filesystem.  Non-hermetic.  Used with
              buildroot provenance "host".
-    bwrap    bubblewrap with the buildroot bind-mounted at /, the work
-             area bound read-write, and no network.  Unprivileged.
+    bwrap    bubblewrap in a full subordinate-id user namespace, with the
+             buildroot at /, the work area bound read-write, and no network.
     unshare  util-linux `unshare`: an unprivileged user namespace, then
              chroot into the buildroot.  Equivalent hermeticity to bwrap,
              using tools present on any modern kernel.
@@ -34,6 +34,7 @@ perform that handshake itself, which is precisely the duplication this
 module exists to prevent.  So the entry point is run_isolated().
 """
 
+import contextlib
 import os
 import platform
 import pwd
@@ -195,6 +196,96 @@ def _map_subordinate_ids(pid):
             "0", str(own), "1",
             "1", str(base), str(count),
         ])
+
+
+def _close_fd(fd):
+    """Close an optional file descriptor during multi-resource cleanup."""
+    if fd is None:
+        return
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
+def _reap_namespace_holder(child):
+    """Terminate and reap a namespace holder without leaving a child behind."""
+    if child is None:
+        return
+    if child.poll() is None:
+        try:
+            child.terminate()
+        except ProcessLookupError:
+            pass
+    try:
+        child.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            child.kill()
+        except ProcessLookupError:
+            pass
+        child.wait()
+
+
+@contextlib.contextmanager
+def _mapped_user_namespace():
+    """Yield an fd for a live user namespace with the full subordinate map.
+
+    Bubblewrap's own --unshare-user form maps one identity. Create the
+    namespace separately so the parent can install both map entries, then
+    keep its holder alive while Bubblewrap enters it through --userns.
+    """
+    if not subid_mapping_available():
+        sys.exit(
+            "isolation=bwrap requires subordinate UID and GID ranges plus "
+            "newuidmap and newgidmap; a single-ID user namespace cannot "
+            "preserve package payload ownership"
+        )
+
+    unshare = require_tool("unshare")
+    ready_r = ready_w = hold_r = hold_w = namespace_fd = None
+    child = None
+    try:
+        ready_r, ready_w = os.pipe()
+        hold_r, hold_w = os.pipe()
+        script = "\n".join([
+            "set -e",
+            "echo r >&{}".format(ready_w),
+            "read _ <&{}".format(hold_r),
+        ])
+        argv = [
+            unshare, "--user", "--",
+            "/bin/sh", "-c", script,
+        ]
+
+        print("+ {}".format(" ".join(argv)), file=sys.stderr, flush=True)
+        child = subprocess.Popen(argv, pass_fds=(ready_w, hold_r))
+        _close_fd(ready_w)
+        ready_w = None
+        _close_fd(hold_r)
+        hold_r = None
+
+        # The byte is written after unshare(2), so the namespace exists but
+        # the holder has not done anything that requires a mapped identity.
+        if not os.read(ready_r, 2):
+            status = child.wait()
+            raise subprocess.CalledProcessError(status or 1, argv)
+        _close_fd(ready_r)
+        ready_r = None
+
+        _map_subordinate_ids(child.pid)
+        namespace_fd = os.open(
+            "/proc/{}/ns/user".format(child.pid),
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0),
+        )
+        yield namespace_fd
+    finally:
+        _close_fd(namespace_fd)
+        _close_fd(ready_r)
+        _close_fd(ready_w)
+        _close_fd(hold_r)
+        _close_fd(hold_w)
+        _reap_namespace_holder(child)
 
 
 # ── The sandbox ──────────────────────────────────────────────────────
@@ -425,27 +516,35 @@ def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
 
     if isolation == "bwrap":
         bwrap = require_tool("bwrap")
-        wrapper = [
-            bwrap,
-            "--unshare-net",
-            "--unshare-pid",
-            "--unshare-ipc",
-            "--die-with-parent",
-            # The flavor buildroot becomes /.
-            "--bind", os.path.abspath(sysroot), "/",
-            # The work area stays writable at its real path so paths the
-            # caller computed outside resolve identically inside.
-            "--bind", os.path.abspath(work), os.path.abspath(work),
-            # Preserve any restrictions imposed on the caller's procfs.
-            # A fresh procfs mount can be rejected inside a container when
-            # its existing procfs hides sensitive entries.
-            "--ro-bind", "/proc", "/proc",
-            "--dev", "/dev",
-            "--tmpfs", "/tmp",
-            "--setenv", "HOME", "/builddir",
-            "--chdir", os.path.abspath(chdir),
-        ]
-        return run(wrapper + list(cmd), env=env)
+        with _mapped_user_namespace() as namespace_fd:
+            wrapper = [
+                bwrap,
+                "--userns", str(namespace_fd),
+                "--uid", "0",
+                "--gid", "0",
+                "--unshare-net",
+                "--unshare-pid",
+                "--unshare-ipc",
+                "--die-with-parent",
+                # The flavor buildroot becomes /.
+                "--bind", os.path.abspath(sysroot), "/",
+                # The work area stays writable at its real path so paths the
+                # caller computed outside resolve identically inside.
+                "--bind", os.path.abspath(work), os.path.abspath(work),
+                # Preserve any restrictions imposed on the caller's procfs.
+                # A fresh procfs mount can be rejected inside a container when
+                # its existing procfs hides sensitive entries.
+                "--ro-bind", "/proc", "/proc",
+                "--dev", "/dev",
+                "--tmpfs", "/tmp",
+                "--setenv", "HOME", "/builddir",
+                "--chdir", os.path.abspath(chdir),
+            ]
+            return run(
+                wrapper + list(cmd),
+                env=env,
+                pass_fds=(namespace_fd,),
+            )
 
     if isolation == "unshare":
         return _run_unshare(cmd, work, chdir, sysroot, env)
