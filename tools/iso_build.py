@@ -379,6 +379,24 @@ def _xorriso_script(args, iso_root, out, timestamp):
     return "\n".join(lines)
 
 
+def _pin_tree_times(iso_root, epoch):
+    """Stamp the staged tree so the directory records are an input function.
+
+    `--modification-date` reaches the volume descriptors and nothing else.
+    Every ISO9660 directory record carries its own recording time, and
+    xorriso takes that from the staged entry's mtime, so a tree left at
+    whatever time it happened to be written puts the build's wall clock into
+    the image.  Bottom up, because the entries have to be stamped before the
+    directory holding them.
+    """
+    stamp = int(epoch)
+    for root, dirs, names in os.walk(iso_root, topdown=False):
+        for name in names + dirs:
+            os.utime(os.path.join(root, name), (stamp, stamp),
+                     follow_symlinks=False)
+    os.utime(iso_root, (stamp, stamp))
+
+
 def _iso_timestamp(epoch):
     """xorriso's --modification-date format: YYYYMMDDhhmmsscc, UTC."""
     import time
@@ -497,6 +515,8 @@ def _build(args, isolation, label, work, out):
 
     if args.layout == "ubuntu":
         _write_md5sums(iso_root)
+
+    _pin_tree_times(iso_root, args.source_date_epoch)
 
     timestamp = _iso_timestamp(args.source_date_epoch)
     run_isolated(

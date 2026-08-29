@@ -113,16 +113,30 @@ def transaction_script(staging):
         "rm -f /usr/sbin/policy-rc.d",
         "rm -f /boot/initrd.img-* /etc/ssh/ssh_host_* /var/lib/systemd/random-seed",
         ": > /etc/machine-id",
+        # dpkg and update-alternatives stamp wall-clock time into their logs,
+        # and ldconfig's cache records per-file inode data.  Pinning mtimes
+        # does not reach content, so these three differ on every build.
+        ": > /var/log/dpkg.log",
+        ": > /var/log/alternatives.log",
+        "rm -f /var/cache/ldconfig/aux-cache",
         "test -x /usr/lib/systemd/systemd",
     ])
 
 
-def archive_script(target, tarball, source_date_epoch):
+def archive_script(target, tarball, source_date_epoch, work):
     quoted_target = shlex.quote(target)
     return "\n".join([
         "set -e",
+        # The transaction runs against the target, so the sandbox creates the
+        # work bind mount inside it and leaves an empty directory named after
+        # this build's scratch path.  Drop it before the payload is sealed.
+        "rm -rf {}".format(shlex.quote(os.path.join(target, work.lstrip("/")))),
+        # posix extended headers carry atime and ctime at nanosecond
+        # precision, which --mtime does not pin and no input determines, so
+        # the archive differs on every build until they are dropped.
         "tar --create --numeric-owner --sort=name --xattrs --xattrs-include='*'"
-        " --acls --format=posix --mtime=@{epoch} --file {tarball}"
+        " --acls --format=posix --pax-option=delete=atime,delete=ctime"
+        " --mtime=@{epoch} --file {tarball}"
         " --directory {target} .".format(
             epoch=shlex.quote(source_date_epoch),
             tarball=shlex.quote(tarball),
@@ -214,6 +228,7 @@ def main():
                         target,
                         tarball,
                         args.source_date_epoch,
+                        work,
                     )],
                     load=True,
                 ),

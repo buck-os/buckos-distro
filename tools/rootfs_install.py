@@ -393,8 +393,12 @@ def _transaction_script(args, staging, target, tarball, modules=None):
             " done".format(installed_modules, quoted_target),
         ]
     lines += [
+        # posix extended headers carry atime and ctime at nanosecond
+        # precision, which --mtime does not pin and no input determines, so
+        # the archive differs on every build until they are dropped.
         "tar --create --numeric-owner --sort=name"
         " --xattrs --xattrs-include='*' --acls --format=posix"
+        " --pax-option=delete=atime,delete=ctime"
         " --mtime=@{epoch}"
         " --file {tarball} --directory {target} .".format(
             epoch=shlex.quote(args.source_date_epoch),

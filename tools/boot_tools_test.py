@@ -12,12 +12,13 @@ from unittest import mock
 
 from _deb import fakeroot_command
 from deb_rootfs_install import (
+    archive_script,
     bootstrap_script,
     cleanup_script,
     normalize_merged_usr_script,
     transaction_script,
 )
-from iso_build import _bios_script, _write_md5sums, _xorriso_script
+from iso_build import _bios_script, _pin_tree_times, _write_md5sums, _xorriso_script
 from iso_boot_test import (
     BootCapture,
     BootFailure,
@@ -152,6 +153,39 @@ class TestDebRootfsTransaction(unittest.TestCase):
             script.index("dpkg --force-confnew --configure -a"),
             script.rindex("update-initramfs.buckos-real"),
         )
+
+    def test_transaction_scrubs_the_content_that_records_build_time(self):
+        # Pinned mtimes do not reach file contents: dpkg and
+        # update-alternatives write wall-clock stamps into their logs, and
+        # ldconfig's cache records per-file inode data.  Measured against two
+        # runs of the Debian live rootfs, these were three of the four
+        # differences in an otherwise byte-identical 13,554-member archive.
+        script = transaction_script("/debs")
+        for scrubbed in (
+            ": > /var/log/dpkg.log",
+            ": > /var/log/alternatives.log",
+            "rm -f /var/cache/ldconfig/aux-cache",
+        ):
+            self.assertIn(scrubbed, script)
+        self.assertLess(
+            script.index("dpkg --force-confnew --configure -a"),
+            script.index(": > /var/log/dpkg.log"),
+        )
+
+    def test_archive_drops_the_scratch_mount_left_inside_the_payload(self):
+        # The transaction runs against the target, so the sandbox creates the
+        # work bind mount inside the image and leaves a directory named after
+        # this build's random scratch path.  It was the fourth difference.
+        script = archive_script("/work/rootfs", "/work/rootfs.tar", "1700000000", "/work")
+        self.assertIn("rm -rf /work/rootfs/work", script)
+        self.assertLess(script.index("rm -rf /work/rootfs/work"), script.index("tar --create"))
+
+    def test_archive_drops_the_timestamps_mtime_does_not_pin(self):
+        # posix extended headers carry atime and ctime at nanosecond
+        # precision.  --mtime pins neither, and nothing in the inputs
+        # determines them, so leaving them in defeats every other measure.
+        script = archive_script("/work/rootfs", "/work/rootfs.tar", "1700000000", "/work")
+        self.assertIn("--pax-option=delete=atime,delete=ctime", script)
 
     def test_normalizes_merged_usr_before_target_execution(self):
         script = bootstrap_script("/target", "/debs")
@@ -798,6 +832,24 @@ class TestIsoBootCommand(unittest.TestCase):
 
 
 class TestIsoBuildBootloaderPaths(unittest.TestCase):
+    def test_staging_times_are_pinned_before_xorriso(self):
+        # xorriso copies each staged entry's mtime into its ISO9660 directory
+        # record, and --modification-date reaches only the volume
+        # descriptors.  Two builds minutes apart differed in 304 bytes that
+        # decoded to their own wall-clock minute and second.
+        with tempfile.TemporaryDirectory() as iso_root:
+            nested = os.path.join(iso_root, "EFI", "BOOT")
+            os.makedirs(nested)
+            payload = os.path.join(nested, "grub.cfg")
+            with open(payload, "w") as handle:
+                handle.write("set timeout=5\n")
+            os.symlink("grub.cfg", os.path.join(nested, "link.cfg"))
+
+            _pin_tree_times(iso_root, "1700000000")
+
+            for path in (iso_root, nested, payload):
+                self.assertEqual(1700000000, int(os.stat(path).st_mtime), path)
+
     def test_bios_loader_accepts_rpm_and_debian_paths(self):
         script = _bios_script("/iso")
         self.assertIn("/usr/share/syslinux/isolinux.bin", script)
