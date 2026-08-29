@@ -385,19 +385,26 @@ python_binary(
     visibility = ["PUBLIC"],
 )
 
+python_library(
+    name = "rpm_relock_lib",
+    srcs = ["rpm_relock.py"],
+    base_module = "",
+    deps = [":relock_lib"],
+)
+
 python_binary(
     name = "rpm_relock",
-    main = "rpm_relock.py",
-    deps = [":relock_lib"],
+    main_module = "rpm_relock",
+    deps = [":rpm_relock_lib"],
     visibility = ["PUBLIC"],
 )
 
 # Discovering what %generate_buildrequires asks for, by running it.
 #
-#     buck2 run //tools:probe -- --release 44 --arch x86_64
+#     buck2 run //tools:probe -- --flavor fedora --release 44 --arch x86_64
 #
 # Out of the build graph for a stronger reason than relock's: this one
-# *invokes buck2*.  It builds every //flavors/fedora:probe-<pkg> target and
+# *invokes buck2*. It builds every //flavors/<flavor>:probe-<pkg> target and
 # merges the reports, so as an action it would be a build inside a build.
 # The recursion is not incidental either -- the answer only exists once the
 # package's buildroot has been assembled and its %prep has run, which is to
@@ -439,6 +446,13 @@ python_test(
     srcs = ["relock_test.py"],
     base_module = "",
     deps = [":relock_lib"],
+)
+
+python_test(
+    name = "rpm_relock_test",
+    srcs = ["rpm_relock_test.py"],
+    base_module = "",
+    deps = [":rpm_relock_lib"],
 )
 
 python_test(

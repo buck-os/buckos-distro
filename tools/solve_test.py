@@ -27,9 +27,11 @@ from solve import (
     merge_packages,
     parse_override,
     probed_buildrequires,
+    rpm_source_policy_inputs,
     solve,
     solve_image_sets,
     solve_package_set,
+    source_build_set,
 )
 from depgraph import runtime_closure
 
@@ -126,6 +128,75 @@ class TestImageSets(unittest.TestCase):
         )
         self.assertEqual(closure, ["shell"])
         self.assertEqual(problems[0][2], "buildroot (shell)")
+
+
+class TestSourceBuildSet(unittest.TestCase):
+    def test_derives_source_names_from_the_selected_image_closure(self):
+        self.assertEqual(
+            source_build_set(
+                {
+                    "image-tools": ["xorriso"],
+                    "live": ["bash", "kernel-core", "kernel-modules"],
+                },
+                {
+                    "bash": "bash",
+                    "kernel-core": "kernel",
+                    "kernel-modules": "kernel",
+                    "xorriso": "libisoburn",
+                },
+                ["live"],
+            ),
+            {"bash", "kernel"},
+        )
+
+    def test_explicit_prebuilt_sources_are_removed(self):
+        self.assertEqual(
+            source_build_set(
+                {"live": ["bash", "kernel-core"]},
+                {"bash": "bash", "kernel-core": "kernel"},
+                ["live"],
+                ["kernel"],
+            ),
+            {"bash"},
+        )
+
+    def test_rejects_a_stale_prebuilt_source(self):
+        with self.assertRaisesRegex(
+            ValueError, "do not produce a selected image payload: kernel"
+        ):
+            source_build_set(
+                {"live": ["bash"]},
+                {"bash": "bash"},
+                ["live"],
+                ["kernel"],
+            )
+
+    def test_prebuilt_sources_require_an_image_derived_policy(self):
+        with self.assertRaisesRegex(ValueError, "require --source-image"):
+            source_build_set({}, {}, [], ["kernel"])
+
+    def test_normalizes_policy_inputs_and_effective_producers(self):
+        images, producers = rpm_source_policy_inputs({
+            "solve": {
+                "source_image_sets": ["live"],
+                "prebuilt_sources": ["kernel"],
+            },
+            "image_sets": {
+                "live": [
+                    {"name": "kernel-core", "source": "kernel"},
+                    {"name": "bash", "source": "bash"},
+                ],
+            },
+            "packages": {
+                "bash": {"source": {"name": "bash"}},
+                "kernel": {"source": {"name": "kernel"}},
+            },
+        })
+        self.assertEqual(images, {"live": [
+            {"package": "bash", "source": "bash"},
+            {"package": "kernel-core", "source": "kernel"},
+        ]})
+        self.assertEqual(producers, {"bash"})
 
 
 class TestScopedOverrides(unittest.TestCase):

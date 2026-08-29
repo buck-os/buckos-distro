@@ -7,14 +7,18 @@ that silently stops applying the first time anyone refreshes.  The rest of
 relock is network and file movement.
 """
 
+import os
+import tempfile
 import unittest
 
+import probe
 import relock
 
 
 def lock(**solve):
     recorded = {
         "build": [],
+        "explicit_build": [],
         "overrides": [],
         "images": [],
         "image_overrides": [],
@@ -41,9 +45,12 @@ class TestSolveArgv(unittest.TestCase):
         argv = relock.solve_argv(
             lock(
                 build=["acl", "zlib-ng"],
+                explicit_build=["acl", "zlib-ng"],
                 overrides=["crate(syn/derive)=rust-syn+derive-devel"],
                 images=["live=bash,coreutils"],
                 image_overrides=["live:/usr/bin/systemd-sysusers=systemd"],
+                source_image_sets=["live"],
+                prebuilt_sources=["kernel"],
             ),
             repos=[],
             out="/tmp/out.json",
@@ -54,6 +61,8 @@ class TestSolveArgv(unittest.TestCase):
         self.assertEqual(flags(argv, "--image"), ["live=bash,coreutils"])
         self.assertEqual(flags(argv, "--image-override"),
                          ["live:/usr/bin/systemd-sysusers=systemd"])
+        self.assertEqual(flags(argv, "--source-image"), ["live"])
+        self.assertEqual(flags(argv, "--prebuilt-source"), ["kernel"])
 
     def test_a_seed_only_lockfile_can_be_refreshed(self):
         # The case this exists for.  A flavor that pins a buildroot and
@@ -71,7 +80,10 @@ class TestSolveArgv(unittest.TestCase):
         # against a lockfile that has something after it, since on its own
         # it lands last and "nothing follows" would pass either way.
         argv = relock.solve_argv(
-            lock(seed_only=True, build=["acl"]), repos=[], out="/o")
+            lock(seed_only=True, build=["acl"], explicit_build=["acl"]),
+            repos=[],
+            out="/o",
+        )
         self.assertEqual(argv.count("--seed-only"), 1)
         self.assertEqual(argv[argv.index("--seed-only") + 1], "--build")
 
@@ -94,10 +106,21 @@ class TestSolveArgv(unittest.TestCase):
         stale = lock(build=["acl"])
         del stale["solve"]["seed_packages"]
         del stale["solve"]["seed_only"]
+        del stale["solve"]["explicit_build"]
         argv = relock.solve_argv(stale, repos=[], out="/o")
         self.assertEqual(flags(argv, "--build"), ["acl"])
         self.assertNotIn("--seed-only", argv)
         self.assertEqual(flags(argv, "--seed-package"), [])
+
+    def test_an_image_derived_lock_does_not_replay_the_effective_build_list(self):
+        stale = lock(
+            build=["bash", "kernel"],
+            source_image_sets=["live"],
+        )
+        del stale["solve"]["explicit_build"]
+        argv = relock.solve_argv(stale, repos=[], out="/o")
+        self.assertEqual(flags(argv, "--build"), [])
+        self.assertEqual(flags(argv, "--source-image"), ["live"])
 
     def test_repos_are_passed_by_kind(self):
         argv = relock.solve_argv(
@@ -109,6 +132,45 @@ class TestSolveArgv(unittest.TestCase):
         self.assertEqual(flags(argv, "--binary-repo"), ["binary-releases"])
         self.assertEqual(flags(argv, "--binary-base"), ["https://example/os"])
         self.assertEqual(flags(argv, "--binary-primary"), ["/p/primary.xml"])
+
+
+class TestRpmPaths(unittest.TestCase):
+    def test_lockfile_release_discovery_is_flavor_scoped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for name in (
+                "centos-9-x86_64.lock.json",
+                "centos-10-x86_64.lock.json",
+                "fedora-44-x86_64.lock.json",
+                "centos-9-aarch64.lock.json",
+            ):
+                with open(os.path.join(directory, name), "w"):
+                    pass
+            self.assertEqual(
+                relock.lockfile_releases(
+                    directory, "x86_64", flavor="centos"),
+                ["10", "9"],
+            )
+
+    def test_probe_paths_include_the_flavor(self):
+        self.assertEqual(
+            probe.probe_path(
+                "/locks/centos-hyperscale-10-aarch64.lock.json"),
+            "/locks/centos-hyperscale-10-aarch64.probe.json",
+        )
+
+    def test_probe_targets_use_the_lock_flavor(self):
+        got = probe.probe_targets(
+            {
+                "flavor": "centos",
+                "release": "10",
+                "target_cpu": "aarch64",
+                "solve": {"build": ["zlib", "acl"]},
+            },
+        )
+        self.assertEqual(got, [
+            "//flavors/centos:probe-acl-10-aarch64",
+            "//flavors/centos:probe-zlib-10-aarch64",
+        ])
 
 
 if __name__ == "__main__":

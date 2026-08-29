@@ -1,2 +1,8 @@
 [buckos.fedora]
   buildroot = binary-seed
+
+[buckos.centos]
+  buildroot = binary-seed
+
+[buckos.centos-hyperscale]
+  buildroot = binary-seed

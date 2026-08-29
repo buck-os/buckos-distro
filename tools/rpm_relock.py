@@ -5,6 +5,7 @@ import argparse
 import copy
 import json
 import os
+import sys
 
 import generate
 import relock
@@ -48,7 +49,7 @@ def architecture_solve(recorded, target_cpu):
     return result
 
 
-def solve_argv(template, recorded, repos, target_cpu, output):
+def solve_argv(template, recorded, repos, target_cpu, output, probe=None):
     argv = [
         "--flavor", template["flavor"],
         "--release", str(template["release"]),
@@ -57,6 +58,8 @@ def solve_argv(template, recorded, repos, target_cpu, output):
         "--stages", str(recorded["stages"]),
         "--out", output,
     ]
+    if probe:
+        argv += ["--probe", probe]
     if recorded.get("seed_only"):
         argv.append("--seed-only")
     for repo in repos:
@@ -65,17 +68,66 @@ def solve_argv(template, recorded, repos, target_cpu, output):
             "--{}-base".format(repo["kind"]), repo["base"],
             "--{}-primary".format(repo["kind"]), repo["path"],
         ]
+    builds = recorded.get("explicit_build")
+    if builds is None:
+        builds = [] if recorded.get("source_image_sets") else recorded.get("build", [])
+    for value in builds:
+        argv += ["--build", value]
     for flag, key in (
-        ("--build", "build"),
         ("--seed-package", "seed_packages"),
         ("--override", "overrides"),
         ("--image", "images"),
         ("--image-override", "image_overrides"),
+        ("--source-variant", "source_variants"),
+        ("--source-image", "source_image_sets"),
+        ("--prebuilt-source", "prebuilt_sources"),
     ):
         for value in recorded.get(key, []):
             argv += [flag, value]
     argv.append("--strict")
     return argv
+
+
+def convergence_state(lock):
+    """The incomplete solve states that require another probe pass."""
+    packages = lock.get("packages", {})
+    return {
+        "problems": lock.get("problems", []),
+        "unprobed": {
+            name: package["dynamic_buildrequires"]
+            for name, package in sorted(packages.items())
+            if package["dynamic_buildrequires"].get("suspected")
+        },
+        "unmet": {
+            name: package["dynamic_buildrequires"]
+            for name, package in sorted(packages.items())
+            if package["dynamic_buildrequires"].get("unmet")
+        },
+    }
+
+
+def converged(state):
+    return not any(state.values())
+
+
+def describe_state(state):
+    return "{} unresolved problem(s), {} unprobed package(s), {} unmet probe(s)".format(
+        len(state["problems"]),
+        len(state["unprobed"]),
+        len(state["unmet"]),
+    )
+
+
+def read_lock(path):
+    with open(path, encoding="utf-8") as stream:
+        return json.load(stream)
+
+
+def solve_and_generate(template, recorded, repos, target_cpu, output,
+                       probe_path=None):
+    solve.main(solve_argv(
+        template, recorded, repos, target_cpu, output, probe=probe_path))
+    generate.main([output])
 
 
 def main(argv=None):
@@ -85,7 +137,17 @@ def main(argv=None):
     parser.add_argument("--output", required=True)
     parser.add_argument("--repo-cache", default=None)
     parser.add_argument("--no-generate", action="store_true")
+    parser.add_argument("--probe", action="store_true",
+                        help="probe dynamic BuildRequires and repeat the "
+                             "solve until it converges")
+    parser.add_argument("--buck2", default=None,
+                        help="buck2 used for probes (default: ./buck2 or PATH)")
+    parser.add_argument("-c", "--config", action="append", default=[],
+                        metavar="SECTION.KEY=VALUE",
+                        help="extra buck2 -c flag for probes (repeatable)")
     args = parser.parse_args(argv)
+    if args.probe and args.no_generate:
+        parser.error("--probe requires generated Buck targets")
 
     with open(args.template, encoding="utf-8") as stream:
         template = json.load(stream)
@@ -108,9 +170,54 @@ def main(argv=None):
                 "name": repo["name"],
                 "path": path,
             })
-    solve.main(solve_argv(template, recorded, repos, args.target_cpu, args.output))
-    if not args.no_generate:
-        generate.main([args.output])
+    if args.no_generate:
+        solve.main(solve_argv(
+            template, recorded, repos, args.target_cpu, args.output))
+        return
+
+    solve_and_generate(
+        template, recorded, repos, args.target_cpu, args.output)
+    if not args.probe:
+        return
+
+    # Imported here because probe imports relock, which this module also
+    # uses. Keeping the dependency out of module initialization makes the
+    # direction explicit and avoids a partially initialized module when
+    # these helpers are imported by tests.
+    import probe as probe_mod
+
+    root = relock.repo_root()
+    config = list(probe_mod.DEFAULT_CONFIG)
+    for flag in args.config:
+        config += ["-c", flag]
+
+    seen = set()
+    while True:
+        state = convergence_state(read_lock(args.output))
+        if converged(state):
+            print("{}: solve/probe converged".format(args.output),
+                  file=sys.stderr)
+            return
+        fingerprint = json.dumps(state, sort_keys=True)
+        if fingerprint in seen:
+            sys.exit("{}: solve/probe did not converge: {}".format(
+                args.output, describe_state(state)))
+        seen.add(fingerprint)
+
+        probe_mod.write_probe_file(
+            args.output,
+            root,
+            config=config,
+            buck2=probe_mod.resolve_buck2(root, args.buck2),
+        )
+        solve_and_generate(
+            template,
+            recorded,
+            repos,
+            args.target_cpu,
+            args.output,
+            probe_path=probe_mod.probe_path(args.output),
+        )
 
 
 if __name__ == "__main__":

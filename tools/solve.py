@@ -1227,6 +1227,76 @@ def solve_image_sets(universe, image_roots, overrides=None,
     return sets, problems
 
 
+def source_build_set(image_sets, source_of, selected_image_sets,
+                     prebuilt_sources=()):
+    """Derive source producers from selected binary image closures.
+
+    The image closure is the product boundary. Keeping a second handwritten
+    source list beside it lets the two drift while both remain internally
+    valid, so source selection starts from the binary packages the image
+    actually installs and follows their recorded source identities.
+    """
+    selected = sorted(set(selected_image_sets))
+    prebuilt = set(prebuilt_sources)
+    if not selected:
+        if prebuilt:
+            raise ValueError("prebuilt sources require --source-image: {}".format(
+                ", ".join(sorted(prebuilt))))
+        return set()
+
+    missing_sets = sorted(set(selected) - set(image_sets))
+    if missing_sets:
+        raise ValueError("source build selects missing image set(s): {}".format(
+            ", ".join(missing_sets)))
+
+    sources = set()
+    missing_sources = []
+    for image_name in selected:
+        for package in image_sets[image_name]:
+            source = source_of.get(package)
+            if source:
+                sources.add(source)
+            else:
+                missing_sources.append("{}:{}".format(image_name, package))
+    if missing_sources:
+        raise ValueError("image payloads have no source identity: {}".format(
+            ", ".join(sorted(missing_sources))))
+
+    stale = sorted(prebuilt - sources)
+    if stale:
+        raise ValueError(
+            "prebuilt sources do not produce a selected image payload: {}"
+            .format(", ".join(stale))
+        )
+    return sources - prebuilt
+
+
+def rpm_source_policy_inputs(lock):
+    """Return normalized payload records and effective source producers.
+
+    This is the RPM adapter for tools/source_policy.py. It deliberately does
+    not encode the shared policy schema; it only translates RPM lock records
+    into the common ``{package, source}`` vocabulary and source-name keys.
+    """
+    selected = lock.get("solve", {}).get("source_image_sets", [])
+    images = {
+        name: [
+            {"package": entry["name"], "source": entry.get("source")}
+            for entry in sorted(
+                lock.get("image_sets", {}).get(name, []),
+                key=lambda entry: entry["name"],
+            )
+        ]
+        for name in sorted(set(selected))
+    }
+    producers = {
+        package["source"].get("source_name") or package["source"]["name"]
+        for package in lock.get("packages", {}).values()
+    }
+    producers -= set(lock.get("solve", {}).get("prebuilt_sources", []))
+    return images, producers
+
+
 def _count_pins_by_repo(lock):
     """How many pinned entries each repo accounts for.
 
@@ -1430,6 +1500,9 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
         # history.
         "solve": {
             "build": sorted(build_set),
+            "explicit_build": sorted(args.explicit_build),
+            "source_image_sets": sorted(set(args.source_image)),
+            "prebuilt_sources": sorted(set(args.prebuilt_source)),
             "overrides": sorted(args.override),
             "implicit_group": list(args.implicit_group),
             "seed_only": args.seed_only,
@@ -1561,6 +1634,14 @@ def main(argv=None):
                     help="source package to build from source (repeatable)")
     ap.add_argument("--build-list", default=None,
                     help="file with one source package name per line")
+    ap.add_argument("--source-image", action="append", default=[],
+                    metavar="NAME",
+                    help="derive source producers from this image closure "
+                         "(repeatable)")
+    ap.add_argument("--prebuilt-source", action="append", default=[],
+                    metavar="SOURCE",
+                    help="source selected by --source-image that remains "
+                         "pinned (repeatable)")
     ap.add_argument("--flavor", choices=sorted(IMPLICIT_GROUPS),
                     default="fedora")
     ap.add_argument("--seed-only", action="store_true",
@@ -1612,11 +1693,17 @@ def main(argv=None):
                 line.strip() for line in fh
                 if line.strip() and not line.startswith("#")
             }
-    if not build_set and not args.seed_only and not args.seed_package:
-        sys.exit("nothing to solve: pass --build, --build-list, --seed-only, "
-                 "or --seed-package")
-    if build_set and not args.source_primary:
+    args.explicit_build = set(build_set)
+    if (not build_set and not args.source_image and not args.seed_only
+            and not args.seed_package):
+        sys.exit("nothing to solve: pass --build, --build-list, "
+                 "--source-image, --seed-only, or --seed-package")
+    if (build_set or args.source_image) and not args.source_primary:
         sys.exit("source builds require at least one --source-primary")
+    overlap = sorted(build_set & set(args.prebuilt_source))
+    if overlap:
+        sys.exit("source packages cannot be both explicitly built and "
+                 "prebuilt: {}".format(", ".join(overlap)))
 
     overrides = {}
     for item in args.override:
@@ -1682,6 +1769,26 @@ def main(argv=None):
     universe = build_universe(binary_pkgs, source_pkgs,
                               target_cpu=args.target_cpu,
                               superseded=binary_superseded)
+
+    image_sets, image_problems = solve_image_sets(
+        universe, image_roots, overrides, image_overrides
+    )
+    if args.strict and image_problems:
+        for kind, detail, who in image_problems:
+            print("solve error [{}] {}: {}".format(kind, who, detail), file=sys.stderr)
+        sys.exit("solve failed with {} unresolved image item(s)".format(
+            len(image_problems)))
+
+    try:
+        build_set |= source_build_set(
+            image_sets,
+            universe["source_of"],
+            args.source_image,
+            args.prebuilt_source,
+        )
+    except ValueError as exc:
+        sys.exit(str(exc))
+
     variant_problems, variant_subpackages, variant_routes = \
         add_source_variants(source_variants, universe, source_superseded,
                             binary_superseded, build_set)
@@ -1702,15 +1809,7 @@ def main(argv=None):
     depth = bootstrap_depth(build_deps, universe["source_of"], build_set,
                             routes=variant_routes)
 
-    image_sets, image_problems = solve_image_sets(
-        universe, image_roots, overrides, image_overrides
-    )
     problems.extend(image_problems)
-    if args.strict and image_problems:
-        for kind, detail, who in image_problems:
-            print("solve error [{}] {}: {}".format(kind, who, detail), file=sys.stderr)
-        sys.exit("solve failed with {} unresolved image item(s)".format(
-            len(image_problems)))
 
     seed_roots = set(args.seed_package)
     if args.seed_only:
@@ -1747,7 +1846,7 @@ def main(argv=None):
         "  build deps from source: {} ({:.1%})\n"
         "  build deps from seed  : {}\n"
         "  cycles                : {} ({} staged targets)\n"
-        "  dynamic BuildRequires : {} probed, {} unprobed\n"
+        "  dynamic BuildRequires : {} probed, {} unprobed, {} unmet\n"
         "  unresolved            : {}".format(
             args.out,
             s["source_packages_built"],
@@ -1758,6 +1857,7 @@ def main(argv=None):
             s["staged_targets"],
             s["dynamic_buildrequires"],
             s["dynamic_unprobed"],
+            s["dynamic_unmet"],
             s["problems"],
         ),
         file=sys.stderr,
