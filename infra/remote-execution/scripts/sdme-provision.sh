@@ -18,6 +18,9 @@ readonly REAPI_PORT='50051'
 readonly WORKER_API_PORT='50061'
 readonly IMAGE_PROVENANCE_PATH='/buckos-re-image-provenance.json'
 readonly RUNTIME_PROVENANCE_PATH='/etc/buckos-re-runtime-provenance.json'
+readonly BUILD_PROXY_PATH='/etc/buckos-re-build-proxy.env'
+readonly BUILD_PROXY_SENTINEL='buckos-sdme-proxy-transport-v1'
+readonly TRANSACTION_SCHEMA_VERSION='1'
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 repo_root=$(CDPATH='' cd -- "$script_dir/../../.." && pwd -P)
@@ -58,9 +61,14 @@ python_bin=''
 tar_bin=''
 sha256_bin=''
 systemctl_bin=''
+flock_bin=''
 oci_archive_tool=''
 oci_archive_metadata=''
 cleanup_paths=()
+transaction_dir=''
+provision_lock_fd=''
+runtime_build_definition=''
+runtime_proxy_file=''
 
 cleanup() {
     local path
@@ -594,6 +602,9 @@ prepare_tools() {
     if [[ "$operation" != plan ]]; then
         sdme_bin=$(resolve_command sdme)
     fi
+    if [[ "$operation" =~ ^(prepare-runtime|apply)$ ]]; then
+        flock_bin=$(resolve_command flock)
+    fi
     if [[ "$operation" =~ ^(prepare-runtime|apply)$ && \
           ( -z "$ubuntu_oci_archive" || -z "$nativelink_oci_archive" ) ]]; then
         podman_bin=$(resolve_command podman)
@@ -614,6 +625,7 @@ validate_host_prerequisites() {
 runtime_paths() {
     images_dir="$data_root/images"
     provision_dir="$data_root/provision"
+    transaction_dir="$provision_dir/transactions"
     ubuntu_archive="$images_dir/ubuntu-2604-${arch}.oci.tar"
     nativelink_archive="$images_dir/nativelink-166-${arch}.oci.tar"
 }
@@ -808,7 +820,17 @@ plan_commands() {
     print_command sdme fs import "$nativelink_archive" --name "$NATIVELINK_FS" --install-packages no -f
     print_command sdme cp "$(archive_provenance_path "$nativelink_archive")" \
         "fs:$NATIVELINK_FS:$IMAGE_PROVENANCE_PATH"
-    print_command sdme fs build "$RUNTIME_FS" "$asset_root/sdme/worker-rootfs.sdme" --timeout 600
+    local planned_build_definition="$asset_root/sdme/worker-rootfs.sdme"
+    if proxy_environment_enabled; then
+        set_runtime_transaction_paths
+        validate_runtime_proxy_paths
+        planned_build_definition="$runtime_build_definition"
+        printf '# Convey allowlisted proxy variables through private transaction files; values are not printed.\n'
+        print_command sdme fs build "$RUNTIME_FS" "$planned_build_definition" \
+            --timeout 600 --no-cache
+    else
+        print_command sdme fs build "$RUNTIME_FS" "$planned_build_definition" --timeout 600
+    fi
     printf '# Bind the runtime to both admitted image records and the build definition at %s.\n' \
         "$RUNTIME_PROVENANCE_PATH"
 
@@ -960,6 +982,23 @@ print(status)
 ' "$record"
 }
 
+generate_archive_provenance() {
+    local image_name="$1"
+    local image="$2"
+    local archive="$3"
+    local acquisition="$4"
+    local destination="$5"
+    local recorded_filename="${6:-$(basename -- "$archive")}"
+    if [[ "$acquisition" == offline ]]; then
+        validate_offline_archive "$image_name" "$image" "$archive" "$destination" 1
+    else
+        run_oci_archive_tool verify "$oci_archive_metadata" "$image_name" "$arch" \
+            "$image" "$archive" --acquisition registry \
+            --record-filename "$recorded_filename" > "$destination"
+    fi
+    chmod 0600 "$destination"
+}
+
 materialize_archive() {
     local image_name="$1"
     local image="$2"
@@ -967,9 +1006,10 @@ materialize_archive() {
     local platform="$4"
     local source="$5"
     local acquisition provenance input_provenance
+    local intent_identity object_identity source_identity
     local temporary="$output.tmp.$$"
     local provenance_temporary
-    local result
+    local output_present provenance_present transaction_present
     acquisition=$(archive_acquisition "$source")
     provenance=$(archive_provenance_path "$output")
     provenance_temporary="$provenance.tmp.$$"
@@ -978,14 +1018,58 @@ materialize_archive() {
 
     if [[ -n "$source" ]]; then
         validate_offline_archive "$image_name" "$image" "$source" "$input_provenance" 1
+        source_identity=$("$sha256_bin" "$input_provenance" | awk '{print $1}')
+    else
+        source_identity=$(transaction_identity registry "$image_name" "$image" "$arch")
     fi
-    if validate_archive_cache "$image_name" "$image" "$output" "$acquisition"; then
+    intent_identity=$(transaction_identity archive "$image_name" "$image" "$arch" \
+        "$acquisition" "$source" "$source_identity" "$output" "$provenance" publishing)
+
+    output_present=0
+    provenance_present=0
+    transaction_present=0
+    [[ -e "$output" || -L "$output" ]] && output_present=1
+    [[ -e "$provenance" || -L "$provenance" ]] && provenance_present=1
+    transaction_record_exists archive "$image_name" && transaction_present=1
+
+    if ((output_present && provenance_present)); then
+        validate_archive_cache "$image_name" "$image" "$output" "$acquisition"
+        if ((transaction_present)); then
+            object_identity=$("$sha256_bin" "$provenance" | awk '{print $1}')
+            transaction_record_matches archive "$image_name" "$intent_identity" \
+                "$object_identity" "$acquisition" publishing
+            sync_path "$output"
+            sync_path "$provenance"
+            sync_path "$images_dir"
+            clear_transaction_record archive "$image_name"
+        fi
         debug "reusing validated $acquisition OCI archive $output"
         rm -f -- "$input_provenance"
         return
-    else
-        result=$?
-        ((result == 1)) || return "$result"
+    fi
+    if ((output_present || provenance_present)); then
+        ((transaction_present)) || die "incomplete cached OCI archive pair without a matching transaction: $output"
+        [[ ! -L "$output" && ! -L "$provenance" ]] || \
+            die "unsafe unpublished OCI archive state: $output"
+        ((output_present && ! provenance_present)) || \
+            die "unsupported interrupted OCI publication state: $output"
+        validate_private_managed_file 'unpublished OCI archive' "$output"
+        generate_archive_provenance "$image_name" "$image" "$output" \
+            "$acquisition" "$provenance_temporary"
+        object_identity=$("$sha256_bin" "$provenance_temporary" | awk '{print $1}')
+        transaction_record_matches archive "$image_name" "$intent_identity" \
+            "$object_identity" "$acquisition" publishing
+        rm -f -- "$output" "$provenance"
+        sync_path "$images_dir"
+        rm -f -- "$provenance_temporary"
+        clear_transaction_record archive "$image_name"
+        transaction_present=0
+        debug "discarded interrupted OCI archive publication $output"
+    elif ((transaction_present)); then
+        transaction_record_matches_intent archive "$image_name" "$intent_identity" \
+            "$acquisition" publishing
+        clear_transaction_record archive "$image_name"
+        transaction_present=0
     fi
 
     if [[ "$acquisition" == offline ]]; then
@@ -998,31 +1082,48 @@ materialize_archive() {
         run_command "$podman_bin" pull --platform "linux/$platform" "$image"
         run_command "$podman_bin" save --format oci-archive --output "$temporary" "$image"
         chmod 0600 "$temporary"
-        run_oci_archive_tool verify "$oci_archive_metadata" "$image_name" "$arch" \
-            "$image" "$temporary" --acquisition registry \
-            --record-filename "$(basename -- "$output")" > "$provenance_temporary"
+        generate_archive_provenance "$image_name" "$image" "$temporary" \
+            registry "$provenance_temporary" "$(basename -- "$output")"
     fi
     chmod 0600 "$provenance_temporary"
+    object_identity=$("$sha256_bin" "$provenance_temporary" | awk '{print $1}')
+    if ((transaction_present == 0)); then
+        write_transaction_record archive "$image_name" "$intent_identity" \
+            "$object_identity" "$acquisition" publishing
+    fi
     mv -- "$temporary" "$output"
+    sync_path "$output"
+    sync_path "$images_dir"
     mv -- "$provenance_temporary" "$provenance"
+    sync_path "$provenance"
+    sync_path "$images_dir"
+    validate_archive_cache "$image_name" "$image" "$output" "$acquisition"
+    clear_transaction_record archive "$image_name"
 }
 
-validate_image_fs_provenance() {
+image_fs_provenance_matches() {
     local fs_name="$1"
     local provenance="$2"
     local temporary marker
+    image_fs_validation_error=''
     temporary=$(mktemp -d "$provision_dir/image-check.XXXXXX")
     cleanup_paths+=("$temporary")
-    if ! query_sdme cp "fs:$fs_name:$IMAGE_PROVENANCE_PATH" "$temporary" >/dev/null; then
+    if ! query_sdme cp "fs:$fs_name:$IMAGE_PROVENANCE_PATH" "$temporary" >/dev/null 2>&1; then
         rm -rf -- "$temporary"
-        die "rootfs lacks image provenance: $fs_name"
+        image_fs_validation_error="rootfs lacks image provenance: $fs_name"
+        return 1
     fi
     marker="$temporary/$(basename -- "$IMAGE_PROVENANCE_PATH")"
-    cmp -s -- "$provenance" "$marker" || {
+    if ! cmp -s -- "$provenance" "$marker"; then
         rm -rf -- "$temporary"
-        die "rootfs image provenance mismatch: $fs_name"
-    }
+        image_fs_validation_error="rootfs image provenance mismatch: $fs_name"
+        return 1
+    fi
     rm -rf -- "$temporary"
+}
+
+validate_image_fs_provenance() {
+    image_fs_provenance_matches "$1" "$2" || die "$image_fs_validation_error"
 }
 
 install_image_fs_provenance() {
@@ -1040,34 +1141,50 @@ ensure_image_fs() {
     local platform="$5"
     local source="$6"
     shift 6
-    local acquisition provenance result
-    acquisition=$(archive_acquisition "$source")
+    local provenance provenance_identity result transaction_identity_value transaction_present
     provenance=$(archive_provenance_path "$archive")
+    materialize_archive "$image_name" "$image" "$archive" "$platform" "$source"
+    provenance_identity=$("$sha256_bin" "$provenance" | awk '{print $1}')
+    transaction_identity_value=$(transaction_identity \
+        image-filesystem "$fs_name" "$arch" "$archive" \
+        "$provenance_identity" "$@" importing)
+    transaction_present=0
+    transaction_record_exists image "$fs_name" && transaction_present=1
+    if ((transaction_present)); then
+        transaction_record_matches image "$fs_name" \
+            "$transaction_identity_value" "$provenance_identity" \
+            "$image_name" importing
+    fi
 
     if fs_exists "$fs_name"; then
-        if [[ -n "$source" ]]; then
-            validate_offline_archive "$image_name" "$image" "$source" /dev/null 1
+        if image_fs_provenance_matches "$fs_name" "$provenance"; then
+            if ((transaction_present)); then
+                clear_transaction_record image "$fs_name"
+            fi
+            debug "reusing provenance-validated rootfs $fs_name"
+            return
         fi
-        validate_archive_cache "$image_name" "$image" "$archive" "$acquisition" || {
-            result=$?
-            ((result == 1)) && die "rootfs exists without a managed OCI archive: $fs_name"
-            return "$result"
-        }
-        validate_image_fs_provenance "$fs_name" "$provenance"
-        debug "reusing provenance-validated rootfs $fs_name"
-        return
+        ((transaction_present)) || die "$image_fs_validation_error"
+        run_sdme fs rm -f "$fs_name"
+        debug "discarded interrupted unproven rootfs $fs_name"
     else
         result=$?
         ((result == 1)) || die "could not inspect rootfs $fs_name"
     fi
 
-    materialize_archive "$image_name" "$image" "$archive" "$platform" "$source"
+    if ((transaction_present == 0)); then
+        write_transaction_record image "$fs_name" \
+            "$transaction_identity_value" "$provenance_identity" \
+            "$image_name" importing
+    fi
     run_sdme fs import "$archive" --name "$fs_name" "$@"
     install_image_fs_provenance "$fs_name" "$provenance"
+    clear_transaction_record image "$fs_name"
 }
 
 ensure_runtime_fs() {
-    local platform result
+    local platform result expected_provenance provenance_identity proxy_mode
+    local transaction_present force_rebuild build_definition intent_identity
     platform=$(oci_arch "$arch")
     ensure_image_fs ubuntu "$UBUNTU_IMAGE" "$UBUNTU_FS" "$ubuntu_archive" \
         "$platform" "$ubuntu_oci_archive" --oci-mode base --install-packages yes
@@ -1075,16 +1192,82 @@ ensure_runtime_fs() {
         "$nativelink_archive" "$platform" "$nativelink_oci_archive" \
         --install-packages no -f
 
+    expected_provenance=$(mktemp "$provision_dir/runtime-provenance.XXXXXX")
+    cleanup_paths+=("$expected_provenance")
+    generate_runtime_provenance "$expected_provenance"
+    chmod 0600 "$expected_provenance"
+    provenance_identity=$("$sha256_bin" "$expected_provenance" | awk '{print $1}')
+    set_runtime_transaction_paths
+    proxy_mode=disabled
+    if proxy_environment_enabled; then
+        proxy_mode=enabled
+        validate_runtime_proxy_paths
+    fi
+    intent_identity=$(transaction_identity runtime-filesystem "$RUNTIME_FS" \
+        "$arch" "$provenance_identity" "$proxy_mode" building)
+    transaction_present=0
+    force_rebuild=0
+    transaction_record_exists runtime "$RUNTIME_FS" && transaction_present=1
+    if ((transaction_present)); then
+        transaction_record_matches runtime "$RUNTIME_FS" \
+            "$intent_identity" "$provenance_identity" "$proxy_mode" building
+    fi
+
     if fs_exists "$RUNTIME_FS"; then
-        debug "reusing rootfs $RUNTIME_FS"
+        if runtime_fs_matches "$expected_provenance"; then
+            if ((transaction_present)); then
+                clear_runtime_transaction
+            else
+                reject_unowned_runtime_assets
+            fi
+            debug "reusing provenance-validated rootfs $RUNTIME_FS"
+            rm -f -- "$expected_provenance"
+            return
+        fi
+        ((transaction_present)) || die "$runtime_fs_validation_error"
+        ((runtime_fs_validation_recoverable)) || die "$runtime_fs_validation_error"
+        if [[ "$proxy_mode" == disabled ]] && runtime_transaction_assets_exist; then
+            die "unexpected proxy assets for a direct-network runtime transaction"
+        fi
+        if [[ "$proxy_mode" == enabled ]]; then
+            remove_runtime_transaction_assets
+        fi
+        run_sdme fs rm -f "$RUNTIME_FS"
+        force_rebuild=1
+        debug "discarded interrupted unproven runtime rootfs $RUNTIME_FS"
     else
         result=$?
         ((result == 1)) || die "could not inspect rootfs $RUNTIME_FS"
-        run_sdme fs build "$RUNTIME_FS" \
-            "$asset_root/sdme/worker-rootfs.sdme" --timeout 600
-        install_runtime_provenance
     fi
-    validate_runtime_fs
+
+    if ((transaction_present)); then
+        if [[ "$proxy_mode" == enabled ]]; then
+            remove_runtime_transaction_assets
+        elif runtime_transaction_assets_exist; then
+            die "unexpected proxy assets for a direct-network runtime transaction"
+        fi
+    else
+        reject_unowned_runtime_assets
+        write_transaction_record runtime "$RUNTIME_FS" \
+            "$intent_identity" "$provenance_identity" "$proxy_mode" building
+    fi
+
+    build_definition="$asset_root/sdme/worker-rootfs.sdme"
+    if [[ "$proxy_mode" == enabled ]]; then
+        create_runtime_transaction_assets
+        build_definition="$runtime_build_definition"
+        force_rebuild=1
+    fi
+    local build_command=(fs build "$RUNTIME_FS" "$build_definition" --timeout 600)
+    if ((force_rebuild)); then
+        build_command+=(--no-cache)
+    fi
+    run_sdme "${build_command[@]}"
+    validate_runtime_content
+    install_runtime_provenance "$expected_provenance"
+    validate_runtime_fs "$expected_provenance"
+    clear_runtime_transaction
+    rm -f -- "$expected_provenance"
 }
 
 generate_runtime_provenance() {
@@ -1095,12 +1278,8 @@ generate_runtime_provenance() {
 }
 
 install_runtime_provenance() {
-    local temporary="$provision_dir/runtime-provenance.tmp.$$"
-    cleanup_paths+=("$temporary")
-    generate_runtime_provenance "$temporary"
-    chmod 0600 "$temporary"
-    run_sdme cp "$temporary" "fs:$RUNTIME_FS:$RUNTIME_PROVENANCE_PATH"
-    rm -f -- "$temporary"
+    local provenance="$1"
+    run_sdme cp "$provenance" "fs:$RUNTIME_FS:$RUNTIME_PROVENANCE_PATH"
 }
 
 validate_managed_directories() {
@@ -1116,45 +1295,509 @@ validate_managed_directories() {
     done
 }
 
+validate_private_managed_file() {
+    local label="$1"
+    local path="$2"
+    local mode owner
+    [[ -f "$path" && ! -L "$path" ]] || die "$label is not a regular file: $path"
+    validate_safe_file "$label" "$path" >/dev/null
+    owner=$(stat -c '%u' -- "$path")
+    mode=$(stat -c '%a' -- "$path")
+    [[ "$owner" == 0 ]] || die "$label is not root-owned: $path"
+    [[ "$mode" == 600 ]] || die "$label must have mode 0600: $path"
+    [[ "$(stat -c '%h' -- "$path")" == 1 ]] || die "$label has multiple hard links: $path"
+}
+
+sync_path() {
+    "$python_bin" - "$1" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+flags = os.O_RDONLY
+if os.path.isdir(path):
+    flags |= getattr(os, "O_DIRECTORY", 0)
+descriptor = os.open(path, flags)
+try:
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+}
+
+transaction_identity() {
+    printf '%s\0' "$@" | "$sha256_bin" | awk '{print $1}'
+}
+
+transaction_record_path() {
+    local boundary="$1"
+    local target="$2"
+    validate_name "$boundary"
+    validate_name "$target"
+    printf '%s/%s-%s.transaction\n' "$transaction_dir" "$boundary" "$target"
+}
+
+emit_transaction_record() {
+    local boundary="$1"
+    local target="$2"
+    local intent_identity="$3"
+    local object_identity="$4"
+    local mode="$5"
+    local phase="$6"
+    [[ "$intent_identity" =~ ^[0-9a-f]{64}$ ]] || die "invalid transaction intent identity"
+    [[ "$object_identity" =~ ^[0-9a-f]{64}$ ]] || die "invalid transaction object identity"
+    [[ "$mode" =~ ^[a-z-]+$ ]] || die "invalid transaction mode"
+    [[ "$phase" =~ ^[a-z-]+$ ]] || die "invalid transaction phase"
+    printf '%s\n' \
+        "schema_version=$TRANSACTION_SCHEMA_VERSION" \
+        "boundary=$boundary" \
+        "target=$target" \
+        "architecture=$arch" \
+        "intent_sha256=$intent_identity" \
+        "object_sha256=$object_identity" \
+        "mode=$mode" \
+        "phase=$phase"
+}
+
+transaction_record_exists() {
+    local path
+    path=$(transaction_record_path "$1" "$2")
+    [[ -e "$path" || -L "$path" ]]
+}
+
+transaction_record_matches() {
+    local boundary="$1"
+    local target="$2"
+    local intent_identity="$3"
+    local object_identity="$4"
+    local mode="$5"
+    local phase="$6"
+    local path expected
+    path=$(transaction_record_path "$boundary" "$target")
+    [[ -e "$path" || -L "$path" ]] || return 1
+    [[ ! -L "$path" ]] || die "transaction record is a symlink: $path"
+    validate_private_managed_file 'transaction record' "$path"
+    expected=$(mktemp "$transaction_dir/expected-transaction.XXXXXX")
+    cleanup_paths+=("$expected")
+    emit_transaction_record "$boundary" "$target" "$intent_identity" \
+        "$object_identity" "$mode" "$phase" > "$expected"
+    chmod 0600 "$expected"
+    cmp -s -- "$expected" "$path" || die "transaction record does not match this invocation: $path"
+    rm -f -- "$expected"
+}
+
+transaction_record_object_identity() {
+    local boundary="$1"
+    local target="$2"
+    local path
+    path=$(transaction_record_path "$boundary" "$target")
+    [[ -e "$path" || -L "$path" ]] || return 1
+    [[ ! -L "$path" ]] || die "transaction record is a symlink: $path"
+    validate_private_managed_file 'transaction record' "$path"
+    "$python_bin" - "$path" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+keys = (
+    "schema_version",
+    "boundary",
+    "target",
+    "architecture",
+    "intent_sha256",
+    "object_sha256",
+    "mode",
+    "phase",
+)
+with open(path, encoding="utf-8") as stream:
+    lines = stream.read().splitlines()
+if len(lines) != len(keys):
+    raise SystemExit("malformed transaction record: {}".format(path))
+record = {}
+for expected_key, line in zip(keys, lines):
+    key, separator, value = line.partition("=")
+    if not separator or key != expected_key or not value or key in record:
+        raise SystemExit("malformed transaction record: {}".format(path))
+    record[key] = value
+if record["schema_version"] != "1":
+    raise SystemExit("unsupported transaction record schema: {}".format(path))
+if not re.fullmatch(r"[0-9a-f]{64}", record["object_sha256"]):
+    raise SystemExit("malformed transaction object identity: {}".format(path))
+print(record["object_sha256"])
+PY
+}
+
+transaction_record_matches_intent() {
+    local boundary="$1"
+    local target="$2"
+    local intent_identity="$3"
+    local mode="$4"
+    local phase="$5"
+    local object_identity
+    object_identity=$(transaction_record_object_identity "$boundary" "$target") || \
+        die "cannot read transaction record object identity"
+    transaction_record_matches "$boundary" "$target" "$intent_identity" \
+        "$object_identity" "$mode" "$phase"
+}
+
+write_transaction_record() {
+    local boundary="$1"
+    local target="$2"
+    local intent_identity="$3"
+    local object_identity="$4"
+    local mode="$5"
+    local phase="$6"
+    local path temporary
+    path=$(transaction_record_path "$boundary" "$target")
+    [[ ! -e "$path" && ! -L "$path" ]] || die "transaction record already exists: $path"
+    temporary=$(mktemp "$transaction_dir/new-transaction.XXXXXX")
+    cleanup_paths+=("$temporary")
+    emit_transaction_record "$boundary" "$target" "$intent_identity" \
+        "$object_identity" "$mode" "$phase" > "$temporary"
+    chmod 0600 "$temporary"
+    sync_path "$temporary"
+    mv -- "$temporary" "$path"
+    sync_path "$transaction_dir"
+}
+
+clear_transaction_record() {
+    local path
+    path=$(transaction_record_path "$1" "$2")
+    [[ ! -L "$path" ]] || die "transaction record is a symlink: $path"
+    if [[ -e "$path" ]]; then
+        validate_private_managed_file 'transaction record' "$path"
+        rm -f -- "$path"
+        sync_path "$transaction_dir"
+    fi
+}
+
+acquire_provision_lock() {
+    local lock_path="$provision_dir/sdme-provision.lock"
+    local path_identity descriptor_identity
+    [[ ! -L "$lock_path" ]] || die "provision lock is a symlink: $lock_path"
+    if [[ ! -e "$lock_path" ]]; then
+        "$python_bin" - "$lock_path" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+try:
+    descriptor = os.open(
+        path,
+        os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+except FileExistsError:
+    pass
+else:
+    os.close(descriptor)
+PY
+    fi
+    validate_private_managed_file 'provision lock' "$lock_path"
+    exec {provision_lock_fd}<>"$lock_path"
+    path_identity=$(stat -Lc '%d:%i' -- "$lock_path")
+    descriptor_identity=$(stat -Lc '%d:%i' -- "/proc/$$/fd/$provision_lock_fd")
+    [[ "$path_identity" == "$descriptor_identity" ]] || die "provision lock changed while opening: $lock_path"
+    "$flock_bin" -n "$provision_lock_fd" || die "another provisioning operation holds $lock_path"
+}
+
+prepare_mutation_root() {
+    [[ ! -L "$provision_dir" ]] || die "managed provision path is a symlink: $provision_dir"
+    run_command install -d -m 0750 "$provision_dir"
+    validate_managed_directories "$provision_dir"
+    acquire_provision_lock
+    [[ ! -L "$transaction_dir" ]] || die "transaction directory is a symlink: $transaction_dir"
+    run_command install -d -m 0700 "$transaction_dir"
+    validate_managed_directories "$transaction_dir"
+    chmod 0700 "$transaction_dir"
+}
+
+proxy_environment_enabled() {
+    local variable
+    for variable in \
+        http_proxy https_proxy all_proxy no_proxy \
+        HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY; do
+        if [[ -n "${!variable-}" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+generate_proxy_environment_file() {
+    local destination="$1"
+    "$python_bin" - "$destination" "$BUILD_PROXY_SENTINEL" <<'PY'
+import os
+import shlex
+import sys
+
+path, sentinel = sys.argv[1:]
+names = (
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+)
+values = {name: os.environ[name] for name in names if os.environ.get(name)}
+if not values:
+    raise SystemExit("proxy environment disappeared")
+descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+    stream.write("# {}\n".format(sentinel))
+    for name in names:
+        if name in values:
+            stream.write("{}={}\n".format(name, shlex.quote(values[name])))
+    stream.flush()
+    os.fsync(stream.fileno())
+PY
+}
+
+render_runtime_build_definition() {
+    local destination="$1"
+    local proxy_source="$2"
+    "$python_bin" - "$asset_root/sdme/worker-rootfs.sdme" "$destination" "$proxy_source" <<'PY'
+import os
+import sys
+
+source, destination, proxy_source = sys.argv[1:]
+marker = "# PROVISIONER_PROXY_COPY"
+with open(source, encoding="utf-8") as stream:
+    text = stream.read()
+if text.count(marker) != 1:
+    raise SystemExit("worker rootfs must contain exactly one proxy COPY marker")
+text = text.replace(marker, "COPY {} /etc/buckos-re-build-proxy.env".format(proxy_source))
+descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+    stream.write(text)
+    stream.flush()
+    os.fsync(stream.fileno())
+PY
+}
+
+set_runtime_transaction_paths() {
+    runtime_proxy_file="$transaction_dir/runtime-$RUNTIME_FS.proxy.env"
+    runtime_build_definition="$transaction_dir/runtime-$RUNTIME_FS.build.sdme"
+}
+
+validate_runtime_proxy_paths() {
+    path_is_beneath "$runtime_proxy_file" "$transaction_dir" || \
+        die "runtime proxy transport escaped the transaction directory"
+    path_is_beneath "$runtime_build_definition" "$transaction_dir" || \
+        die "runtime build definition escaped the transaction directory"
+    [[ "$runtime_proxy_file" != *[$' \t\r\n']* ]] || \
+        die "managed proxy transport path contains whitespace unsupported by SDME"
+}
+
+create_runtime_transaction_assets() {
+    [[ ! -e "$runtime_proxy_file" && ! -L "$runtime_proxy_file" ]] || \
+        die "unexpected runtime proxy transaction file: $runtime_proxy_file"
+    [[ ! -e "$runtime_build_definition" && ! -L "$runtime_build_definition" ]] || \
+        die "unexpected runtime build transaction file: $runtime_build_definition"
+    cleanup_paths+=("$runtime_proxy_file" "$runtime_build_definition")
+    generate_proxy_environment_file "$runtime_proxy_file"
+    render_runtime_build_definition "$runtime_build_definition" "$runtime_proxy_file"
+    sync_path "$transaction_dir"
+}
+
+validate_or_remove_runtime_asset() {
+    local label="$1"
+    local path="$2"
+    [[ ! -L "$path" ]] || die "$label is a symlink: $path"
+    if [[ -e "$path" ]]; then
+        validate_private_managed_file "$label" "$path"
+        rm -f -- "$path"
+    fi
+}
+
+runtime_transaction_assets_exist() {
+    [[ -e "$runtime_proxy_file" || -L "$runtime_proxy_file" || \
+       -e "$runtime_build_definition" || -L "$runtime_build_definition" ]]
+}
+
+reject_unowned_runtime_assets() {
+    runtime_transaction_assets_exist || return 0
+    die "runtime transport assets exist without a matching transaction record"
+}
+
+remove_runtime_transaction_assets() {
+    transaction_record_exists runtime "$RUNTIME_FS" || \
+        die "runtime transport assets lack a transaction record"
+    validate_or_remove_runtime_asset 'runtime proxy environment' "$runtime_proxy_file"
+    validate_or_remove_runtime_asset 'runtime build definition' "$runtime_build_definition"
+    sync_path "$transaction_dir"
+}
+
+clear_runtime_transaction() {
+    remove_runtime_transaction_assets
+    clear_transaction_record runtime "$RUNTIME_FS"
+    sync_path "$transaction_dir"
+}
+
 prepare_runtime() {
-    run_command install -d -m 0750 "$images_dir" "$provision_dir"
-    validate_managed_directories "$images_dir" "$provision_dir"
+    prepare_mutation_root
+    run_command install -d -m 0750 "$images_dir"
+    validate_managed_directories "$images_dir"
     ensure_runtime_fs
 }
 
-validate_runtime_fs() {
-    local temporary marker expected_provenance actual_provenance
+inspect_runtime_proxy_absence() {
+    local archive
+    local result
+    archive=$(mktemp "$provision_dir/runtime-inspection.XXXXXX.tar")
+    cleanup_paths+=("$archive")
+    if ! (umask 077; run_command "$sdme_bin" fs export \
+            "fs:$RUNTIME_FS" "$archive" --fmt tar -f); then
+        runtime_fs_validation_error="runtime proxy inspection failed: $RUNTIME_FS"
+        runtime_fs_validation_recoverable=0
+        return 2
+    fi
+    chmod 0600 "$archive"
+    if "$python_bin" - "$archive" "$BUILD_PROXY_SENTINEL" "$BUILD_PROXY_PATH" <<'PY'
+import os
+import sys
+import tarfile
+
+archive_path, sentinel, proxy_path = sys.argv[1:]
+names = (
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+)
+patterns = {sentinel.encode("utf-8")}
+patterns.update(os.environ[name].encode("utf-8") for name in names if os.environ.get(name))
+max_pattern = max(map(len, patterns))
+
+try:
+    with tarfile.open(archive_path, mode="r:") as archive:
+        for member in archive:
+            normalized = member.name.removeprefix("./").lstrip("/")
+            if normalized == proxy_path.lstrip("/"):
+                print("runtime contains proxy transport path", file=sys.stderr)
+                raise SystemExit(1)
+            if not member.isfile():
+                continue
+            stream = archive.extractfile(member)
+            if stream is None:
+                raise RuntimeError("cannot inspect regular member")
+            tail = b""
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                data = tail + chunk
+                if any(pattern in data for pattern in patterns):
+                    print("runtime contains proxy transport content", file=sys.stderr)
+                    raise SystemExit(1)
+                tail = data[-(max_pattern - 1):] if max_pattern > 1 else b""
+except SystemExit:
+    raise
+except (OSError, tarfile.TarError, RuntimeError) as error:
+    print("runtime proxy inspection error: {}".format(error), file=sys.stderr)
+    raise SystemExit(2)
+PY
+    then
+        rm -f -- "$archive"
+        return 0
+    else
+        result=$?
+    fi
+    rm -f -- "$archive"
+    if ((result == 1)); then
+        runtime_fs_validation_error="runtime rootfs contains proxy transport material: $RUNTIME_FS"
+        runtime_fs_validation_recoverable=1
+        return 1
+    fi
+    runtime_fs_validation_error="runtime proxy inspection failed: $RUNTIME_FS"
+    runtime_fs_validation_recoverable=0
+    return 2
+}
+
+runtime_content_matches() {
+    local temporary marker result
+    runtime_fs_validation_error=''
+    runtime_fs_validation_recoverable=1
     temporary=$(mktemp -d "$provision_dir/runtime-check.XXXXXX")
     cleanup_paths+=("$temporary")
-    if ! query_sdme cp "fs:$RUNTIME_FS:/etc/nativelink/runtime-images" "$temporary" >/dev/null; then
+    if ! query_sdme cp "fs:$RUNTIME_FS:/etc/nativelink/runtime-images" "$temporary" >/dev/null 2>&1; then
         rm -rf -- "$temporary"
-        die "runtime rootfs lacks provenance marker: $RUNTIME_FS"
+        runtime_fs_validation_error="runtime rootfs lacks provenance marker: $RUNTIME_FS"
+        return 1
     fi
     marker="$temporary/runtime-images"
-    grep -Fxq "ubuntu_image=$UBUNTU_IMAGE" "$marker" || {
+    if ! grep -Fxq "ubuntu_image=$UBUNTU_IMAGE" "$marker"; then
         rm -rf -- "$temporary"
-        die "runtime rootfs Ubuntu digest mismatch: $RUNTIME_FS"
-    }
-    grep -Fxq "nativelink_image=$NATIVELINK_IMAGE" "$marker" || {
+        runtime_fs_validation_error="runtime rootfs Ubuntu digest mismatch: $RUNTIME_FS"
+        return 1
+    fi
+    if ! grep -Fxq "nativelink_image=$NATIVELINK_IMAGE" "$marker"; then
         rm -rf -- "$temporary"
-        die "runtime rootfs NativeLink digest mismatch: $RUNTIME_FS"
-    }
-    grep -Fxq "architecture=$arch" "$marker" || {
+        runtime_fs_validation_error="runtime rootfs NativeLink digest mismatch: $RUNTIME_FS"
+        return 1
+    fi
+    if ! grep -Fxq "architecture=$arch" "$marker"; then
         rm -rf -- "$temporary"
-        die "runtime rootfs architecture mismatch: $RUNTIME_FS"
-    }
-    expected_provenance="$temporary/expected-runtime-provenance.json"
-    generate_runtime_provenance "$expected_provenance"
-    if ! query_sdme cp "fs:$RUNTIME_FS:$RUNTIME_PROVENANCE_PATH" "$temporary" >/dev/null; then
+        runtime_fs_validation_error="runtime rootfs architecture mismatch: $RUNTIME_FS"
+        return 1
+    fi
+    rm -rf -- "$temporary"
+    if inspect_runtime_proxy_absence; then
+        return 0
+    else
+        result=$?
+        return "$result"
+    fi
+}
+
+runtime_provenance_matches() {
+    local expected_provenance="$1"
+    local temporary actual_provenance
+    temporary=$(mktemp -d "$provision_dir/runtime-provenance-check.XXXXXX")
+    cleanup_paths+=("$temporary")
+    if ! query_sdme cp "fs:$RUNTIME_FS:$RUNTIME_PROVENANCE_PATH" "$temporary" >/dev/null 2>&1; then
         rm -rf -- "$temporary"
-        die "runtime rootfs lacks strict provenance: $RUNTIME_FS"
+        runtime_fs_validation_error="runtime rootfs lacks strict provenance: $RUNTIME_FS"
+        runtime_fs_validation_recoverable=1
+        return 1
     fi
     actual_provenance="$temporary/$(basename -- "$RUNTIME_PROVENANCE_PATH")"
-    cmp -s -- "$expected_provenance" "$actual_provenance" || {
+    if ! cmp -s -- "$expected_provenance" "$actual_provenance"; then
         rm -rf -- "$temporary"
-        die "runtime rootfs strict provenance mismatch: $RUNTIME_FS"
-    }
+        runtime_fs_validation_error="runtime rootfs strict provenance mismatch: $RUNTIME_FS"
+        runtime_fs_validation_recoverable=1
+        return 1
+    fi
     rm -rf -- "$temporary"
+}
+
+runtime_fs_matches() {
+    runtime_content_matches || return $?
+    runtime_provenance_matches "$1"
+}
+
+validate_runtime_content() {
+    runtime_content_matches || die "$runtime_fs_validation_error"
+}
+
+validate_runtime_fs() {
+    local expected_provenance="${1:-}"
+    local temporary=''
+    if [[ -z "$expected_provenance" ]]; then
+        temporary=$(mktemp "$provision_dir/expected-runtime-provenance.XXXXXX")
+        cleanup_paths+=("$temporary")
+        generate_runtime_provenance "$temporary"
+        expected_provenance="$temporary"
+    fi
+    runtime_fs_matches "$expected_provenance" || die "$runtime_fs_validation_error"
+    if [[ -n "$temporary" ]]; then
+        rm -f -- "$temporary"
+    fi
 }
 
 write_environment_file() {
@@ -1312,8 +1955,9 @@ discover_control_worker_bind_address() {
 }
 
 apply_deployment() {
-    local directories=("$images_dir" "$provision_dir" "$state_dir")
+    local directories=("$images_dir" "$state_dir")
     if [[ "$role" == worker ]]; then directories+=("$scratch_dir"); fi
+    prepare_mutation_root
     run_command install -d -m 0750 "${directories[@]}"
     validate_managed_directories "${directories[@]}"
 
