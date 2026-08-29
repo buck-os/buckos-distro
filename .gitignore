@@ -51,3 +51,6 @@ __pycache__/
 # clone with no local_scripts/ is the supported configuration, and an
 # environment that needs them needs them *around* the build, not inside it.
 local_scripts/
+
+# Local team orchestration state and disposable worktrees.
+/dev/
