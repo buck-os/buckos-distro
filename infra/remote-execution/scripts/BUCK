@@ -1,3 +1,26 @@
+python_library(
+    name = "oci_acquire_lib",
+    srcs = [
+        "oci_acquire.py",
+        "oci_archive.py",
+    ],
+    base_module = "",
+)
+
+python_binary(
+    name = "oci_acquire",
+    main_module = "oci_acquire",
+    deps = [":oci_acquire_lib"],
+    visibility = ["PUBLIC"],
+)
+
+python_test(
+    name = "oci_acquire_test",
+    srcs = ["oci_acquire_test.py"],
+    base_module = "",
+    deps = [":oci_acquire_lib"],
+)
+
 python_test(
     name = "preflight_worker_test",
     srcs = [

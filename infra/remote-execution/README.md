@@ -19,6 +19,24 @@ python3 -m unittest discover -s infra/remote-execution/scripts -p '*_test.py'
 python3 -m unittest -v infra/remote-execution/tests/smoke_test_test.py
 ```
 
+## Regenerate offline OCI archives
+
+An operator with public registry access can reproduce the trusted archives for either architecture. The output directory must not already contain any tracked archive filename:
+
+```sh
+buck2 run //infra/remote-execution/scripts:oci_acquire -- \
+  --architecture x86_64 \
+  --metadata infra/remote-execution/sdme/offline-oci-archives.json \
+  --output-directory /path/to/offline-oci-output
+
+buck2 run //infra/remote-execution/scripts:oci_acquire -- \
+  --architecture aarch64 \
+  --metadata infra/remote-execution/sdme/offline-oci-archives.json \
+  --output-directory /path/to/offline-oci-output
+```
+
+The producer fetches only the digest-pinned parent indexes and selected platform closures. It verifies every descriptor while downloading, writes deterministic USTAR archives, and runs the same admission validator used by provisioning. It publishes mode-0600 files only when their final SHA-256 values and sizes exactly match the tracked metadata.
+
 ## Review an SDME plan
 
 The `plan` operation is non-mutating. Use an absolute persistent data path outside a checkout or home directory:
