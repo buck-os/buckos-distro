@@ -160,11 +160,29 @@ def target_name(*parts):
     return TARGET_RE.sub("-", "-".join(parts)).strip("-")
 
 
+def apt_source_selector(package, version=None):
+    selector = "src:{}".format(package)
+    if version:
+        selector += "={}".format(version)
+    return selector
+
+
+def apt_source_command(package, version=None):
+    return [
+        "apt-get", "source", "--print-uris", "--download-only",
+        apt_source_selector(package, version),
+    ]
+
+
+def apt_build_dep_command(package, version):
+    return [
+        "apt-get", "-Pnocheck", "build-dep",
+        apt_source_selector(package, version),
+    ]
+
+
 def source_record(package, version=None):
-    request = "{}={}".format(package, version) if version else package
-    uri_entries = apt_uri_lines(apt_output([
-        "apt-get", "source", "--print-uris", "--download-only", request,
-    ]))
+    uri_entries = apt_uri_lines(apt_output(apt_source_command(package, version)))
     dsc_entries = [entry for entry in uri_entries if entry["filename"].endswith(".dsc")]
     if len(dsc_entries) != 1:
         raise ValueError("{}: expected one .dsc URI, got {}".format(package, len(dsc_entries)))
@@ -173,6 +191,8 @@ def source_record(package, version=None):
     records = parse_control_paragraphs(apt_output(["apt-cache", "showsrc", package]))
     matches = []
     for fields in records:
+        if fields.get("Package") != package:
+            continue
         if version and fields.get("Version") != version:
             continue
         checksums = fields.get("Checksums-Sha256", "")
@@ -467,7 +487,7 @@ def main():
             build_output = run_output(
                 ["apt-get"] + apt_options(
                     status, archives, args.architecture, lists, sources_list,
-                ) + ["-Pnocheck", "build-dep", "{}={}".format(name, version)]
+                ) + apt_build_dep_command(name, version)[1:]
             )
             deps = records_by_target(apt_uri_lines(build_output))
             source["binary_metadata"] = sorted(
@@ -484,7 +504,7 @@ def main():
             build_output = run_output(
                 ["apt-get"] + apt_options(
                     status, archives, args.architecture, lists, sources_list,
-                ) + ["-Pnocheck", "build-dep", "{}={}".format(name, source["version_full"])]
+                ) + apt_build_dep_command(name, source["version_full"])[1:]
             )
             deps = records_by_target(apt_uri_lines(build_output))
             source["binary_metadata"] = []

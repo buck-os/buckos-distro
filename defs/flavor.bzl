@@ -359,6 +359,7 @@ def _deb_package(
     binary_metadata = binary_metadata or {}
     build_options = build_options or []
     build_profiles = [profile for profile in (build_profiles or [])]
+    version_full = version_full or version + ("-" + release if release else "")
     if nocheck and "nocheck" not in build_profiles:
         build_profiles.append("nocheck")
 
@@ -369,6 +370,7 @@ def _deb_package(
         package_name = source_name,
         flavor = flavor,
         version = version,
+        version_full = version_full,
         release = release,
         default_target_platform = default_target_platform,
         visibility = visibility,

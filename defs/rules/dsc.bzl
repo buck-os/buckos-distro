@@ -19,6 +19,8 @@ def _dsc_unpack_impl(ctx: AnalysisContext) -> list[Provider]:
     for source in ctx.attrs.source_files:
         cmd.add("--file", source)
     cmd.add("--out", out.as_output())
+    cmd.add("--source-name", ctx.attrs.package_name)
+    cmd.add("--source-version", ctx.attrs.version_full)
     cmd.add("--source-date-epoch", ctx.attrs.source_date_epoch)
 
     ctx.actions.run(
@@ -52,6 +54,7 @@ dsc_unpack = rule(
         "source_files": attrs.list(attrs.source()),
         "source_date_epoch": attrs.string(default = "1700000000"),
         "version": attrs.string(default = ""),
+        "version_full": attrs.string(),
         "_unpack": attrs.default_only(attrs.exec_dep(default = "//tools:dsc_unpack")),
     },
 )

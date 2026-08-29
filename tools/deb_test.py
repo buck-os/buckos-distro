@@ -25,10 +25,13 @@ from dpkgbuild_replay import (
     select_installroot_debs,
 )
 from deb_lock import (
+    apt_build_dep_command,
     apt_options,
+    apt_source_command,
     apt_uri_lines,
     dependency_overlay,
     parse_source_exception,
+    source_record,
     source_requests,
 )
 
@@ -38,6 +41,7 @@ Hash: SHA512
 
 Format: 3.0 (quilt)
 Source: hello
+Version: 2.10-5
 Checksums-Sha256:
  {digest} 5 hello.orig.tar.gz
 -----BEGIN PGP SIGNATURE-----
@@ -128,6 +132,20 @@ class TestSourceValidation(unittest.TestCase):
                 {"hello.orig.tar.gz": source},
                 validate_sources(dsc, [source]),
             )
+
+    def test_rejects_dsc_with_wrong_exact_source_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, "hello.orig.tar.gz")
+            with open(source, "wb") as stream:
+                stream.write(b"hello")
+            dsc = os.path.join(tmp, "hello.dsc")
+            with open(dsc, "w", encoding="utf-8") as stream:
+                stream.write(DSC.format(digest=hashlib.sha256(b"hello").hexdigest()))
+
+            with self.assertRaisesRegex(ValueError, "source name mismatch"):
+                validate_sources(dsc, [source], "hello-from", "2.10-5")
+            with self.assertRaisesRegex(ValueError, "source version mismatch"):
+                validate_sources(dsc, [source], "hello", "2.10-6")
 
 
 class TestBuildrootSkeleton(unittest.TestCase):
@@ -336,6 +354,65 @@ class TestAptMetadata(unittest.TestCase):
                 "hello_2.10%2Bdfsg_amd64.deb 42 SHA256:{}\n".format(digest)
             ),
         )
+
+    def test_uses_explicit_source_selectors_for_apt_operations(self):
+        self.assertEqual(
+            [
+                "apt-get", "source", "--print-uris", "--download-only",
+                "src:coreutils=9.7-3ubuntu2",
+            ],
+            apt_source_command("coreutils", "9.7-3ubuntu2"),
+        )
+        self.assertEqual(
+            [
+                "apt-get", "source", "--print-uris", "--download-only",
+                "src:coreutils",
+            ],
+            apt_source_command("coreutils"),
+        )
+        self.assertEqual(
+            [
+                "apt-get", "-Pnocheck", "build-dep",
+                "src:coreutils=9.7-3ubuntu2",
+            ],
+            apt_build_dep_command("coreutils", "9.7-3ubuntu2"),
+        )
+
+    def test_source_record_ignores_same_named_binary_source_collision(self):
+        digest = "a" * 64
+        commands = []
+
+        def fake_apt_output(command):
+            commands.append(command)
+            if command[:2] == ["apt-get", "source"]:
+                if command[-1] != "src:coreutils=9.7-3ubuntu2":
+                    return (
+                        "'http://archive.example/coreutils-from_1.dsc' "
+                        "coreutils-from_1.dsc 1 SHA256:{}\n".format(digest)
+                    )
+                return (
+                    "'http://archive.example/coreutils_9.7-3ubuntu2.dsc' "
+                    "coreutils_9.7-3ubuntu2.dsc 1 SHA256:{}\n".format(digest)
+                )
+            return """Package: coreutils-from
+Version: 9.7-3ubuntu2
+Binary: coreutils
+Checksums-Sha256:
+ {digest} 1 coreutils_9.7-3ubuntu2.dsc
+
+Package: coreutils
+Version: 9.7-3ubuntu2
+Binary: coreutils
+Checksums-Sha256:
+ {digest} 1 coreutils_9.7-3ubuntu2.dsc
+""".format(digest=digest)
+
+        with mock.patch("deb_lock.apt_output", side_effect=fake_apt_output):
+            record = source_record("coreutils", "9.7-3ubuntu2")
+
+        self.assertEqual("coreutils", record["name"])
+        self.assertEqual("9.7-3ubuntu2", record["version_full"])
+        self.assertEqual("src:coreutils=9.7-3ubuntu2", commands[0][-1])
 
     def test_groups_live_binaries_by_exact_source_identity(self):
         live = [
