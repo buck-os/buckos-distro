@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for the generic RPM-family relock loop."""
 
+import hashlib
 import json
 import os
 import tempfile
@@ -130,6 +131,134 @@ class TestSolveArgv(unittest.TestCase):
             "aarch64",
         )
         self.assertIsNone(result["probe"])
+
+
+class TestRepositoryPrimary(unittest.TestCase):
+    @staticmethod
+    def write_primary(directory, contents=b"primary"):
+        digest = hashlib.sha256(contents).hexdigest()
+        name = "{}-primary.xml.zst".format(digest)
+        path = os.path.join(directory, name)
+        with open(path, "wb") as stream:
+            stream.write(contents)
+        return name, path
+
+    def test_online_synchronizes_from_upstream(self):
+        with mock.patch.object(
+            rpm_relock.relock,
+            "sync_repo",
+            return_value="/cache/primary.xml.zst",
+        ) as sync:
+            self.assertEqual(
+                rpm_relock.repository_primary(
+                    "https://example/repo",
+                    "/cache",
+                    "binary",
+                    "recorded-primary.xml.zst",
+                ),
+                "/cache/primary.xml.zst",
+            )
+        sync.assert_called_once_with(
+            "https://example/repo", "/cache", "binary"
+        )
+
+    def test_offline_uses_exact_recorded_primary_and_ignores_other_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            name, path = self.write_primary(directory)
+            for digest in ("0" * 64, "f" * 64):
+                with open(
+                    os.path.join(directory, digest + "-primary.xml.zst"),
+                    "wb",
+                ) as stream:
+                    stream.write(b"other")
+            with mock.patch.object(rpm_relock.relock, "sync_repo") as sync:
+                self.assertEqual(
+                    rpm_relock.repository_primary(
+                        "https://example/repo",
+                        directory,
+                        "binary",
+                        name,
+                        offline=True,
+                    ),
+                    path,
+                )
+            sync.assert_not_called()
+
+    def test_offline_requires_exact_recorded_primary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            name = "{}-primary.xml.zst".format("1" * 64)
+            self.write_primary(directory, b"different primary")
+            with self.assertRaisesRegex(SystemExit, "recorded primary is missing"):
+                rpm_relock.repository_primary(
+                    "https://example/repo",
+                    directory,
+                    "binary",
+                    name,
+                    offline=True,
+                )
+
+    def test_offline_rejects_tampered_recorded_primary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            name, path = self.write_primary(directory)
+            with open(path, "wb") as stream:
+                stream.write(b"tampered")
+            with self.assertRaisesRegex(SystemExit, "sha256 mismatch"):
+                rpm_relock.repository_primary(
+                    "https://example/repo",
+                    directory,
+                    "binary",
+                    name,
+                    offline=True,
+                )
+
+    def test_offline_rejects_unsafe_or_untrusted_recorded_names(self):
+        unsafe = (
+            "/tmp/" + "1" * 64 + "-primary.xml.zst",
+            "../" + "1" * 64 + "-primary.xml.zst",
+            "nested/" + "1" * 64 + "-primary.xml.zst",
+            "nested\\" + "1" * 64 + "-primary.xml.zst",
+            "primary.xml.zst",
+            "1" * 63 + "-primary.xml.zst",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for name in unsafe:
+                with self.subTest(name=name):
+                    with self.assertRaises(SystemExit):
+                        rpm_relock.repository_primary(
+                            "https://example/repo",
+                            directory,
+                            "binary",
+                            name,
+                            offline=True,
+                        )
+
+    def test_offline_rejects_symlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            name, path = self.write_primary(directory)
+            target = path + ".target"
+            os.replace(path, target)
+            os.symlink(target, path)
+            with self.assertRaisesRegex(SystemExit, "must not be a symlink"):
+                rpm_relock.repository_primary(
+                    "https://example/repo",
+                    directory,
+                    "binary",
+                    name,
+                    offline=True,
+                )
+
+    def test_offline_rejects_non_regular_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            name = "{}-primary.xml.zst".format("1" * 64)
+            os.mkdir(os.path.join(directory, name))
+            with self.assertRaisesRegex(SystemExit, "not a regular file"):
+                rpm_relock.repository_primary(
+                    "https://example/repo",
+                    directory,
+                    "binary",
+                    name,
+                    offline=True,
+                )
 
 
 class TestConvergence(unittest.TestCase):

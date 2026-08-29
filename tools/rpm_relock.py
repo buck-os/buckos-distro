@@ -5,6 +5,8 @@ import argparse
 import copy
 import json
 import os
+import re
+import stat
 import sys
 
 import generate
@@ -58,6 +60,59 @@ def recorded_probe_path(template_path, recorded):
                         os.path.basename(name))
     if not os.path.exists(path):
         sys.exit("recorded probe is missing: {}".format(path))
+    return path
+
+
+_PRIMARY_NAME = re.compile(
+    r"^(?P<sha256>[0-9a-f]{64})-primary\.xml(?:\.(?:gz|xz|zst))?$"
+)
+
+
+def repository_primary(base, cache, name, recorded_primary, offline=False):
+    """Return cached repodata or synchronize it from upstream."""
+    if not offline:
+        return relock.sync_repo(base, cache, name)
+
+    if (
+        not isinstance(recorded_primary, str)
+        or os.path.isabs(recorded_primary)
+        or os.path.basename(recorded_primary) != recorded_primary
+        or "/" in recorded_primary
+        or "\\" in recorded_primary
+    ):
+        sys.exit("{}: unsafe recorded primary filename {!r}".format(
+            name, recorded_primary))
+    match = _PRIMARY_NAME.fullmatch(recorded_primary)
+    if match is None:
+        sys.exit("{}: recorded primary filename does not encode a trusted "
+                 "sha256: {!r}".format(name, recorded_primary))
+
+    path = os.path.join(cache, recorded_primary)
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError:
+        sys.exit("{}: recorded primary is missing under {} and not fetching: "
+                 "{}".format(name, cache, recorded_primary))
+    except OSError as exc:
+        sys.exit("{}: cannot inspect recorded primary {}: {}".format(
+            name, path, exc))
+    if stat.S_ISLNK(metadata.st_mode):
+        sys.exit("{}: recorded primary must not be a symlink: {}".format(
+            name, path))
+    if not stat.S_ISREG(metadata.st_mode):
+        sys.exit("{}: recorded primary is not a regular file: {}".format(
+            name, path))
+
+    want = match.group("sha256")
+    try:
+        got = relock.sha256_file(path)
+    except OSError as exc:
+        sys.exit("{}: cannot read recorded primary {}: {}".format(
+            name, path, exc))
+    if got != want:
+        sys.exit("{}: recorded primary sha256 mismatch (filename says {}, "
+                 "got {})".format(name, want, got))
+    print("  {}: {}".format(name, os.path.basename(path)), file=sys.stderr)
     return path
 
 
@@ -167,6 +222,8 @@ def main(argv=None):
     parser.add_argument("--target-cpu", required=True, choices=("x86_64", "aarch64"))
     parser.add_argument("--output", required=True)
     parser.add_argument("--repo-cache", default=None)
+    parser.add_argument("--offline", action="store_true",
+                        help="re-solve from cached repodata without fetching")
     parser.add_argument("--no-generate", action="store_true")
     parser.add_argument("--probe", action="store_true",
                         help="probe dynamic BuildRequires and repeat the "
@@ -220,7 +277,13 @@ def main(argv=None):
     for repo in template["repos"]:
         base = architecture_base(
             repo["base"], source_cpu, args.target_cpu, repo["kind"])
-        path = relock.sync_repo(base, os.path.join(cache, repo["name"]), repo["name"])
+        path = repository_primary(
+            base,
+            os.path.join(cache, repo["name"]),
+            repo["name"],
+            repo["primary"],
+            offline=args.offline,
+        )
         if path:
             repos.append({
                 "base": base,
