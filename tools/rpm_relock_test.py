@@ -84,6 +84,37 @@ class TestSolveArgv(unittest.TestCase):
         )
         self.assertNotIn("--strict", argv)
 
+    def test_buildroot_repo_is_replayed_with_its_kind(self):
+        argv = rpm_relock.solve_argv(
+            template(),
+            recorded(),
+            [{
+                "kind": "buildroot",
+                "name": "buildroot-koji",
+                "base": "https://kojihub.stream.centos.org/kojifiles/repos/c10s-build/1/aarch64",
+                "path": "/tmp/buildroot-primary.xml.gz",
+            }],
+            "aarch64",
+            "/tmp/out.json",
+        )
+        self.assertEqual(flags(argv, "--buildroot-repo"),
+                         ["buildroot-koji"])
+        self.assertEqual(flags(argv, "--buildroot-primary"),
+                         ["/tmp/buildroot-primary.xml.gz"])
+
+    def test_buildroot_base_is_rewritten_for_the_target_architecture(self):
+        self.assertEqual(
+            rpm_relock.architecture_base(
+                "https://kojihub.stream.centos.org/kojifiles/repos/"
+                "c10s-build/824779/x86_64",
+                "x86_64",
+                "aarch64",
+                "buildroot",
+            ),
+            "https://kojihub.stream.centos.org/kojifiles/repos/"
+            "c10s-build/824779/aarch64",
+        )
+
     def test_same_architecture_keeps_the_recorded_probe(self):
         result = rpm_relock.architecture_solve(
             {"probe": "fedora-44-x86_64.probe.json"},

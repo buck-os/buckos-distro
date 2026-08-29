@@ -11,6 +11,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import probe
 import relock
@@ -143,13 +144,61 @@ class TestSolveArgv(unittest.TestCase):
     def test_repos_are_passed_by_kind(self):
         argv = relock.solve_argv(
             lock(build=["acl"]),
-            repos=[{"kind": "binary", "name": "binary-releases",
-                    "base": "https://example/os", "path": "/p/primary.xml"}],
+            repos=[
+                {"kind": "binary", "name": "binary-releases",
+                 "base": "https://example/os", "path": "/p/primary.xml"},
+                {"kind": "buildroot", "name": "buildroot-koji",
+                 "base": "https://example/buildroot",
+                 "path": "/p/buildroot-primary.xml"},
+            ],
             out="/o",
         )
         self.assertEqual(flags(argv, "--binary-repo"), ["binary-releases"])
         self.assertEqual(flags(argv, "--binary-base"), ["https://example/os"])
         self.assertEqual(flags(argv, "--binary-primary"), ["/p/primary.xml"])
+        self.assertEqual(flags(argv, "--buildroot-repo"), ["buildroot-koji"])
+        self.assertEqual(flags(argv, "--buildroot-base"),
+                         ["https://example/buildroot"])
+        self.assertEqual(flags(argv, "--buildroot-primary"),
+                         ["/p/buildroot-primary.xml"])
+
+
+class TestRepoList(unittest.TestCase):
+    def test_offline_primary_discovery_accepts_koji_gzip_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "digest-primary.xml.gz")
+            with open(path, "w"):
+                pass
+            self.assertEqual(relock.local_primary(directory), path)
+
+    def test_recorded_buildroot_repo_is_resynced_with_its_kind(self):
+        args = mock.Mock(
+            arch="x86_64",
+            branched=[],
+            dry_run=False,
+            lock_dir="/tmp/locks",
+            mirror=None,
+            offline=False,
+        )
+        base = ("https://kojihub.stream.centos.org/kojifiles/repos/"
+                "c10s-build/824779/x86_64")
+        with mock.patch.object(
+                relock, "sync_repo", return_value="/cache/primary.xml.gz"):
+            repos = relock.repo_list(
+                "44",
+                args,
+                recorded_repos=[{
+                    "name": "buildroot-koji",
+                    "kind": "buildroot",
+                    "base": base,
+                }],
+            )
+        self.assertEqual(repos[-1], {
+            "name": "buildroot-koji",
+            "kind": "buildroot",
+            "base": base,
+            "path": "/cache/primary.xml.gz",
+        })
 
 
 class TestRpmPaths(unittest.TestCase):

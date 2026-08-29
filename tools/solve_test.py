@@ -13,6 +13,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from solve import (
     BUILDSYS_BUILD,
@@ -24,6 +25,7 @@ from solve import (
     collect_repos,
     derive_repo_name,
     load_probe,
+    merge_fallback_packages,
     merge_packages,
     parse_override,
     parse_source_exception,
@@ -567,6 +569,152 @@ class TestMergePackages(unittest.TestCase):
         )
 
 
+class TestFallbackPackages(unittest.TestCase):
+    def test_fills_a_missing_name_arch_slot(self):
+        compose = [binary("bash", repo="compose")]
+        combined, added, shadowed, _superseded = merge_fallback_packages(
+            compose,
+            [("koji", [binary("ducktype", repo="koji")])],
+        )
+        self.assertEqual([pkg["name"] for pkg in combined],
+                         ["bash", "ducktype"])
+        self.assertEqual([pkg["repo"] for pkg in added], ["koji"])
+        self.assertEqual(shadowed, [])
+
+    def test_cannot_replace_a_compose_package_with_a_newer_build(self):
+        compose = [binary("openssl", release="1.el10", repo="compose")]
+        combined, added, shadowed, _superseded = merge_fallback_packages(
+            compose,
+            [("koji", [
+                binary("openssl", release="9.el10", repo="koji"),
+            ])],
+        )
+        self.assertEqual(len(combined), 1)
+        self.assertEqual(combined[0]["release"], "1.el10")
+        self.assertEqual(combined[0]["repo"], "compose")
+        self.assertEqual(added, [])
+        self.assertEqual([pkg["repo"] for pkg in shadowed], ["koji"])
+
+    def test_fallback_capabilities_do_not_expand_an_image_closure(self):
+        compose = [binary("app", requires=["fallback-cap"], repo="compose")]
+        combined, _added, _shadowed, _superseded = merge_fallback_packages(
+            compose,
+            [("koji", [
+                binary("fallback-devel", provides=["fallback-cap"],
+                       repo="koji"),
+            ])],
+        )
+        compose_universe = build_universe(compose, [])
+        buildroot_universe = build_universe(combined, [])
+
+        image_sets, problems = solve_image_sets(
+            compose_universe, {"live": ["app"]}
+        )
+        buildroot_closure, buildroot_problems = solve_package_set(
+            buildroot_universe, ["app"], scope="buildroot"
+        )
+
+        self.assertEqual(image_sets["live"], ["app"])
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(buildroot_problems, [])
+        self.assertEqual(buildroot_closure, ["app", "fallback-devel"])
+
+    def test_compose_keeps_the_plain_name_across_architectures(self):
+        compose = [binary("tool", arch="noarch", repo="compose")]
+        combined, _added, _shadowed, _superseded = merge_fallback_packages(
+            compose,
+            [("koji", [
+                binary("tool", arch="x86_64", provides=["build-only-cap"],
+                       repo="koji"),
+            ])],
+        )
+        universe = build_universe(
+            combined, [], fallback_repos={"koji"}
+        )
+        self.assertEqual(universe["binary_index"]["tool"]["repo"], "compose")
+        self.assertEqual(universe["provides"]["build-only-cap"],
+                         ["tool.x86_64"])
+
+    def test_images_use_compose_while_buildrequires_use_fallback(self):
+        compose = [
+            binary("app", source="app-1-1.fc43.src.rpm", arch="noarch",
+                   repo="compose"),
+        ]
+        buildroot = [
+            binary("app", source="app-9-9.fc43.src.rpm",
+                   release="9.fc43", repo="koji"),
+            binary("fallback-devel", requires=["fallback-runtime"],
+                   provides=["fallback-cap"], repo="koji"),
+            binary("fallback-runtime", repo="koji"),
+        ]
+        sources = [source("app", requires=["fallback-cap"])]
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = os.path.join(directory, "lock.json")
+            by_path = {
+                "compose.xml": compose,
+                "buildroot.xml": buildroot,
+                "source.xml": sources,
+            }
+
+            def parse(path, repo=None):
+                return [dict(pkg, repo=repo) for pkg in by_path[path]]
+
+            with (
+                mock.patch("solve.parse_primary", side_effect=parse),
+                mock.patch.dict(IMPLICIT_GROUPS, {"fedora": ()}),
+            ):
+                from solve import main
+                main([
+                    "--binary-primary", "compose.xml",
+                    "--binary-base",
+                    "https://dl.fedoraproject.org/pub/fedora/linux",
+                    "--binary-repo", "compose",
+                    "--buildroot-primary", "buildroot.xml",
+                    "--buildroot-base",
+                    "https://kojihub.stream.centos.org/kojifiles/repos/c10s-build/1/x86_64",
+                    "--buildroot-repo", "koji",
+                    "--source-primary", "source.xml",
+                    "--source-base",
+                    "https://dl.fedoraproject.org/pub/fedora/linux/source",
+                    "--source-repo", "source",
+                    "--image", "live=app",
+                    "--source-image", "live",
+                    "--release", "43",
+                    "--dist-tag", ".fc43",
+                    "--out", output,
+                    "--strict",
+                ])
+
+            with open(output, encoding="utf-8") as stream:
+                lock = json.load(stream)
+
+        self.assertEqual(
+            [(repo["name"], repo["kind"]) for repo in lock["repos"]],
+            [("compose", "binary"), ("koji", "buildroot"),
+             ("source", "source")],
+        )
+        self.assertEqual(
+            [(pkg["name"], pkg["evr"], pkg["arch"], pkg["repo"])
+             for pkg in lock["image_sets"]["live"]],
+            [("app", "1-1.fc43", "noarch", "compose")],
+        )
+        self.assertEqual(lock["source_policy"]["summary"]["live"], {
+            "pinned": 0,
+            "source": 1,
+            "total": 1,
+        })
+        self.assertEqual(lock["packages"]["app"]["source"]["repo"],
+                         "source")
+        self.assertEqual(lock["packages"]["app"]["subpackages"], ["app"])
+        self.assertEqual(
+            [(pkg["name"], pkg["repo"])
+             for pkg in lock["packages"]["app"]["deps_seed"]],
+            [("fallback-devel", "koji"),
+             ("fallback-runtime", "koji")],
+        )
+
+
 class TestArchSelection(unittest.TestCase):
     """Collapsing several arches of one name down to the one that is wanted."""
 
@@ -806,6 +954,8 @@ class TestRepoTable(unittest.TestCase):
 
     def args(self, **kw):
         base = dict(binary_primary=[], binary_base=[], binary_repo=[],
+                    buildroot_primary=[], buildroot_base=[],
+                    buildroot_repo=[],
                     source_primary=[], source_base=[], source_repo=[])
         base.update(kw)
         return argparse.Namespace(**base)
@@ -860,6 +1010,33 @@ class TestRepoTable(unittest.TestCase):
                          ["binary-releases", "source-releases"])
         self.assertEqual([r["kind"] for r in repos], ["binary", "source"])
 
+    def test_buildroot_triplet_is_parsed_and_named(self):
+        koji = ("https://kojihub.stream.centos.org/kojifiles/repos/"
+                "c10s-build/824779/x86_64")
+        repos = collect_repos(self.args(
+            buildroot_primary=["/tmp/koji/primary.xml.gz"],
+            buildroot_base=[koji],
+            buildroot_repo=["buildroot-koji"],
+        ))
+        self.assertEqual(repos, [{
+            "name": "buildroot-koji",
+            "kind": "buildroot",
+            "base": koji,
+            "primary": "primary.xml.gz",
+            "path": "/tmp/koji/primary.xml.gz",
+        }])
+
+    def test_explicit_repo_names_must_be_unique_across_kinds(self):
+        with self.assertRaisesRegex(SystemExit, "used more than once"):
+            collect_repos(self.args(
+                binary_primary=["/tmp/compose.xml"],
+                binary_base=[self.RELEASES],
+                binary_repo=["packages"],
+                buildroot_primary=["/tmp/buildroot.xml"],
+                buildroot_base=[self.RELEASES],
+                buildroot_repo=["packages"],
+            ))
+
 
 class TestPublicBaseURLs(unittest.TestCase):
     """The base URL recorded in a lockfile is published with it.
@@ -881,6 +1058,8 @@ class TestPublicBaseURLs(unittest.TestCase):
             "https://dl.fedoraproject.org/pub/epel/next/9/Everything/x86_64",
             "https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os",
             "https://mirror.stream.centos.org/10-stream/BaseOS/x86_64/os",
+            "https://kojihub.stream.centos.org/kojifiles/repos/"
+            "c10s-build/824779/x86_64",
         ):
             with self.subTest(url=url):
                 self.assertEqual(check_public_base("--binary-base", url), url)

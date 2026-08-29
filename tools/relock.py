@@ -161,8 +161,10 @@ def local_primary(dest_dir):
     """Whatever primary.xml a previous sync left in this repo's directory."""
     if not os.path.isdir(dest_dir):
         return None
-    found = sorted(n for n in os.listdir(dest_dir)
-                   if n.endswith("-primary.xml.zst"))
+    found = sorted(
+        name for name in os.listdir(dest_dir)
+        if name == "primary.xml" or "-primary.xml." in name
+    )
     return os.path.join(dest_dir, found[0]) if found else None
 
 
@@ -205,7 +207,8 @@ def sync_repo(fetch_base, dest_dir, name):
     # behind. Harmless but confusing: two primary.xml files in a directory
     # and nothing saying which the lockfile was solved from.
     for stale in os.listdir(dest_dir):
-        if stale.endswith("-primary.xml.zst") and stale != os.path.basename(path):
+        is_primary = stale == "primary.xml" or "-primary.xml." in stale
+        if is_primary and stale != os.path.basename(path):
             os.remove(os.path.join(dest_dir, stale))
     return path
 
@@ -281,7 +284,7 @@ def solve_argv(lock, repos, out, probe=None):
     return argv
 
 
-def repo_list(release, args, offline=False):
+def repo_list(release, args, offline=False, recorded_repos=()):
     """The repos to solve from, synced unless told otherwise.
 
     `offline` is separate from args.offline because the two mean different
@@ -294,6 +297,7 @@ def repo_list(release, args, offline=False):
     repos = []
     table = (FEDORA_BRANCHED_REPOS if str(release) in args.branched
              else FEDORA_REPOS)
+    specs = []
     for name, kind, template in table:
         tail = template.format(release=release, arch=args.arch)
         # The canonical URL is what gets recorded; the mirror, if any, is
@@ -302,6 +306,20 @@ def repo_list(release, args, offline=False):
         base = "{}/{}".format(UPSTREAM, tail)
         fetch_base = ("{}/{}".format(args.mirror.rstrip("/"), tail)
                       if args.mirror else base)
+        specs.append((name, kind, base, fetch_base))
+
+    seen = {name for name, _kind, _base, _fetch_base in specs}
+    for repo in recorded_repos:
+        if repo.get("kind") != "buildroot":
+            continue
+        name = repo["name"]
+        if name in seen:
+            sys.exit("recorded buildroot repo name collides with a compose "
+                     "repo: {}".format(name))
+        seen.add(name)
+        specs.append((name, "buildroot", repo["base"], repo["base"]))
+
+    for name, kind, base, fetch_base in specs:
         # Named for the repo, so the directory a primary.xml sits in matches
         # the `repo` field every pin that came from it carries.
         dest = os.path.join(args.lock_dir, "repodata", str(release), name)
@@ -345,7 +363,7 @@ def relock(release, args):
     lock_path, lock = read_lock(release, args)
 
     print("fedora {}:".format(release), file=sys.stderr)
-    repos = repo_list(release, args)
+    repos = repo_list(release, args, recorded_repos=lock.get("repos", []))
 
     if args.dry_run or args.fetch_only:
         return
@@ -448,7 +466,14 @@ def probe_pass(releases, args, root):
         # make these two lockfiles differ by more than the probe results --
         # the one thing this pass is meant to isolate.
         solve.main(solve_argv(
-            lock, repo_list(release, args, offline=True), lock_path,
+            lock,
+            repo_list(
+                release,
+                args,
+                offline=True,
+                recorded_repos=lock.get("repos", []),
+            ),
+            lock_path,
             probe_mod.probe_path(lock_path),
         ))
     regenerate(releases, args, root)

@@ -10,6 +10,10 @@ Inputs are the binary and source primary.xml files RPM repositories publish:
     binary primary.xml   Provides, Requires, and <rpm:sourcerpm> for every
                          binary package.  Gives the capability map and the
                          binary -> source mapping.
+    buildroot primary.xml
+                         Binary packages absent from the compose that may
+                         satisfy build-only dependencies without replacing
+                         compose packages.
     source primary.xml   the src.rpm entries.  For a source package the
                          <rpm:requires> ARE its BuildRequires, plus
                          <location> and <checksum> for lazy fetching.
@@ -99,6 +103,7 @@ PUBLIC_BASE_HOSTS = (
     "download.fedoraproject.org",
     "archives.fedoraproject.org",
     "kojipkgs.fedoraproject.org",
+    "kojihub.stream.centos.org",
     "mirror.stream.centos.org",
 )
 
@@ -179,6 +184,9 @@ def collect_repos(args):
     repos = []
     for kind, primaries, bases, names in (
         ("binary", args.binary_primary, args.binary_base, args.binary_repo),
+        ("buildroot", getattr(args, "buildroot_primary", []),
+         getattr(args, "buildroot_base", []),
+         getattr(args, "buildroot_repo", [])),
         ("source", args.source_primary, args.source_base, args.source_repo),
     ):
         if bases and len(bases) != len(primaries):
@@ -200,6 +208,9 @@ def collect_repos(args):
                 "--{}-base".format(kind), bases[i] if bases else ""
             )
             name = names[i] if names else derive_repo_name(kind, base, taken)
+            if name in taken:
+                sys.exit("repository name {!r} is used more than once".format(
+                    name))
             taken.add(name)
             repos.append({
                 "name": name,
@@ -368,6 +379,38 @@ def merge_packages(groups):
                 continue
             superseded.setdefault(key, {})[_evr_string(pkg)] = pkg
     return [index[key] for key in sorted(index)], replacements, superseded
+
+
+def merge_fallback_packages(compose_packages, fallback_groups):
+    """Add buildroot packages only where the compose has no matching key.
+
+    Build tags often contain newer builds of packages already shipped by a
+    compose. Those are useful for satisfying build-only gaps, but letting
+    them participate in the ordinary newest-wins merge would silently move
+    image payloads away from the reviewed compose. The boundary is the RPM
+    identity slot, ``(name, arch)``: fallback repositories may fill an empty
+    slot and may never replace an occupied one.
+    """
+    fallback, _replacements, superseded = merge_packages(fallback_groups)
+    compose_keys = {(pkg["name"], pkg["arch"]) for pkg in compose_packages}
+    added = [
+        pkg for pkg in fallback
+        if (pkg["name"], pkg["arch"]) not in compose_keys
+    ]
+    shadowed = [
+        pkg for pkg in fallback
+        if (pkg["name"], pkg["arch"]) in compose_keys
+    ]
+    added_keys = {(pkg["name"], pkg["arch"]) for pkg in added}
+    fallback_superseded = {
+        key: versions for key, versions in superseded.items()
+        if key in added_keys
+    }
+    combined = sorted(
+        list(compose_packages) + added,
+        key=lambda pkg: (pkg["name"], pkg["arch"]),
+    )
+    return combined, added, shadowed, fallback_superseded
 
 
 def _evr_string(pkg):
@@ -647,22 +690,29 @@ def constrained_requires(pkg):
 
 
 def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
-                   superseded=None):
+                   superseded=None, fallback_repos=()):
     """Index the repodata into the maps depgraph needs.
 
     Collapses the arch dimension: callers work in package names, so of the
     several builds that can share one name exactly one has to win. Arch
     preference decides first and version only breaks ties within an arch,
     because a newer i686 build is still the wrong answer for an x86_64
-    closure.
+    closure. Compose packages also win the plain name over fallback packages
+    on another architecture; the fallback remains available through its
+    arch-qualified identity and capabilities.
     """
     provides = {}
     provide_evr = {}
     requires = {}
     source_of = {}
     subpackages = {}
+    fallback_repos = set(fallback_repos)
 
     def better(candidate, incumbent):
+        candidate_fallback = candidate.get("repo") in fallback_repos
+        incumbent_fallback = incumbent.get("repo") in fallback_repos
+        if candidate_fallback != incumbent_fallback:
+            return not candidate_fallback
         rank_new = _arch_rank(candidate["arch"], target_cpu)
         rank_old = _arch_rank(incumbent["arch"], target_cpu)
         if rank_new != rank_old:
@@ -719,23 +769,28 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
     # unsatisfiable and gcc could not be built.
     #
     # These builds get an arch-qualified identity, `glibc-devel.i686`,
-    # spelled the way rpm and every Fedora bug report spell it.  Their
-    # Requires go into the shared map under that key, where no plain
-    # package name can collide, so the ordinary closure walks a 32-bit
-    # package's dependencies like anything else's.
+    # spelled the way rpm and every Fedora bug report spell it. A fallback
+    # package that loses the plain name to a compose package on another
+    # architecture takes the same path. Their Requires go into the shared
+    # map under that key, where no plain package name can collide, so the
+    # ordinary closure walks the package's dependencies like anything else.
     #
     # Their Provides are the delicate half, and the rule is below: a
     # capability is registered only where the collapsed universe has no
     # answer at all.
     foreign_index = {}
     for pkg in binary_pkgs:
-        if _arch_rank(pkg["arch"], target_cpu) != _FOREIGN_RANK:
+        winner = binary_index.get(pkg["name"])
+        fallback_alternative = (
+            pkg.get("repo") in fallback_repos and winner is not pkg
+        )
+        if (_arch_rank(pkg["arch"], target_cpu) != _FOREIGN_RANK
+                and not fallback_alternative):
             continue
         # A package that exists *only* in this arch already won the
         # collapse and is addressable by its plain name; a second entry for
         # it would make `lrmi(x86-32)` ambiguous between `lrmi` and
         # `lrmi.i686`, which are the same rpm.  Six packages in Fedora 43.
-        winner = binary_index.get(pkg["name"])
         if winner is not None and winner["arch"] == pkg["arch"]:
             continue
         key = arch_qualified(pkg["name"], pkg["arch"])
@@ -1384,14 +1439,15 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
                   dynamic, plan, depth, image_sets, seed_packages,
                   replacements, base_closure, args,
                   variant_subpackages=None, variant_routes=None,
-                  binary_superseded=None):
+                  binary_superseded=None, image_universe=None):
     """Produce the lockfile. Every entry is pinned by checksum."""
     variant_subpackages = variant_subpackages or {}
     variant_routes = variant_routes or {}
     binary_superseded = binary_superseded or {}
+    image_universe = image_universe or universe
 
-    def pin_binary(name):
-        pkg = universe["binary_index"].get(name)
+    def pin_binary(name, selected_universe=universe):
+        pkg = selected_universe["binary_index"].get(name)
         if not pkg:
             return {"name": name, "unresolved": True}
         return {
@@ -1408,8 +1464,9 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             # `glibc-devel.i686`, which source_of does not carry -- that map
             # feeds `subpackages`, and glibc's recipe does not emit an i686
             # build.  The attribution is still real and worth recording.
-            "source": (universe["source_of"].get(name)
-                       or universe.get("foreign_source_of", {}).get(name)),
+            "source": (selected_universe["source_of"].get(name)
+                       or selected_universe.get(
+                           "foreign_source_of", {}).get(name)),
             # Which repo's base URL `location` hangs off. Per package, not
             # per release: once updates/ is layered over releases/ a closure
             # legitimately spans both, and a single base would be wrong for
@@ -1613,7 +1670,7 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
         # consumed by a different rule; an image that happened to equal the
         # build closure would still be a coincidence, not a shared list.
         "image_sets": {
-            name: [pin_binary(p) for p in members]
+            name: [pin_binary(p, image_universe) for p in members]
             for name, members in sorted(image_sets.items())
         },
         "build_order": plan["order"],
@@ -1669,6 +1726,9 @@ def main(argv=None):
     ap.add_argument("--source-primary", action="append", default=[],
                     metavar="PATH",
                     help="source primary.xml (repeatable, layered in order)")
+    ap.add_argument("--buildroot-primary", action="append", default=[],
+                    metavar="PATH",
+                    help="fallback-only buildroot primary.xml (repeatable)")
     ap.add_argument("--binary-base", action="append", default=[],
                     metavar="URL",
                     help="upstream URL the Nth --binary-primary's `location` "
@@ -1677,6 +1737,10 @@ def main(argv=None):
                     metavar="URL",
                     help="upstream URL the Nth --source-primary's `location` "
                          "paths are relative to")
+    ap.add_argument("--buildroot-base", action="append", default=[],
+                    metavar="URL",
+                    help="upstream URL the Nth --buildroot-primary's "
+                         "`location` paths are relative to")
     ap.add_argument("--binary-repo", action="append", default=[],
                     metavar="NAME",
                     help="name for the Nth binary repo, used to attribute "
@@ -1684,6 +1748,10 @@ def main(argv=None):
     ap.add_argument("--source-repo", action="append", default=[],
                     metavar="NAME",
                     help="name for the Nth source repo "
+                         "(default: derived from its URL)")
+    ap.add_argument("--buildroot-repo", action="append", default=[],
+                    metavar="NAME",
+                    help="name for the Nth fallback-only buildroot repo "
                          "(default: derived from its URL)")
     ap.add_argument("--build", action="append", default=[],
                     help="source package to build from source (repeatable)")
@@ -1811,7 +1879,7 @@ def main(argv=None):
                          name, ", ".join(sorted(image_roots)) or "none"))
         image_overrides.setdefault(name, {})[cap] = pkg
 
-    groups = {"binary": [], "source": []}
+    groups = {"binary": [], "buildroot": [], "source": []}
     for repo in args.repos:
         print("parsing {} repodata ({})...".format(repo["name"], repo["primary"]),
               file=sys.stderr)
@@ -1821,6 +1889,9 @@ def main(argv=None):
 
     binary_pkgs, binary_updates, binary_superseded = merge_packages(
         groups["binary"])
+    combined_binary_pkgs, fallback_added, fallback_shadowed, \
+        buildroot_superseded = merge_fallback_packages(
+            binary_pkgs, groups["buildroot"])
     source_pkgs, source_updates, source_superseded = merge_packages(
         groups["source"])
     replacements = binary_updates + source_updates
@@ -1832,13 +1903,38 @@ def main(argv=None):
         ),
         file=sys.stderr,
     )
+    if groups["buildroot"]:
+        print(
+            "  buildroot fallback: {} package(s) added, {} compose "
+            "package(s) kept".format(
+                len(fallback_added), len(fallback_shadowed)
+            ),
+            file=sys.stderr,
+        )
 
-    universe = build_universe(binary_pkgs, source_pkgs,
-                              target_cpu=args.target_cpu,
-                              superseded=binary_superseded)
+    combined_superseded = dict(binary_superseded)
+    combined_superseded.update(buildroot_superseded)
+    universe = build_universe(
+        combined_binary_pkgs,
+        source_pkgs,
+        target_cpu=args.target_cpu,
+        superseded=combined_superseded,
+        fallback_repos={repo["name"] for repo in args.repos
+                        if repo["kind"] == "buildroot"},
+    )
+    compose_universe = (
+        build_universe(
+            binary_pkgs,
+            source_pkgs,
+            target_cpu=args.target_cpu,
+            superseded=binary_superseded,
+        )
+        if groups["buildroot"]
+        else universe
+    )
 
     image_sets, image_problems = solve_image_sets(
-        universe, image_roots, overrides, image_overrides
+        compose_universe, image_roots, overrides, image_overrides
     )
     if args.strict and image_problems:
         for kind, detail, who in image_problems:
@@ -1849,7 +1945,7 @@ def main(argv=None):
     try:
         build_set |= source_build_set(
             image_sets,
-            universe["source_of"],
+            compose_universe["source_of"],
             args.source_image,
             args.prebuilt_source,
         )
@@ -1858,7 +1954,7 @@ def main(argv=None):
 
     variant_problems, variant_subpackages, variant_routes = \
         add_source_variants(source_variants, universe, source_superseded,
-                            binary_superseded, build_set)
+                            combined_superseded, build_set)
 
     build_deps, resolutions, problems, dynamic, base_closure = solve(
         universe, build_set, overrides, strict=args.strict,
@@ -1905,7 +2001,8 @@ def main(argv=None):
             base_closure, args,
             variant_subpackages=variant_subpackages,
             variant_routes=variant_routes,
-            binary_superseded=binary_superseded,
+            binary_superseded=combined_superseded,
+            image_universe=compose_universe,
         )
     except SourcePolicyError as exc:
         sys.exit("source policy: {}".format(exc))
