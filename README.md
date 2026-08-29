@@ -44,9 +44,9 @@ Each x86_64 Fedora release solves its live image from source with 0 unresolved c
 | 44      | 127             | 186        | 181               | 357            | 114    |
 | 45      | 131             | 193        | 187               | 369            | 119    |
 
-Solving and building are separate milestones — the solves are complete, and packages are still being built through them.
+Solving and building are separate milestones -- the solves are complete, and packages are still being built through them.
 
-The last column is the one that says whether a release can actually build, and it is easy to misread the others without it. A solve reads static `BuildRequires` out of repodata, and repodata does not carry everything the spec asks for: `tar`'s real list is eleven packages, of which repodata names one. The rest come from `tools/probe.py` running `rpmbuild -br` against the spec. A release with a clean solve and no probe data still fails at `%prep` with `Failed build dependencies`, so an unprobed release is not ready regardless of what its other columns say — which is why the column is here rather than left implicit in the lockfile.
+The last column is the one that says whether a release can actually build, and it is easy to misread the others without it. A solve reads static `BuildRequires` out of repodata, and repodata does not carry everything the spec asks for: `tar`'s real list is eleven packages, of which repodata names one. The rest come from `tools/probe.py` running `rpmbuild -br` against the spec. A release with a clean solve and no probe data still fails at `%prep` with `Failed build dependencies`, so an unprobed release is not ready regardless of what its other columns say -- which is why the column is here rather than left implicit in the lockfile.
 
 Five of the packages in that gap are the same on every release, and they are a property of the *build host* rather than of the solve: `kernel`, its three subpackages, and `libxcrypt` call libkcapi's `sha512hmac` or `fipshmac` from `%install`, which needs a kernel built with `CONFIG_CRYPTO_USER`. On a host that has it, drop `prebuilt` from the flavor configuration and those five build too. See "Checking the host" below.
 
@@ -145,17 +145,17 @@ Fedora, CentOS Stream, CentOS Hyperscale, Debian, and Ubuntu support two buildro
 
 The binary seed cuts bootstrap cycles that Buck cannot represent directly. The solver records staged source builds for cycles that are included in the source-replay set.
 
-A package builds in a base plus its own overlay, not in the union of everyone's build dependencies. The base is the flavor's implicit build group — `@buildsys-build` — closed over its runtime `Requires`, which is fixed per release rather than derived from the build set; each package then installs what its own `BuildRequires` closed over on top of it. That distinction is not cosmetic. A union is not a buildroot, it is every tool any package asked for handed to all of them, and autoconf-era build systems feature-detect: `libmnl` declares `gcc`, `gnupg2` and `make`, the union handed it 311 packages including `doxygen`, and it emitted man pages its `%files` does not list. Under base-plus-overlay it builds in 166 packages. The mirror-image failure — a *missing* tool, `libcap` finding no Go and silently omitting a program — is the same fault seen from the other side: the buildroot did not match what the spec expects.
+A package builds in a base plus its own overlay, not in the union of everyone's build dependencies. The base is the flavor's implicit build group -- `@buildsys-build` -- closed over its runtime `Requires`, which is fixed per release rather than derived from the build set; each package then installs what its own `BuildRequires` closed over on top of it. That distinction is not cosmetic. A union is not a buildroot, it is every tool any package asked for handed to all of them, and autoconf-era build systems feature-detect: `libmnl` declares `gcc`, `gnupg2` and `make`, the union handed it 311 packages including `doxygen`, and it emitted man pages its `%files` does not list. Under base-plus-overlay it builds in 166 packages. The mirror-image failure -- a *missing* tool, `libcap` finding no Go and silently omitting a program -- is the same fault seen from the other side: the buildroot did not match what the spec expects.
 
-The overlay is installed, not merely unpacked, because rpmbuild resolves `BuildRequires` against the rpmdb rather than the filesystem. It uses `--replacepkgs --replacefiles --oldpackage`, since a bootstrap stage rebuilding something the base already carries at the same NEVRA is both a reinstall and a file conflict against the copy the overlay just wrote — and a version variant deliberately supersedes the base with something *older*, which rpm otherwise refuses.
+The overlay is installed, not merely unpacked, because rpmbuild resolves `BuildRequires` against the rpmdb rather than the filesystem. It uses `--replacepkgs --replacefiles --oldpackage`, since a bootstrap stage rebuilding something the base already carries at the same NEVRA is both a reinstall and a file conflict against the copy the overlay just wrote -- and a version variant deliberately supersedes the base with something *older*, which rpm otherwise refuses.
 
 ### Multilib
 
-A spec that asks for a 32-bit dependency gets one. `gcc` requires `(glibc32 or glibc-devel(x86-32))` on every 64-bit arch, and the solver resolves it without an override: the discarded i686 builds are indexed under an arch-qualified name — `glibc-devel.i686`, spelled the way rpm and every Fedora bug report spell it — and their capabilities are registered wherever the collapsed universe has no answer at all.
+A spec that asks for a 32-bit dependency gets one. `gcc` requires `(glibc32 or glibc-devel(x86-32))` on every 64-bit arch, and the solver resolves it without an override: the discarded i686 builds are indexed under an arch-qualified name -- `glibc-devel.i686`, spelled the way rpm and every Fedora bug report spell it -- and their capabilities are registered wherever the collapsed universe has no answer at all.
 
-That restriction is the whole safety argument: it cannot introduce an ambiguity, because it only ever fills an empty slot. Registering every i686 `Provides` was measured first — 9,230 builds offer 59,078 capabilities, 30,790 already answered, and 21,556 of those become ambiguities the exact-name rule cannot settle, `/bin/awk` between `gawk` and `gawk.i686`. It also lands on rpm's own answer without hardcoding rpm's spelling of it: the capabilities with no collapsed provider are exactly the ones rpm marks unambiguously 32-bit, while the contested ones are arch-neutral names where the 64-bit build is right anyway.
+That restriction is the whole safety argument: it cannot introduce an ambiguity, because it only ever fills an empty slot. Registering every i686 `Provides` was measured first -- 9,230 builds offer 59,078 capabilities, 30,790 already answered, and 21,556 of those become ambiguities the exact-name rule cannot settle, `/bin/awk` between `gawk` and `gawk.i686`. It also lands on rpm's own answer without hardcoding rpm's spelling of it: the capabilities with no collapsed provider are exactly the ones rpm marks unambiguously 32-bit, while the contested ones are arch-neutral names where the 64-bit build is right anyway.
 
-Arch-specificity therefore lives in the capability, not in a per-arch preference. `glibc-devel.i686` requires unmarked `libm.so.6`, which only the 32-bit build provides, and plain `kernel-headers`, which is arch-neutral and answered by whatever the base already has. Preferring i686 for both — an earlier attempt — pulled in `kernel-headers.i686` and rpm refused the transaction outright, since a newer `kernel-headers.x86_64` was installed and the two are one package with one name. gcc's 32-bit slice is six packages.
+Arch-specificity therefore lives in the capability, not in a per-arch preference. `glibc-devel.i686` requires unmarked `libm.so.6`, which only the 32-bit build provides, and plain `kernel-headers`, which is arch-neutral and answered by whatever the base already has. Preferring i686 for both -- an earlier attempt -- pulled in `kernel-headers.i686` and rpm refused the transaction outright, since a newer `kernel-headers.x86_64` was installed and the two are one package with one name. gcc's 32-bit slice is six packages.
 
 ### Version variants
 
@@ -167,7 +167,7 @@ One source package can be built twice, at two versions, when the distro genuinel
 
 Fedora 44 needs exactly that. `acl` 2.4.0 added a versioned symbol `rsync` requires, and `rsync` is a build dependency of the kernel; the same release's header change broke `tar` 1.35, whose source declares its own three-argument `acl_get_file_at` where 2.4.0 declares four. Fedora resolves this by not rebuilding `tar`; its shipped binary predates the header, which a repo that builds everything from source cannot do. So it builds both, and only `tar` is routed to the older one.
 
-This is modelled on the staging machinery rather than beside it. A stage is already "this source package, built more than once, with consumers routed to the right one"; a variant differs only in that the copies differ by version rather than by position in a cycle. A variant is an ordinary recipe with its own srpm, kept out of the binary-to-recipe map so it reroutes only the consumers that named it, and its routed edges are visible to the cycle planner — without that the planner stages nothing and Buck rejects the target graph at analysis over a cycle the solver said did not exist.
+This is modelled on the staging machinery rather than beside it. A stage is already "this source package, built more than once, with consumers routed to the right one"; a variant differs only in that the copies differ by version rather than by position in a cycle. A variant is an ordinary recipe with its own srpm, kept out of the binary-to-recipe map so it reroutes only the consumers that named it, and its routed edges are visible to the cycle planner -- without that the planner stages nothing and Buck rejects the target graph at analysis over a cycle the solver said did not exist.
 
 ## Image pipeline
 
@@ -268,7 +268,7 @@ neither is guarded by a bcond. gmp and nettle guard theirs.
 
 The two fallbacks are not equivalent and the check distinguishes them. A `%bcond` keeps the package building from source and drops only the guarded feature. `prebuilt` gives up on building it at all and takes the pinned upstream binary, which is the last resort for a spec that offers no switch. Either way the image completes, and the loss is stated rather than discovered an hour into `%install`; `rpm_packages` repeats the warning on every evaluation.
 
-It exits non-zero only for a capability with no fallback — user namespaces, say — so it is usable as a CI gate without failing every host that merely needs a prebuilt.
+It exits non-zero only for a capability with no fallback -- user namespaces, say -- so it is usable as a CI gate without failing every host that merely needs a prebuilt.
 
 Take the upstream binary for a package this host cannot build:
 
@@ -290,9 +290,9 @@ The case this exists for is a kernel built without `CONFIG_CRYPTO_USER`. libkcap
 Allocation of hmac(sha256) cipher failed (ret=-93)
 ```
 
-Nothing to do with the sandbox — the same binary fails identically run straight on the host, and the `AF_ALG` socket it actually hashes with binds fine. A stock Fedora kernel enables `CONFIG_CRYPTO_USER` and needs none of this, which is why it is configuration rather than a default: the alternative would ship a distro without FIPS integrity hashes to work around one machine.
+Nothing to do with the sandbox -- the same binary fails identically run straight on the host, and the `AF_ALG` socket it actually hashes with binds fine. A stock Fedora kernel enables `CONFIG_CRYPTO_USER` and needs none of this, which is why it is configuration rather than a default: the alternative would ship a distro without FIPS integrity hashes to work around one machine.
 
-`libxcrypt` cannot be rescued this way. It calls `fipshmac` from `%__spec_install_post` with no `%bcond` guarding it — the spec notes that a `%global` does not work there — so on a host without `CONFIG_CRYPTO_USER` that package does not build.
+`libxcrypt` cannot be rescued this way. It calls `fipshmac` from `%__spec_install_post` with no `%bcond` guarding it -- the spec notes that a `%global` does not work there -- so on a host without `CONFIG_CRYPTO_USER` that package does not build.
 
 Rewrite Fedora's recorded repository prefix to a mirror with the same directory layout:
 
@@ -362,7 +362,7 @@ See [SPEC.md](SPEC.md) for the implemented interfaces and data flow.
 
 ## Constraints
 
-A release with no `updates/` tree yet — a just-branched one — is not an
+A release with no `updates/` tree yet -- a just-branched one -- is not an
 error; the repo is reported absent and skipped.
 
 `buildroot = binary-seed` is the default. It unpacks pinned rpms into a
@@ -371,7 +371,7 @@ toolchain is the one that release shipped rather than the one the build
 machine happens to have. That is a compatibility argument before it is a
 purity one: a package compiled against the host's glibc can reference a
 symbol version the target's glibc lacks, and a host rpm of another vintage
-writes an rpmdb the image cannot read — both of which fail at *runtime*, in
+writes an rpmdb the image cannot read -- both of which fail at *runtime*, in
 the image, long after a green build. It is also what makes the graph
 remote-executable, since a seeded buildroot is hermetic.
 
@@ -394,7 +394,7 @@ Stated plainly, because each one is load-bearing:
   `filesystem` does own those four, and they are `--excludepath`'d out of
   the transaction rather than left to it: the sandbox bind-mounts them
   inside the tree so rpm and the scriptlets have a working system to run
-  in, and rpm cannot chown a live mount — `cpio: chown failed - Device or
+  in, and rpm cannot chown a live mount -- `cpio: chown failed - Device or
   resource busy`. Nothing is lost. They hold no package content, and their
   modes are the sandbox's business rather than the image's; this tree is a
   chroot to build in, not a filesystem to boot.
@@ -404,8 +404,8 @@ Stated plainly, because each one is load-bearing:
   front, because payloads are unpacked *before* that transaction and
   anything reading the tree in between would see the gap.
 - **Genuinely ambiguous capabilities need a human.** Real repodata has
-  capabilities with many providers — `glibc-langpack` has 211,
-  `system-release` 34 — and the solver refuses to guess. `--override
+  capabilities with many providers -- `glibc-langpack` has 211,
+  `system-release` 34 -- and the solver refuses to guess. `--override
   cap=package` settles each one, and resolving a batch tends to expose the
   next layer beneath it, so arriving at a clean solve is iterative. The
   overrides are an input to the solve and belong in review alongside the
@@ -415,21 +415,21 @@ Stated plainly, because each one is load-bearing:
   such. An ambiguous capability is deferred to the fixed point exactly as
   `(A or B)` is, and if the closure already contains one of its providers
   the requirement is simply satisfied. That is a fact about the set rather
-  than a policy about which package is nicer — nothing a reviewer would
+  than a policy about which package is nicer -- nothing a reviewer would
   have decided differently. It is most of them: solving the live image's
   126 source packages reports 500 ambiguities resolved eagerly and **69**
   deferred, because `/usr/bin/basename` between `coreutils` and
   `coreutils-single` is not a real question in a buildroot that has had
   `coreutils` in it since `@buildsys-build`.
 
-  What survives is **20** distinct decisions, and they are real ones —
+  What survives is **20** distinct decisions, and they are real ones --
   `text-www-browser` between elinks, lynx and w3m; `libfofi.so.4()(64bit)`
   between `xpdf` and `xpdf-libs`; `java-devel` between the JDKs. Each is
   reported once with its candidates and the packages that asked, rather
   than once per asker.
 - **A version constraint picks the provider.** Fedora keeps several majors
-  of a Rust crate side by side — `rust-base64-devel` is the current one,
-  `rust-base64_0.21-devel` and friends are compat packages — and every one
+  of a Rust crate side by side -- `rust-base64-devel` is the current one,
+  `rust-base64_0.21-devel` and friends are compat packages -- and every one
   of them provides `crate(base64)`. The range is the only thing that tells
   them apart, and it is stated in the requirement:
 
@@ -437,7 +437,7 @@ Stated plainly, because each one is load-bearing:
   (crate(base64) >= 0.21 with crate(base64) < 0.23)
   ```
 
-  Repodata puts that in attributes — `flags="LT" ver="0.23"` — rather than
+  Repodata puts that in attributes -- `flags="LT" ver="0.23"` -- rather than
   in the capability name, so a parser reading only `@name` turns every
   constrained dependency into an unconstrained one. That is what this did,
   and the cost was 120 hand-written `--override crate(...)=...` entries
@@ -451,7 +451,7 @@ Stated plainly, because each one is load-bearing:
 
   Constraints now reach the resolver, from repodata and from a probe
   alike, and providers that cannot satisfy them are dropped before the
-  ambiguity is even considered. Where several satisfy, the newest wins —
+  ambiguity is even considered. Where several satisfy, the newest wins --
   what rpm, dnf and cargo all do, and not the judgement call an
   unconstrained ambiguity is. All 120 crate overrides went away and
   exactly one package's buildroot changed: `rust-rpm-sequoia`, which now
@@ -461,13 +461,13 @@ Stated plainly, because each one is load-bearing:
   wrong answer first. Comparison happens at the precision the *constraint*
   states, so `Requires: automake = 1.18.1` is satisfied by 1.18.1-2.fc43.
   A requirement stating no epoch is read as epoch 0 while the provider
-  keeps its own, so `emacs-filesystem >= 30.2` is satisfied by 1:30.0 —
+  keeps its own, so `emacs-filesystem >= 30.2` is satisfied by 1:30.0 --
   which is what an epoch is for. And one package can provide a capability
   at more than one version: `texlive-kpathsea` carries both its NEVR and
   the upstream svn revision.
 - **Rich/boolean dependencies are parsed; a genuine `or` still needs a human.**
-  `tools/depgraph.py` implements rpm's boolean grammar — `and`, `or`,
-  `with`, `without`, `if`/`else`, `unless`/`else`, nested to any depth —
+  `tools/depgraph.py` implements rpm's boolean grammar -- `and`, `or`,
+  `with`, `without`, `if`/`else`, `unless`/`else`, nested to any depth --
   and evaluates it against the buildroot closure, iterating to a fixed
   point. Splitting is paren-depth aware, which is not decoration:
   capability names carry parentheses of their own (`crate(anyhow/default)`,
@@ -487,15 +487,15 @@ Stated plainly, because each one is load-bearing:
   reported rather than chosen, because rpm picks a branch by policy and
   inventing a policy is how a solver quietly installs a different distro
   than the one anyone reviewed; `--override '(a or b)=a'` settles it. And
-  `unless` is order-dependent by nature — "required unless B appears"
-  cannot be answered while B might still appear — so it is settled only
+  `unless` is order-dependent by nature -- "required unless B appears"
+  cannot be answered while B might still appear -- so it is settled only
   once nothing else can grow, which is a decision the code makes
   explicitly rather than a property of the graph.
 - **Dynamic `BuildRequires` cost a second solve.** Specs using
   `%generate_buildrequires` (most Rust, Go, and modern Python packages)
   compute dependencies that do not exist in static repodata, so solving
   from repodata alone produces a buildroot missing most of what the
-  package needs — and the gap does not surface until `%build` fails
+  package needs -- and the gap does not surface until `%build` fails
   somewhere unrecognisable. `tools/probe.py` resolves them the only way
   they can be resolved, by running the block: `rpmbuild -br` per source
   package, merged into a checked-in `<release>.probe.json` that `solve.py`
@@ -507,10 +507,10 @@ Stated plainly, because each one is load-bearing:
   that could never be scheduled remotely, since the worker has to be told
   its inputs before they are known. So it happens at lock time and lands
   in the lockfile as an ordinary declared dependency. What remains is the
-  cost: the update loop is two solves deep — solve, probe, solve again —
+  cost: the update loop is two solves deep -- solve, probe, solve again --
   and the probe needs a working buildroot for the very package whose
   buildroot it is computing.
-- **Actions are coarse, and permanently so — rpm forbids the fix.** One
+- **Actions are coarse, and permanently so -- rpm forbids the fix.** One
   `srpm_build` action is `%prep` through `%install`, so Buck's caching
   works between packages and not within one.
 
@@ -526,11 +526,11 @@ Stated plainly, because each one is load-bearing:
   rpm deliberately poisons short-circuited output, because a package
   assembled from stages that never ran together is not a package it is
   willing to vouch for. So the choice is not "coarse actions or fine ones"
-  — it is coarse actions or rpms that refuse to install.
+  -- it is coarse actions or rpms that refuse to install.
 
   The usual framing of the cost is also wrong for this repo, and worth
   correcting: "a one-line change recompiles the package" describes editing
-  upstream source, which a replay builder never does — the sources are
+  upstream source, which a replay builder never does -- the sources are
   pinned tarballs. What actually invalidates is a buildroot change or a
   `%bcond` flip, and both are *correct* invalidations rather than caching
   failures: a package compiled against a different toolchain really is a
@@ -545,7 +545,7 @@ Stated plainly, because each one is load-bearing:
   tree means one hash, and one hash means any change to it invalidates
   every consumer.
 
-  SPEC.md §1 names the escape hatch — per-package **graduation**, rewriting
+  SPEC.md §1 names the escape hatch -- per-package **graduation**, rewriting
   one package as a native recipe when the control is worth the
   maintenance. It is not implemented: `package()` dispatches only to the
   fedora replay, and every other flavor fails with "frontend is not
@@ -558,7 +558,7 @@ Stated plainly, because each one is load-bearing:
   (a current Fedora keeps its rpmdb in sqlite; an older host rpm can write bdb and
   the image could not read its own database). That transaction chowns files
   to `mail`, `tss`, `systemd-network` and others, and
-  `unshare --map-root-user` maps exactly one id — `filesystem`'s
+  `unshare --map-root-user` maps exactly one id -- `filesystem`'s
   `/var/spool/mail` fails with `EINVAL` a few files into the first package.
   So the builder needs an entry in `/etc/subuid` and `/etc/subgid` plus
   `newuidmap`/`newgidmap`; `tools/_isolation.py` installs the wider map via
@@ -569,7 +569,7 @@ Stated plainly, because each one is load-bearing:
   output is a tar archive, created inside the namespace, carrying ownership
   and xattrs (file capabilities) as metadata. Downstream
   image rules must unpack it inside their own namespace.
-- **~~Images are unlabeled~~ — SELinux is enforcing.**
+- **~~Images are unlabeled~~ -- SELinux is enforcing.**
   `setxattr("security.selinux")` returns `EPERM` inside a nested user
   namespace, which is where every stage here runs, so nothing in the build
   can label a file by asking the kernel. That much is unchanged. What
@@ -578,7 +578,7 @@ Stated plainly, because each one is load-bearing:
   into the image's xattr table, and working out *what* each label should
   be is a pure policy lookup needing no privilege at all. The image ships
   its own `selinux-policy-targeted` and its own `matchpathcon`, so the
-  contexts come from the distro being built rather than the build host —
+  contexts come from the distro being built rather than the build host --
   the same argument `initramfs_build.py` makes for using the image's own
   dracut. 22,912 paths resolve in about a second and dedup to 187 distinct
   contexts in the image.
@@ -589,7 +589,7 @@ Stated plainly, because each one is load-bearing:
   `squashfs(selinux_relabel = True)` turns it on, and it is off by default
   because an image with no policy has no contexts to look up.
 
-  Two paths out of 22,912 are skipped rather than labelled — systemd's
+  Two paths out of 22,912 are skipped rather than labelled -- systemd's
   `system-systemd\x2dcryptsetup.slice` and its veritysetup sibling. The
   pseudo-file grammar splits on spaces and gives the backslash meaning of
   its own, so emitting them would label some *other* path, and
@@ -600,7 +600,7 @@ Stated plainly, because each one is load-bearing:
 
 - **Why the kernel will not do it for you.**
   `setxattr("security.selinux")` returns `EPERM` inside a nested user
-  namespace, which is where every stage here runs — even under
+  namespace, which is where every stage here runs -- even under
   `unshare -Ur`, on a file where setting a `user.*` xattr succeeds. This is
   not a blanket rule about `security.*`, and the difference is worth
   knowing: `security.capability` *is* settable from a user namespace, via
@@ -609,7 +609,7 @@ Stated plainly, because each one is load-bearing:
   `newuidmap` and `newgidmap`. The kernel extends that courtesy to
   capabilities and withholds it from labels. So `rpm-plugin-selinux` sets
   no context during the rootfs transaction, and there is nothing on disk
-  for `mksquashfs` to copy — measured on a live rootfs, zero labels across
+  for `mksquashfs` to copy -- measured on a live rootfs, zero labels across
   the whole tree. That is why the labels have to be *written into the
   image* rather than set on files: the fix above is offline image editing,
   not privilege.
@@ -617,12 +617,12 @@ Stated plainly, because each one is load-bearing:
   buckos-build reaches the same conclusion from the other side, using
   `debugfs`'s `ea_set` to inject `security.ima` into ext4 from `.sig`
   sidecars, and records that it has "no unprivileged equivalent to
-  `debugfs` for those filesystems" otherwise — its squashfs path falls
+  `debugfs` for those filesystems" otherwise -- its squashfs path falls
   back to `evmctl ima_setxattr`, which goes through the kernel and so
   silently no-ops unprivileged. `mksquashfs -pf` looks like the missing
   equivalent for that case too.
 - **Scriptlets run, and a real transaction is why.** Trees are unpacked
-  with `rpm2archive | tar` — GNU tar's `--delay-directory-restore`, not
+  with `rpm2archive | tar` -- GNU tar's `--delay-directory-restore`, not
   `cpio`, because rpm payloads ship read-only directories with files
   beneath them and cpio applies a directory's mode as soon as it creates
   it. That unpack is a bootstrap step: it puts an rpm on disk to run the
@@ -631,7 +631,7 @@ Stated plainly, because each one is load-bearing:
 
   This used to be `rpm --justdb --noscripts`, chosen for an ownership
   property: a real install chowns files into the subordinate id range, and
-  Buck — which does not own those ids — then cannot delete or
+  Buck -- which does not own those ids -- then cannot delete or
   re-materialize its own output. That is now handled by making directories
   writable in a `finally` rather than by avoiding the transaction, which
   also covers the case a `--justdb` tree never had: a transaction that
@@ -639,7 +639,7 @@ Stated plainly, because each one is load-bearing:
 
   What forced the change is `golang-bin`, whose `%post` runs
   `update-alternatives --install /usr/bin/go …`. Under `--justdb` it had no
-  effect — `/etc/alternatives` stayed empty and `/usr/bin/go`, which ships
+  effect -- `/etc/alternatives` stayed empty and `/usr/bin/go`, which ships
   as a symlink into it, dangled. `libcap` then autodetected Go with `go
   version`, got nothing, silently omitted its `captree` program, and failed
   in `%files` on a file nothing said it was skipping. Every step is a
@@ -649,7 +649,7 @@ Stated plainly, because each one is load-bearing:
   mistake was in the method rather than the conclusion. Dropping
   `--noscripts` was initially justified by observing `/usr/sbin -> bin` and
   the systemd sysusers entries in `/etc/passwd` afterwards and attributing
-  both to it — without building the same tree *with* `--noscripts` to
+  both to it -- without building the same tree *with* `--noscripts` to
   compare. The control says they are there either way: they come from
   package payloads. `golang-bin` is the experiment that actually
   distinguished the two.
@@ -658,7 +658,7 @@ Stated plainly, because each one is load-bearing:
   transaction installs everything at once and firing order would be rpm's
   internal ordering rather than anything this repo decides. The per-package
   overlay turns them on and needs to, because it installs into a tree that
-  already exists — glibc's file trigger rebuilds `/etc/ld.so.cache`, and
+  already exists -- glibc's file trigger rebuilds `/etc/ld.so.cache`, and
   without it `bpftool` cannot load a library sitting on disk.
 
 - **Backslashes in payload paths become directories, in buildroots only.**
@@ -669,15 +669,15 @@ Stated plainly, because each one is load-bearing:
   a two-backslash one. Any tree holding them is unbuildable as a directory
   output. `tools/_rpm.py` therefore splits such names at the backslash as
   `tar` writes them, giving buck2 the tree it already believes it is
-  looking at — one file becomes a directory and a file. It round-trips:
+  looking at -- one file becomes a directory and a file. It round-trips:
   joining the components back with a backslash reconstructs the original,
   which dropping the file or deleting the byte would not.
 
   Safe only because of where it applies. Every caller unpacks into a tree
   that runs `mksquashfs` or `rpmbuild` and never boots, where a systemd
   unit is inert either way. A shipped image does not come through that
-  path at all — `rootfs` runs a real transaction and hands back a tarball,
-  and a tar member has no such restriction — so the image keeps every file
+  path at all -- `rootfs` runs a real transaction and hands back a tarball,
+  and a tar member has no such restriction -- so the image keeps every file
   rpm puts in it, backslashes included.
 
   Worth knowing if you ever hit it directly: doing this *after* extraction
@@ -686,7 +686,7 @@ Stated plainly, because each one is load-bearing:
   there, and the build that observed it **succeeds** while the next one
   fails on a path no longer on disk. That reads exactly like stale daemon
   state, and clearing `buck-out/v2/cache/{materializer_state,incremental_state}`
-  after a `buck2 kill` does make it go away — until the next build
+  after a `buck2 kill` does make it go away -- until the next build
   re-poisons it.
 - **`--isolation none` is best-effort.** Under host provenance the
   dependency sysroot is exported via `PATH`, `PKG_CONFIG_PATH`, and

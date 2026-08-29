@@ -255,6 +255,12 @@ python_test(
 )
 
 python_test(
+    name = "documentation_policy_test",
+    srcs = ["documentation_policy_test.py"],
+    base_module = "",
+)
+
+python_test(
     name = "source_policy_test",
     srcs = ["source_policy_test.py"],
     base_module = "",
