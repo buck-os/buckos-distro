@@ -155,6 +155,8 @@ class ProvisionPlanTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("--port", result.stdout)
         self.assertIn("--network-zone buckos-re", result.stdout)
+        self.assertNotIn("NATIVELINK_WORKER_BIND_ADDRESS=0.0.0.0", result.stdout)
+        self.assertIn("private-zone address", result.stdout)
 
     def test_rejects_placeholder_control_address(self) -> None:
         arguments = self.worker_arguments()

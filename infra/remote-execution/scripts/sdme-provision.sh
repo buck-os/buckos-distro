@@ -28,6 +28,7 @@ data_root=''
 zone='buckos-re'
 container_name=''
 control_address=''
+control_worker_bind_address=''
 memory=''
 cpus=''
 root_disk=''
@@ -522,7 +523,9 @@ emit_environment() {
     printf 'NATIVELINK_CONFIG=/etc/nativelink/%s\n' "$(basename -- "$config_file")"
     if [[ "$role" == control ]]; then
         printf 'NATIVELINK_REAPI_BIND_ADDRESS=0.0.0.0\n'
-        printf 'NATIVELINK_WORKER_BIND_ADDRESS=0.0.0.0\n'
+        if [[ -n "$control_worker_bind_address" ]]; then
+            printf 'NATIVELINK_WORKER_BIND_ADDRESS=%s\n' "$control_worker_bind_address"
+        fi
         if [[ -n "$cas_max_bytes" ]]; then printf 'NATIVELINK_CAS_MAX_BYTES=%s\n' "$cas_max_bytes"; fi
         if [[ -n "$ac_max_bytes" ]]; then printf 'NATIVELINK_AC_MAX_BYTES=%s\n' "$ac_max_bytes"; fi
     else
@@ -611,6 +614,10 @@ plan_commands() {
             "$container_name:/usr/local/libexec/buckos-re/tools/_rpm.py"
     fi
     print_command sdme start "$container_name"
+    if [[ "$role" == control ]]; then
+        printf '# Discover the running container private-zone address, write it as NATIVELINK_WORKER_BIND_ADDRESS, and recopy %s.\n' "$env_file"
+        print_command sdme cp "$env_file" "$container_name:/etc/nativelink/nativelink.env"
+    fi
     if [[ "$role" == control ]]; then
         print_command sdme exec "$container_name" --user root -- install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" /var/lib/nativelink
     else
@@ -915,6 +922,54 @@ prepare_container_storage() {
     fi
 }
 
+discover_control_worker_bind_address() {
+    local record result address
+    if record=$(container_record "$container_name"); then
+        :
+    else
+        result=$?
+        ((result == 1)) && die "container disappeared: $container_name"
+        die "could not inspect container: $container_name"
+    fi
+    if address=$("$python_bin" - "$record" 2>&1 <<'PY'
+import ipaddress
+import json
+import sys
+
+try:
+    values = json.loads(sys.argv[1])["addresses"]
+except (json.JSONDecodeError, KeyError, TypeError) as error:
+    raise SystemExit("invalid SDME address inventory: {}".format(error))
+if not isinstance(values, list):
+    raise SystemExit("invalid SDME address inventory shape")
+candidates = []
+for value in values:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        continue
+    if (
+        address.is_private
+        and not address.is_loopback
+        and not address.is_link_local
+        and not address.is_multicast
+        and not address.is_unspecified
+    ):
+        candidates.append(address)
+if not candidates:
+    raise SystemExit("no private non-loopback SDME zone address is available")
+candidates.sort(key=lambda item: (item.version != 4, int(item)))
+selected = candidates[0]
+print("[{}]".format(selected) if selected.version == 6 else selected)
+PY
+    ); then
+        :
+    else
+        die "$address"
+    fi
+    control_worker_bind_address="$address"
+}
+
 apply_deployment() {
     local directories=("$images_dir" "$provision_dir" "$state_dir")
     if [[ "$role" == worker ]]; then directories+=("$scratch_dir"); fi
@@ -944,6 +999,11 @@ apply_deployment() {
     copy_assets
     ensure_started
     prepare_container_storage
+    if [[ "$role" == control ]]; then
+        discover_control_worker_bind_address
+        write_environment_file
+        run_sdme cp "$env_file" "$container_name:/etc/nativelink/nativelink.env"
+    fi
     run_sdme exec "$container_name" --user root -- systemctl daemon-reload
     run_sdme exec "$container_name" --user root -- systemctl enable nativelink.service
     run_sdme exec "$container_name" --user root -- systemctl restart nativelink.service
