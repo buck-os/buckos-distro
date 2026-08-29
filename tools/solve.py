@@ -978,7 +978,32 @@ def probed_buildrequires(report, implicit=BUILDSYS_BUILD):
     return list(implicit) + declared
 
 
-def load_probe(path, build_set):
+def probe_identity_errors(data, flavor=None, release=None, target_cpu=None):
+    """Return mismatches between a probe and the solve consuming it.
+
+    Schema-1 probe files predate ``target_cpu``. Accept that missing field
+    for compatibility, but validate it whenever a writer supplies it.
+    """
+    errors = []
+    expected = {
+        "flavor": flavor,
+        "release": release,
+        "target_cpu": target_cpu,
+    }
+    for field, wanted in expected.items():
+        if wanted is None:
+            continue
+        actual = data.get(field)
+        if actual is None and field == "target_cpu":
+            continue
+        if str(actual) != str(wanted):
+            errors.append("{}={!r}, expected {!r}".format(
+                field, actual, wanted
+            ))
+    return errors
+
+
+def load_probe(path, build_set, flavor=None, release=None, target_cpu=None):
     """Read a probe file, keeping only the packages being solved.
 
     Filtered against build_set because a probe file outlives the build
@@ -996,6 +1021,13 @@ def load_probe(path, build_set):
     if data.get("schema") != PROBE_SCHEMA:
         sys.exit("{}: probe schema {} not understood (this solver reads {})"
                  .format(path, data.get("schema"), PROBE_SCHEMA))
+    identity_errors = probe_identity_errors(
+        data, flavor=flavor, release=release, target_cpu=target_cpu
+    )
+    if identity_errors:
+        sys.exit("{}: probe identity mismatch: {}".format(
+            path, "; ".join(identity_errors)
+        ))
     packages = data.get("packages", {})
     known = {k: v for k, v in packages.items() if k in build_set}
     stale = sorted(set(packages) - set(known))
@@ -1795,7 +1827,13 @@ def main(argv=None):
 
     build_deps, resolutions, problems, dynamic, base_closure = solve(
         universe, build_set, overrides, strict=args.strict,
-        probe=load_probe(args.probe, build_set),
+        probe=load_probe(
+            args.probe,
+            build_set,
+            flavor=args.flavor,
+            release=args.release,
+            target_cpu=args.target_cpu,
+        ),
         implicit=args.implicit_group,
     )
     # A rotted pin is reported with everything else rather than fatally:

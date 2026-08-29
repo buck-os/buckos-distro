@@ -229,7 +229,7 @@ def probe_path(lock_path):
     return lock_path[:-len(suffix)] + ".probe.json"
 
 
-def previous_packages(lock_path):
+def previous_packages(lock_path, lock):
     """What the last probe run recorded, or nothing if there was none.
 
     Tolerant of a file that does not parse or predates the schema: this is
@@ -251,6 +251,17 @@ def previous_packages(lock_path):
               "empty probe set".format(
                   path, recorded.get("schema"), solve.PROBE_SCHEMA),
               file=sys.stderr)
+        return {}
+    identity_errors = solve.probe_identity_errors(
+        recorded,
+        flavor=lock["flavor"],
+        release=lock["release"],
+        target_cpu=lock["target_cpu"],
+    )
+    if identity_errors:
+        print("buckos-distro: {} has mismatched identity ({}); starting "
+              "from an empty probe set".format(
+                  path, "; ".join(identity_errors)), file=sys.stderr)
         return {}
     return recorded.get("packages", {})
 
@@ -283,7 +294,7 @@ def write_probe_file(lock_path, root, config=None, buck2=None):
     #
     # A fresh answer always wins, so re-probing still updates.  What this
     # prevents is a *missing* answer counting as a new one.
-    packages = dict(previous_packages(lock_path))
+    packages = dict(previous_packages(lock_path, lock))
     fresh = collect(outputs, root)
     kept = sorted(set(packages) - set(fresh))
     packages.update(fresh)
@@ -299,6 +310,7 @@ def write_probe_file(lock_path, root, config=None, buck2=None):
                 "schema": solve.PROBE_SCHEMA,
                 "flavor": flavor,
                 "release": lock["release"],
+                "target_cpu": lock["target_cpu"],
                 # What the probes were run against.  A probe answer is only
                 # as good as the buildroot that produced it -- a generator
                 # can and does branch on the version of its own toolchain --

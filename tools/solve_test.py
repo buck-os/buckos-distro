@@ -26,6 +26,7 @@ from solve import (
     load_probe,
     merge_packages,
     parse_override,
+    probe_identity_errors,
     probed_buildrequires,
     rpm_source_policy_inputs,
     solve,
@@ -390,6 +391,34 @@ class TestProbeFile(unittest.TestCase):
         path = self.write({"schema": PROBE_SCHEMA + 1, "packages": {}})
         with self.assertRaises(SystemExit):
             load_probe(path, {"widget"})
+
+    def test_a_probe_for_another_release_is_refused(self):
+        path = self.write({
+            "schema": PROBE_SCHEMA,
+            "flavor": "fedora",
+            "release": "45",
+            "target_cpu": "x86_64",
+            "packages": {"widget": {"dynamic": []}},
+        })
+        with self.assertRaisesRegex(SystemExit, "release='45', expected '44'"):
+            load_probe(
+                path,
+                {"widget"},
+                flavor="fedora",
+                release="44",
+                target_cpu="x86_64",
+            )
+
+    def test_legacy_probe_without_target_cpu_keeps_working(self):
+        self.assertEqual(
+            [],
+            probe_identity_errors(
+                {"flavor": "fedora", "release": "44"},
+                flavor="fedora",
+                release="44",
+                target_cpu="x86_64",
+            ),
+        )
 
 
 class TestMergePackages(unittest.TestCase):
