@@ -50,6 +50,10 @@ fi
 
 if [[ ${1:-} == audit && ${2:-} == config ]]; then
     remote_execution=''
+    remote_x86_64_properties=''
+    remote_aarch64_properties=''
+    remote_x86_64_use_case=''
+    remote_aarch64_use_case=''
     endpoint=''
     instance=''
     tls=''
@@ -57,6 +61,10 @@ if [[ ${1:-} == audit && ${2:-} == config ]]; then
         if [[ $1 == --config ]]; then
             case $2 in
                 buckos.remote_execution=*) remote_execution=${2#*=} ;;
+                buckos.remote_x86_64_properties=*) remote_x86_64_properties=${2#*=} ;;
+                buckos.remote_aarch64_properties=*) remote_aarch64_properties=${2#*=} ;;
+                buckos.remote_x86_64_use_case=*) remote_x86_64_use_case=${2#*=} ;;
+                buckos.remote_aarch64_use_case=*) remote_aarch64_use_case=${2#*=} ;;
                 buck2_re_client.engine_address=*) endpoint=${2#*=} ;;
                 buck2_re_client.instance_name=*) instance=${2#*=} ;;
                 buck2_re_client.tls=*) tls=${2#*=} ;;
@@ -76,6 +84,10 @@ if [[ ${1:-} == audit && ${2:-} == config ]]; then
 [buckos]
     remote_cache = true
     remote_execution = $remote_execution
+    remote_aarch64_properties = $remote_aarch64_properties
+    remote_aarch64_use_case = $remote_aarch64_use_case
+    remote_x86_64_properties = $remote_x86_64_properties
+    remote_x86_64_use_case = $remote_x86_64_use_case
 EOF
     exit 0
 fi
@@ -111,15 +123,31 @@ if [[ ${1:-} == build ]]; then
         done
     fi
     event_log=''
+    output=''
+    target=${2:?}
     while (($#)); do
-        if [[ $1 == --event-log ]]; then
-            event_log=$2
-            break
-        fi
-        shift
+        case $1 in
+            --event-log)
+                event_log=$2
+                shift 2
+                ;;
+            --out)
+                output=$2
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
     done
     [[ -n $event_log ]]
     printf 'fake event log\n' >"$event_log"
+    if [[ -n $output ]]; then
+        architecture=x86_64
+        [[ $target == *aarch64* ]] && architecture=aarch64
+        [[ ${FAKE_SCENARIO:-} == wrong_probe_output ]] && architecture=x86_64
+        printf '%s\n' "$architecture" >"$output"
+    fi
     exit 0
 fi
 
@@ -139,8 +167,14 @@ if [[ ${1:-} == log && ${2:-} == summary ]]; then
                 cached_actions=1
             fi
             ;;
-        re-x86_64.json-lines.gz|re-aarch64.json-lines.gz)
-            remote_actions=1
+        probe-x86_64.json-lines.gz|probe-aarch64.json-lines.gz|re-x86_64.json-lines.gz|re-aarch64.json-lines.gz)
+            if [[ ${FAKE_SCENARIO:-} == probe_local_fallback && $(basename "$event_log") == probe-* ]]; then
+                local_actions=1
+            elif [[ ${FAKE_SCENARIO:-} == probe_cache_hit && $(basename "$event_log") == probe-* ]]; then
+                cached_actions=1
+            else
+                remote_actions=1
+            fi
             ;;
         host-client-a.json-lines.gz|host-client-b.json-lines.gz)
             local_actions=1
@@ -187,6 +221,12 @@ if [[ ${1:-} == log && ${2:-} == what-ran ]]; then
             ;;
         re-aarch64.json-lines.gz)
             echo '{"identity":"buckos//flavors/debian:hostname-13-aarch64-build (deb_build)","reproducer":{"executor":"RE","details":{"action_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:84"}}}'
+            ;;
+        probe-x86_64.json-lines.gz)
+            echo '{"identity":"buckos//infra/remote-execution:worker-architecture-x86_64 (genrule)","reproducer":{"executor":"RE","details":{"action_digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc:21"}}}'
+            ;;
+        probe-aarch64.json-lines.gz)
+            echo '{"identity":"buckos//infra/remote-execution:worker-architecture-aarch64 (genrule)","reproducer":{"executor":"RE","details":{"action_digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd:21"}}}'
             ;;
         host-client-a.json-lines.gz|host-client-b.json-lines.gz)
             echo '{"identity":"buckos//tests:hello-build (srpm_build)","reproducer":{"executor":"Local"}}'
@@ -423,6 +463,8 @@ class SmokeTestScriptTest(unittest.TestCase):
         self.assertIn("PASS cache.client-b", result.stdout)
         self.assertIn("PASS re-x86_64 ", result.stdout)
         self.assertIn("PASS re-aarch64 ", result.stdout)
+        self.assertIn("PASS probe-x86_64 ", result.stdout)
+        self.assertIn("PASS probe-aarch64 ", result.stdout)
         self.assertIn("WARN host-provenance.skipped", result.stdout)
         calls = self.call_log.read_text(encoding="utf-8")
         self.assertNotIn(":iso-", calls)
@@ -585,10 +627,20 @@ class SmokeTestScriptTest(unittest.TestCase):
         self.assertIn("PASS re-x86_64.remote-actions value=1", result.stdout)
         self.assertIn("PASS re-x86_64.local-fallback value=0", result.stdout)
         self.assertIn("PASS re-x86_64.action-digest", result.stdout)
+        self.assertIn("PASS probe-x86_64.output architecture=x86_64", result.stdout)
+        self.assertIn("PASS probe-x86_64.remote-actions value=1", result.stdout)
         calls = self.call_log.read_text(encoding="utf-8")
+        self.assertIn(
+            "build //infra/remote-execution:worker-architecture-x86_64 --remote-only --no-remote-cache",
+            calls,
+        )
         self.assertIn(
             "build //flavors/debian:hostname-13-x86_64-build --remote-only --no-remote-cache",
             calls,
+        )
+        self.assertLess(
+            calls.index("build //infra/remote-execution:worker-architecture-x86_64"),
+            calls.index("build //flavors/debian:hostname-13-x86_64-build"),
         )
 
     def test_aarch64_stage_proves_platform_and_execution(self) -> None:
@@ -601,6 +653,57 @@ class SmokeTestScriptTest(unittest.TestCase):
         )
         self.assertIn("PASS re-aarch64.remote-actions value=1", result.stdout)
         self.assertIn("PASS re-aarch64.local-fallback value=0", result.stdout)
+        self.assertIn("PASS probe-aarch64.output architecture=aarch64", result.stdout)
+        self.assertIn("PASS probe-aarch64.remote-actions value=1", result.stdout)
+
+    def test_aarch64_stage_rejects_wrong_probe_output(self) -> None:
+        result = self.run_smoke(
+            "aarch64", scenario="wrong_probe_output"
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "FAIL probe-aarch64.output expected exact architecture 'aarch64'",
+            result.stdout,
+        )
+        calls = self.call_log.read_text(encoding="utf-8")
+        self.assertNotIn("hostname-13-aarch64-build", calls)
+
+    def test_architecture_probe_rejects_local_fallback(self) -> None:
+        result = self.run_smoke(
+            "x86_64", scenario="probe_local_fallback"
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FAIL probe-x86_64.local-fallback", result.stdout)
+        calls = self.call_log.read_text(encoding="utf-8")
+        self.assertNotIn("hostname-13-x86_64-build", calls)
+
+    def test_architecture_probe_rejects_cache_hit(self) -> None:
+        result = self.run_smoke(
+            "x86_64", scenario="probe_cache_hit"
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FAIL probe-x86_64.cache-hit", result.stdout)
+        calls = self.call_log.read_text(encoding="utf-8")
+        self.assertNotIn("hostname-13-x86_64-build", calls)
+
+    def test_architecture_stage_rejects_noncanonical_properties(self) -> None:
+        fake_buck = self.client_a / "buck2"
+        text = fake_buck.read_text(encoding="utf-8")
+        fake_buck.write_text(
+            text.replace(
+                "remote_aarch64_properties = $remote_aarch64_properties",
+                "remote_aarch64_properties = $remote_aarch64_properties,queue=arm",
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_smoke("aarch64")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FAIL config.re-aarch64.aarch64-properties", result.stdout)
 
     def test_aarch64_stage_rejects_wrong_platform(self) -> None:
         result = self.run_smoke(
@@ -608,7 +711,7 @@ class SmokeTestScriptTest(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("FAIL re-aarch64.platform", result.stdout)
+        self.assertIn("FAIL probe-aarch64.platform", result.stdout)
 
     def test_host_provenance_runs_locally_on_both_clients(self) -> None:
         result = self.run_smoke(

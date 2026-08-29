@@ -1,0 +1,17 @@
+load(
+    "//defs:architectures.bzl",
+    "ARCHITECTURES",
+    "execution_compatible_with",
+)
+
+[
+    genrule(
+        name = "worker-architecture-{}".format(_architecture),
+        out = "worker-architecture-{}.txt".format(_architecture),
+        cmd = "/usr/bin/uname -m > \"$OUT\"",
+        default_target_platform = "//platforms:linux-{}".format(_architecture),
+        exec_compatible_with = execution_compatible_with(_architecture),
+        visibility = ["PUBLIC"],
+    )
+    for _architecture in ARCHITECTURES
+]

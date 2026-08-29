@@ -4,6 +4,8 @@ set -euo pipefail
 CACHE_TARGET='//flavors/debian:hostname-13-x86_64-source'
 X86_TARGET='//flavors/debian:hostname-13-x86_64-build'
 AARCH64_TARGET='//flavors/debian:hostname-13-aarch64-build'
+X86_PROBE_TARGET='//infra/remote-execution:worker-architecture-x86_64'
+AARCH64_PROBE_TARGET='//infra/remote-execution:worker-architecture-aarch64'
 script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 
 stage=''
@@ -47,8 +49,8 @@ Usage:
 Stages:
   readiness        Run Capabilities and CAS round-trip checks through --grpc-helper.
   cache            Prove Client A upload and clean Client B cache reuse.
-  x86_64           Force the bounded x86_64 Debian source build through RE.
-  aarch64          Force the bounded native AArch64 Debian source build through RE.
+  x86_64           Attest x86_64 execution, then run the bounded Debian source build.
+  aarch64          Attest native AArch64 execution, then run the bounded Debian source build.
   host-provenance  Prove a supplied host-buildroot action remains local on two clients.
   all              Run readiness, cache, x86_64, and aarch64 in that order.
 
@@ -470,6 +472,13 @@ assert_contains() {
     grep -Fq -- "$expected" "$path" || fail "$check" "missing '$expected' in $path"
 }
 
+assert_line() {
+    local check=$1
+    local path=$2
+    local expected=$3
+    grep -Fxq -- "$expected" "$path" || fail "$check" "missing exact line '$expected' in $path"
+}
+
 assert_not_contains_regex() {
     local check=$1
     local path=$2
@@ -571,12 +580,91 @@ audit_config() {
         "${CONFIG_ARGS[@]}"
     assert_contains "config.$name.remote-cache" "$output" 'remote_cache = true'
     assert_contains "config.$name.remote-execution" "$output" "remote_execution = $remote_execution"
+    assert_line "config.$name.x86_64-properties" "$output" \
+        '    remote_x86_64_properties = platform.OSFamily=linux,platform.arch=x86_64'
+    assert_line "config.$name.aarch64-properties" "$output" \
+        '    remote_aarch64_properties = platform.OSFamily=linux,platform.arch=aarch64'
+    assert_line "config.$name.x86_64-use-case" "$output" \
+        '    remote_x86_64_use_case = buck2-default'
+    assert_line "config.$name.aarch64-use-case" "$output" \
+        '    remote_aarch64_use_case = buck2-default'
     assert_contains "config.$name.engine" "$output" "engine_address = $endpoint"
     assert_contains "config.$name.action-cache" "$output" "action_cache_address = $endpoint"
     assert_contains "config.$name.cas" "$output" "cas_address = $endpoint"
     assert_contains "config.$name.instance" "$output" "instance_name = $instance_name"
     assert_contains "config.$name.tls" "$output" "tls = $tls"
     record PASS "config.$name" "validated without editing .buckconfig.local"
+}
+
+audit_execution_platform() {
+    local architecture=$1
+    local target=$2
+    local prefix=$3
+    local expected_platform=$4
+
+    run_buck_capture \
+        "$client_a" client-a "$client_a_buck" "$client_a_isolation" \
+        "$prefix.platform" "$event_dir/$prefix-platform.log" \
+        audit execution-platform-resolution "$target" "${CONFIG_ARGS[@]}"
+    assert_contains "$prefix.platform" "$event_dir/$prefix-platform.log" \
+        "Execution platform: $expected_platform"
+    if [[ $architecture == aarch64 ]]; then
+        assert_contains "$prefix.x86-rejected" "$event_dir/$prefix-platform.log" \
+            'Skipped buckos//platforms:platforms-remote-x86_64'
+        assert_contains "$prefix.constraint" "$event_dir/$prefix-platform.log" \
+            'can-execute-aarch64'
+    fi
+    record PASS "$prefix.platform" "selected=$expected_platform"
+}
+
+run_architecture_probe() {
+    local architecture=$1
+    local target=$2
+    local expected_platform=$3
+    local prefix="probe-$architecture"
+    local event_log="$event_dir/$prefix.json-lines.gz"
+    local output="$event_dir/$prefix-output.txt"
+    local local_actions remote_actions cached_actions action_digest
+
+    audit_execution_platform "$architecture" "$target" "$prefix" "$expected_platform"
+
+    reserve_output "$event_log"
+    reserve_output "$output"
+    run_buck_capture \
+        "$client_a" client-a "$client_a_buck" "$client_a_isolation" \
+        "$prefix.build" "$event_dir/$prefix-command.log" \
+        build "$target" --remote-only --no-remote-cache --out "$output" \
+        --event-log "$event_log" "${CONFIG_ARGS[@]}"
+    [[ -s $event_log ]] || fail "$prefix.event-log" "missing or empty event log: $event_log"
+    [[ -f $output ]] || fail "$prefix.output" "missing architecture output: $output"
+    if ! printf '%s\n' "$architecture" | cmp -s - "$output"; then
+        fail "$prefix.output" "expected exact architecture '$architecture'; see $output"
+    fi
+    record PASS "$prefix.output" "architecture=$architecture evidence=$output"
+
+    collect_log_evidence \
+        "$client_a" client-a "$client_a_buck" "$client_a_isolation" \
+        "$event_log" "$prefix" genrule
+    summary_count "$event_dir/$prefix-summary.log" 'Local actions'
+    local_actions=$parsed_count
+    summary_count "$event_dir/$prefix-summary.log" 'Remote actions'
+    remote_actions=$parsed_count
+    summary_count "$event_dir/$prefix-summary.log" 'Cached actions'
+    cached_actions=$parsed_count
+    require_equal "$prefix.local-fallback" "$local_actions" 0
+    require_equal "$prefix.cache-hit" "$cached_actions" 0
+    require_equal "$prefix.remote-actions" "$remote_actions" 1
+    assert_contains "$prefix.action" "$event_dir/$prefix-what-ran.jsonl" "${target##*:}"
+    assert_contains "$prefix.executor" "$event_dir/$prefix-what-ran.jsonl" '"executor":"RE"'
+    assert_not_contains_regex "$prefix.no-local-record" \
+        "$event_dir/$prefix-what-ran.jsonl" '"executor":"Local"'
+    assert_not_contains_regex "$prefix.no-cache-record" \
+        "$event_dir/$prefix-what-ran.jsonl" '"executor":"Cache"'
+
+    action_digest=$(grep -Eo '[[:xdigit:]]{64}:[0-9]+' "$event_dir/$prefix-what-ran.jsonl" | head -n 1 || true)
+    [[ -n $action_digest ]] || fail "$prefix.action-digest" "remote architecture probe action digest is absent"
+    record PASS "$prefix.action-digest" "digest=$action_digest"
+    record PASS "$prefix" "native architecture attested through uncached remote execution"
 }
 
 collect_log_evidence() {
@@ -695,17 +783,19 @@ run_cache() {
 
 run_execution() {
     local architecture=$1
-    local target expected_platform event_log prefix
+    local target probe_target expected_platform event_log prefix
     local local_actions remote_actions cached_actions action_digest
 
     case "$architecture" in
         x86_64)
             target=$X86_TARGET
+            probe_target=$X86_PROBE_TARGET
             expected_platform='buckos//platforms:platforms-remote-x86_64'
             prefix=re-x86_64
             ;;
         aarch64)
             target=$AARCH64_TARGET
+            probe_target=$AARCH64_PROBE_TARGET
             expected_platform='buckos//platforms:platforms-remote-aarch64'
             prefix=re-aarch64
             ;;
@@ -719,19 +809,8 @@ run_execution() {
         "$client_a" client-a "$client_a_buck" "$client_a_isolation" \
         "$prefix" true
     set_config_args true
-    run_buck_capture \
-        "$client_a" client-a "$client_a_buck" "$client_a_isolation" \
-        "$prefix.platform" "$event_dir/$prefix-platform.log" \
-        audit execution-platform-resolution "$target" "${CONFIG_ARGS[@]}"
-    assert_contains "$prefix.platform" "$event_dir/$prefix-platform.log" \
-        "Execution platform: $expected_platform"
-    if [[ $architecture == aarch64 ]]; then
-        assert_contains "$prefix.x86-rejected" "$event_dir/$prefix-platform.log" \
-            'Skipped buckos//platforms:platforms-remote-x86_64'
-        assert_contains "$prefix.constraint" "$event_dir/$prefix-platform.log" \
-            'can-execute-aarch64'
-    fi
-    record PASS "$prefix.platform" "selected=$expected_platform"
+    run_architecture_probe "$architecture" "$probe_target" "$expected_platform"
+    audit_execution_platform "$architecture" "$target" "$prefix" "$expected_platform"
 
     reserve_output "$event_log"
     run_buck_capture \
@@ -846,7 +925,7 @@ configure_isolation_names() {
 validate_arguments() {
     local required_tool
 
-    for required_tool in realpath sha256sum awk grep sed tail head timeout; do
+    for required_tool in realpath sha256sum awk grep sed tail head timeout cmp; do
         command -v "$required_tool" >/dev/null 2>&1 || \
             usage_error "required evidence tool is unavailable: $required_tool"
     done

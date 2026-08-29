@@ -140,13 +140,16 @@ After cross-client cache validation succeeds, set `buckos.remote_execution = tru
 
 ## Bring-up sequence
 
+NativeLink v1.6.6 does not provide a read-only worker-registration snapshot containing worker identity, connection state, and accepted platform properties. Private deployment admission therefore combines control health and a CAS round trip with forced uncached architecture probes through both worker pools. The probe output must exactly match the requested Buck platform properties. This execution-backed check does not replace a future native worker-snapshot API.
+
 1. Pin NativeLink service images and create the private network and persistent CAS volume.
 2. Start the scheduler/CAS/action-cache service without workers. Verify health, storage persistence, metrics, and clean restart behavior.
 3. Enable remote cache only on two fresh Buck clients. Build the same small target from both and prove that the second client receives cached results.
-4. Start the x86_64 worker only after its preflight passes. Enable remote execution and validate one RPM source build, one Debian source build, one rootfs, and one ISO.
-5. Start the native AArch64 worker and prove architecture routing with the same representative action classes.
-6. Run the complete direct tool suite and `//tools:re_contract_test`, then build every source and prebuilt ISO. Run firmware boot tests on the controlled local validation hosts.
-7. Exercise service restart, worker loss, CAS garbage collection, and a clean third client before treating the deployment as shared infrastructure.
+4. Start the x86_64 worker only after its preflight passes. Enable remote execution and validate the architecture probe before one RPM source build, one Debian source build, one rootfs, and one ISO.
+5. Start the native AArch64 worker and validate its architecture probe before proving routing with the same representative action classes.
+6. Do not enable broader clients or long builds until the control/CAS checks and both architecture probes pass.
+7. Run the complete direct tool suite and `//tools:re_contract_test`, then build every source and prebuilt ISO. Run firmware boot tests on the controlled local validation hosts.
+8. Exercise service restart, worker loss, CAS garbage collection, and a clean third client before treating the deployment as shared infrastructure.
 
 ## Acceptance gates
 
