@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "images": {
+    "nativelink": {
+      "reference": "ghcr.io/tracemachina/nativelink@sha256:5c2e6eca51c6d3ac40b94f703e08a243fd036cc136cc858a99040ca90fa57d61",
+      "platforms": {
+        "x86_64": {
+          "architecture": "amd64",
+          "archive": {
+            "filename": "nativelink-166-x86_64.oci.tar",
+            "sha256": "6728d340e78b99e246d9fc9549ef0f1f9dbee9f4a93abb6cdd1699b84a88092e",
+            "size": 30771200
+          },
+          "manifest": {
+            "digest": "sha256:0c2cf11ca46e033d115a967d3599085f2e371b32f984146e5f8941a3165e6514",
+            "media_type": "application/vnd.oci.image.manifest.v1+json",
+            "size": 406
+          },
+          "os": "linux"
+        }
+      }
+    },
+    "ubuntu": {
+      "reference": "docker.io/library/ubuntu@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b",
+      "platforms": {
+        "x86_64": {
+          "architecture": "amd64",
+          "archive": {
+            "filename": "ubuntu-2604-x86_64.oci.tar",
+            "sha256": "ea3a474544b166611959189b018090cd30f9296e5ab93cb5c6f4545e1bccb82e",
+            "size": 41594880
+          },
+          "manifest": {
+            "digest": "sha256:889d056d5c6c0bfb55789ff3710681d68e50713cb562d2196dc07110599c7a6f",
+            "media_type": "application/vnd.oci.image.manifest.v1+json",
+            "size": 1392
+          },
+          "os": "linux"
+        }
+      }
+    }
+  }
+}
