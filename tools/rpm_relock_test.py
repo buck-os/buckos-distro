@@ -2,7 +2,11 @@
 """Tests for the generic RPM-family relock loop."""
 
 import json
+import os
+import tempfile
+import types
 import unittest
+from unittest import mock
 
 import rpm_relock
 
@@ -132,6 +136,82 @@ class TestConvergence(unittest.TestCase):
             rpm_relock.describe_state(state),
             "1 unresolved problem(s), 1 unprobed package(s), 1 unmet probe(s)",
         )
+
+
+class TestProbeRelock(unittest.TestCase):
+    def run_relock(self, states):
+        calls = []
+        with tempfile.TemporaryDirectory() as directory:
+            template_path = os.path.join(directory, "template.lock.json")
+            output_path = os.path.join(directory, "output.lock.json")
+            data = template()
+            data.update({
+                "target_cpu": "x86_64",
+                "repos": [],
+                "solve": recorded(probe=None),
+            })
+            with open(template_path, "w", encoding="utf-8") as stream:
+                json.dump(data, stream)
+
+            def fake_solve_and_generate(
+                    template_data, recorded_data, repos, target_cpu, output,
+                    probe_path=None, strict=True):
+                del template_data, recorded_data, repos, target_cpu
+                calls.append({"probe": probe_path, "strict": strict})
+                state = states[min(len(calls) - 1, len(states) - 1)]
+                with open(output, "w", encoding="utf-8") as stream:
+                    json.dump(state, stream)
+
+            probe_path = os.path.join(directory, "output.probe.json")
+            fake_probe = types.SimpleNamespace(
+                DEFAULT_CONFIG=[],
+                probe_path=mock.Mock(return_value=probe_path),
+                resolve_buck2=mock.Mock(return_value="buck2"),
+                write_probe_file=mock.Mock(),
+            )
+            with (
+                mock.patch.object(
+                    rpm_relock,
+                    "solve_and_generate",
+                    side_effect=fake_solve_and_generate,
+                ),
+                mock.patch.object(rpm_relock.relock, "repo_root",
+                                  return_value=directory),
+                mock.patch.dict("sys.modules", {"probe": fake_probe}),
+            ):
+                rpm_relock.main([
+                    "--template", template_path,
+                    "--target-cpu", "x86_64",
+                    "--output", output_path,
+                    "--probe",
+                ])
+        return calls, fake_probe.write_probe_file
+
+    def test_static_problems_are_allowed_until_the_final_strict_solve(self):
+        calls, write_probe = self.run_relock([
+            {"packages": {}, "problems": [{"kind": "unresolved"}]},
+            {"packages": {}, "problems": []},
+            {"packages": {}, "problems": []},
+        ])
+        self.assertEqual(
+            [call["strict"] for call in calls],
+            [False, False, True],
+        )
+        write_probe.assert_called_once()
+
+    def test_missing_persisted_probe_forces_a_probe_of_a_clean_solve(self):
+        calls, write_probe = self.run_relock([
+            {"packages": {}, "problems": []},
+            {"packages": {}, "problems": []},
+            {"packages": {}, "problems": []},
+        ])
+        self.assertEqual(
+            [call["strict"] for call in calls],
+            [False, False, True],
+        )
+        self.assertIsNone(calls[0]["probe"])
+        self.assertIsNotNone(calls[1]["probe"])
+        write_probe.assert_called_once()
 
 
 if __name__ == "__main__":
