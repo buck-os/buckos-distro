@@ -43,6 +43,8 @@
 #   cas_address          = <host:port>
 #   instance_name        = <pool>
 #   tls                  = true
+#   tls_ca_certs         = </absolute/path/control-ca.pem>
+#   tls_client_cert      = </absolute/path/combined-client-identity.pem>
 #
 # See REMOTE_EXECUTION.md for the reference deployment, worker preflight,
 # cache policy, rollout sequence, and acceptance gates.

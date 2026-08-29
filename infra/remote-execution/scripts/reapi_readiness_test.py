@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import ast
+from concurrent import futures
 import contextlib
 import importlib.util
 import io
 from pathlib import Path
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -257,8 +261,12 @@ class CommandTest(unittest.TestCase):
         stderr = io.StringIO()
         factory_calls = []
 
-        def factory(endpoint: str, tls: bool, timeout: float) -> FakeReapiServer:
-            factory_calls.append((endpoint, tls, timeout))
+        def factory(
+            endpoint: str,
+            tls_credentials: reapi.TlsCredentials | None,
+            timeout: float,
+        ) -> FakeReapiServer:
+            factory_calls.append((endpoint, tls_credentials, timeout))
             return server
 
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
@@ -274,7 +282,7 @@ class CommandTest(unittest.TestCase):
                 transport_factory=factory,
             )
         self.assertEqual(
-            [("re.test.invalid:50051", False, 2.0)], factory_calls
+            [("re.test.invalid:50051", None, 2.0)], factory_calls
         )
         return result, stdout.getvalue(), stderr.getvalue()
 
@@ -318,6 +326,114 @@ class CommandTest(unittest.TestCase):
         self.assertIn("FAIL\treapi.capabilities\t", stdout.getvalue())
         factory.assert_not_called()
 
+    def test_tls_loads_complete_client_identity(self) -> None:
+        stdout = io.StringIO()
+        factory_calls = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ca = root / "ca.pem"
+            chain = root / "client-chain.pem"
+            key = root / "client-key.pem"
+            ca.write_bytes(b"test ca")
+            chain.write_bytes(b"test chain")
+            key.write_bytes(b"test key")
+
+            def factory(
+                endpoint: str,
+                tls_credentials: reapi.TlsCredentials | None,
+                timeout: float,
+            ) -> FakeReapiServer:
+                factory_calls.append((endpoint, tls_credentials, timeout))
+                return FakeReapiServer()
+
+            with contextlib.redirect_stdout(stdout):
+                result = reapi.main(
+                    [
+                        "capabilities",
+                        "--endpoint", "re.test.invalid:50051",
+                        "--instance-name", "main",
+                        "--tls", "true",
+                        "--tls-ca", str(ca),
+                        "--tls-client-chain", str(chain),
+                        "--tls-client-key", str(key),
+                    ],
+                    transport_factory=factory,
+                )
+
+        self.assertEqual(0, result)
+        self.assertEqual(1, len(factory_calls))
+        credentials = factory_calls[0][1]
+        self.assertEqual(b"test ca", credentials.root_certificates)
+        self.assertEqual(b"test chain", credentials.certificate_chain)
+        self.assertEqual(b"test key", credentials.private_key)
+        self.assertNotIn("test key", repr(credentials))
+        self.assertNotIn("test key", stdout.getvalue())
+
+    def test_tls_rejects_missing_client_identity(self) -> None:
+        stdout = io.StringIO()
+        factory = mock.Mock()
+        with tempfile.TemporaryDirectory() as temporary:
+            ca = Path(temporary, "ca.pem")
+            ca.write_bytes(b"test ca")
+            with contextlib.redirect_stdout(stdout):
+                result = reapi.main(
+                    [
+                        "capabilities",
+                        "--endpoint", "re.test.invalid:50051",
+                        "--instance-name", "main",
+                        "--tls", "true",
+                        "--tls-ca", str(ca),
+                    ],
+                    transport_factory=factory,
+                )
+
+        self.assertEqual(1, result)
+        self.assertIn("--tls-client-chain", stdout.getvalue())
+        self.assertIn("--tls-client-key", stdout.getvalue())
+        factory.assert_not_called()
+
+    def test_plaintext_rejects_tls_credentials(self) -> None:
+        stdout = io.StringIO()
+        factory = mock.Mock()
+        with contextlib.redirect_stdout(stdout):
+            result = reapi.main(
+                [
+                    "capabilities",
+                    "--endpoint", "127.0.0.1:50051",
+                    "--instance-name", "main",
+                    "--tls", "false",
+                    "--tls-ca", "/not/read",
+                ],
+                transport_factory=factory,
+            )
+
+        self.assertEqual(1, result)
+        self.assertIn("require --tls true", stdout.getvalue())
+        factory.assert_not_called()
+
+    def test_grpc_transport_passes_all_credential_bytes(self) -> None:
+        grpc_module = mock.Mock()
+        grpc_module.ssl_channel_credentials.return_value = "credentials"
+        credentials = reapi.TlsCredentials(b"ca", b"chain", b"key")
+
+        transport = reapi.GrpcTransport(
+            grpc_module,
+            "re.test.invalid:50051",
+            credentials,
+            2.0,
+        )
+
+        grpc_module.ssl_channel_credentials.assert_called_once_with(
+            root_certificates=b"ca",
+            private_key=b"key",
+            certificate_chain=b"chain",
+        )
+        grpc_module.secure_channel.assert_called_once_with(
+            "re.test.invalid:50051", "credentials"
+        )
+        grpc_module.insecure_channel.assert_not_called()
+        self.assertEqual(2.0, transport.timeout)
+
     def test_missing_grpcio_has_a_clear_failure(self) -> None:
         with mock.patch.object(
             reapi.importlib,
@@ -326,6 +442,152 @@ class CommandTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(reapi.CheckFailure, "python3-grpcio"):
                 reapi._load_grpc()
+
+
+@unittest.skipUnless(shutil.which("openssl"), "openssl is unavailable")
+class TlsHandshakeTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        try:
+            cls.grpc = reapi._load_grpc()
+        except reapi.CheckFailure as error:
+            raise unittest.SkipTest(str(error)) from error
+        cls.temporary_directory = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.temporary_directory.cleanup)
+        cls.root = Path(cls.temporary_directory.name)
+
+        def openssl(*arguments: str) -> None:
+            subprocess.run(
+                ["openssl", *arguments],
+                cwd=cls.root,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        def create_ca(name: str) -> None:
+            openssl(
+                "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", "{}-key.pem".format(name),
+                "-out", "{}.pem".format(name),
+                "-subj", "/CN={}".format(name),
+                "-days", "1",
+            )
+
+        def issue(
+            name: str,
+            ca: str,
+            serial: int,
+            extensions: str,
+        ) -> None:
+            extension_path = cls.root / "{}.ext".format(name)
+            extension_path.write_text(extensions, encoding="utf-8")
+            openssl(
+                "req", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", "{}-key.pem".format(name),
+                "-out", "{}.csr".format(name),
+                "-subj", "/CN={}".format(name),
+            )
+            openssl(
+                "x509", "-req",
+                "-in", "{}.csr".format(name),
+                "-CA", "{}.pem".format(ca),
+                "-CAkey", "{}-key.pem".format(ca),
+                "-set_serial", str(serial),
+                "-out", "{}.pem".format(name),
+                "-days", "1",
+                "-extfile", extension_path.name,
+            )
+
+        create_ca("trusted-ca")
+        create_ca("wrong-ca")
+        issue(
+            "server",
+            "trusted-ca",
+            2,
+            "subjectAltName=DNS:localhost,IP:127.0.0.1\n"
+            "extendedKeyUsage=serverAuth\n",
+        )
+        issue(
+            "trusted-client",
+            "trusted-ca",
+            3,
+            "extendedKeyUsage=clientAuth\n",
+        )
+        issue(
+            "wrong-client",
+            "wrong-ca",
+            4,
+            "extendedKeyUsage=clientAuth\n",
+        )
+
+        cls.executor = futures.ThreadPoolExecutor(max_workers=1)
+        cls.addClassCleanup(cls.executor.shutdown, wait=True)
+        cls.server = cls.grpc.server(cls.executor)
+        server_credentials = cls.grpc.ssl_server_credentials(
+            ((
+                (cls.root / "server-key.pem").read_bytes(),
+                (cls.root / "server.pem").read_bytes(),
+            ),),
+            root_certificates=(cls.root / "trusted-ca.pem").read_bytes(),
+            require_client_auth=True,
+        )
+        cls.port = cls.server.add_secure_port("127.0.0.1:0", server_credentials)
+        if cls.port == 0:
+            raise RuntimeError("could not allocate the test mTLS listener")
+        cls.server.start()
+        cls.addClassCleanup(lambda: cls.server.stop(0).wait())
+
+    @classmethod
+    def credentials(cls, client: str) -> reapi.TlsCredentials:
+        return reapi.TlsCredentials(
+            root_certificates=(cls.root / "trusted-ca.pem").read_bytes(),
+            certificate_chain=(cls.root / "{}.pem".format(client)).read_bytes(),
+            private_key=(cls.root / "{}-key.pem".format(client)).read_bytes(),
+        )
+
+    def test_valid_client_identity_completes_mtls_handshake(self) -> None:
+        with reapi.GrpcTransport(
+            self.grpc,
+            "localhost:{}".format(self.port),
+            self.credentials("trusted-client"),
+            2.0,
+        ):
+            pass
+
+    def test_plaintext_to_tls_endpoint_is_rejected(self) -> None:
+        with self.assertRaisesRegex(reapi.CheckFailure, "readiness"):
+            with reapi.GrpcTransport(
+                self.grpc,
+                "localhost:{}".format(self.port),
+                None,
+                1.0,
+            ):
+                pass
+
+    def test_missing_client_identity_is_rejected(self) -> None:
+        credentials = self.grpc.ssl_channel_credentials(
+            root_certificates=(self.root / "trusted-ca.pem").read_bytes()
+        )
+        channel = self.grpc.secure_channel(
+            "localhost:{}".format(self.port), credentials
+        )
+        try:
+            with self.assertRaises(self.grpc.FutureTimeoutError):
+                self.grpc.channel_ready_future(channel).result(timeout=1.0)
+        finally:
+            channel.close()
+
+    def test_untrusted_client_role_is_rejected(self) -> None:
+        with self.assertRaisesRegex(reapi.CheckFailure, "readiness"):
+            with reapi.GrpcTransport(
+                self.grpc,
+                "localhost:{}".format(self.port),
+                self.credentials("wrong-client"),
+                1.0,
+            ):
+                pass
 
 
 if __name__ == "__main__":

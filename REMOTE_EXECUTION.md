@@ -60,7 +60,7 @@ Deployment-owned configuration defines:
 - worker concurrency, CPU, memory, scratch space, and container limits; and
 - NativeLink image digests.
 
-Addresses, credentials, and certificate paths belong in ignored local files or the deployment secret store. They must not be committed.
+Addresses and credential contents belong in ignored local files or the deployment secret store. The mTLS templates use fixed in-container paths under `/etc/nativelink/tls`; source secret locations and certificate contents must not be committed.
 
 The implementation is organized as follows:
 
@@ -68,10 +68,13 @@ The implementation is organized as follows:
 infra/remote-execution/
   README.md
   nativelink/
+    control-mtls.json5
     control.json5
     deployment.json
     nativelink.service
+    worker-x86_64-mtls.json5
     worker-x86_64.json5
+    worker-aarch64-mtls.json5
     worker-aarch64.json5
   sdme/
     offline-oci-archives.json
@@ -127,6 +130,21 @@ Start with cache lookup and upload while keeping execution local:
   instance_name = main
   tls = false
 ```
+
+That plaintext form is for an unpublished host-local endpoint only. The tracked mTLS profile uses a stable control DNS name and requires a private CA plus a client identity:
+
+```ini
+[buck2_re_client]
+  engine_address = re.internal.example:50051
+  action_cache_address = re.internal.example:50051
+  cas_address = re.internal.example:50051
+  instance_name = main
+  tls = true
+  tls_ca_certs = /absolute/path/control-ca.pem
+  tls_client_cert = /absolute/path/buck-client-identity.pem
+```
+
+`tls_client_cert` is the combined Buck2 client certificate-chain and private-key PEM. The readiness helper takes the same identity as separate `--tls-client-chain` and `--tls-client-key` files. The smoke harness requires all credentials in TLS mode and requires TLS whenever `--cross-host` is selected. Provisioner support for installing and selecting the mTLS files is separate work.
 
 After cross-client cache validation succeeds, set `buckos.remote_execution = true`. Use TLS and authenticated endpoints whenever traffic leaves a private single-host network. Keep this configuration in `.buckconfig.local` or an equivalent ignored include.
 

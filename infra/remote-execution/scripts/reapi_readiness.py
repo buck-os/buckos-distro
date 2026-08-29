@@ -17,11 +17,13 @@ import hashlib
 import importlib
 import json
 import logging
+from pathlib import Path
 import re
 import secrets
+import stat
 import sys
 from types import ModuleType
-from typing import Any, Protocol
+from typing import Any, Optional, Protocol
 import urllib.parse
 import uuid
 
@@ -53,6 +55,13 @@ class ProtoField:
     value: int | bytes
 
 
+@dataclass(frozen=True, repr=False)
+class TlsCredentials:
+    root_certificates: bytes
+    certificate_chain: bytes
+    private_key: bytes
+
+
 class Transport(Protocol):
     def unary_unary(self, method: str, request: bytes) -> bytes: ...
 
@@ -61,7 +70,10 @@ class Transport(Protocol):
     def unary_stream(self, method: str, request: bytes) -> Iterable[bytes]: ...
 
 
-TransportFactory = Callable[[str, bool, float], contextlib.AbstractContextManager[Transport]]
+TransportFactory = Callable[
+    [str, Optional[TlsCredentials], float],
+    contextlib.AbstractContextManager[Transport],
+]
 
 
 def _encode_varint(value: int) -> bytes:
@@ -463,6 +475,52 @@ def parse_bool(value: str) -> bool:
     raise argparse.ArgumentTypeError("expected true or false")
 
 
+def _read_credential(path: str, option: str) -> bytes:
+    try:
+        resolved = Path(path).resolve(strict=True)
+        mode = resolved.stat().st_mode
+        if not stat.S_ISREG(mode):
+            raise CheckFailure("{} must name a regular file".format(option))
+        data = resolved.read_bytes()
+    except OSError as error:
+        raise CheckFailure("{} cannot be read".format(option)) from error
+    if not data:
+        raise CheckFailure("{} must not be empty".format(option))
+    return data
+
+
+def load_tls_credentials(
+    tls: bool,
+    ca_path: str | None,
+    client_chain_path: str | None,
+    client_key_path: str | None,
+) -> TlsCredentials | None:
+    paths = {
+        "--tls-ca": ca_path,
+        "--tls-client-chain": client_chain_path,
+        "--tls-client-key": client_key_path,
+    }
+    if not tls:
+        supplied = sorted(name for name, path in paths.items() if path is not None)
+        if supplied:
+            raise CheckFailure(
+                "{} require --tls true".format(", ".join(supplied))
+            )
+        return None
+    missing = sorted(name for name, path in paths.items() if path is None)
+    if missing:
+        raise CheckFailure(
+            "TLS requires {}".format(", ".join(missing))
+        )
+    return TlsCredentials(
+        root_certificates=_read_credential(ca_path or "", "--tls-ca"),
+        certificate_chain=_read_credential(
+            client_chain_path or "", "--tls-client-chain"
+        ),
+        private_key=_read_credential(client_key_path or "", "--tls-client-key"),
+    )
+
+
 def validate_endpoint(endpoint: str) -> str:
     if "://" in endpoint or any(character.isspace() for character in endpoint):
         raise CheckFailure(
@@ -506,13 +564,17 @@ class GrpcTransport:
         self,
         grpc_module: ModuleType,
         endpoint: str,
-        tls: bool,
+        tls_credentials: TlsCredentials | None,
         timeout: float,
     ) -> None:
         self.grpc = grpc_module
         self.timeout = timeout
-        if tls:
-            credentials = grpc_module.ssl_channel_credentials()
+        if tls_credentials is not None:
+            credentials = grpc_module.ssl_channel_credentials(
+                root_certificates=tls_credentials.root_certificates,
+                private_key=tls_credentials.private_key,
+                certificate_chain=tls_credentials.certificate_chain,
+            )
             self.channel = grpc_module.secure_channel(endpoint, credentials)
         else:
             self.channel = grpc_module.insecure_channel(endpoint)
@@ -591,12 +653,12 @@ class GrpcTransport:
 
 def grpc_transport_factory(
     endpoint: str,
-    tls: bool,
+    tls_credentials: TlsCredentials | None,
     timeout: float,
 ) -> GrpcTransport:
     grpc_module = _load_grpc()
     try:
-        return GrpcTransport(grpc_module, endpoint, tls, timeout)
+        return GrpcTransport(grpc_module, endpoint, tls_credentials, timeout)
     except (AttributeError, RuntimeError, TypeError) as error:
         LOG.debug("could not initialize grpcio transport: %r", error)
         raise CheckFailure(
@@ -632,6 +694,18 @@ def _argument_parser() -> argparse.ArgumentParser:
         "--instance-name", required=True, help="REAPI instance name"
     )
     common.add_argument("--tls", required=True, type=parse_bool)
+    common.add_argument(
+        "--tls-ca",
+        help="PEM CA bundle used to authenticate the REAPI server",
+    )
+    common.add_argument(
+        "--tls-client-chain",
+        help="PEM client certificate chain presented to the REAPI server",
+    )
+    common.add_argument(
+        "--tls-client-key",
+        help="PEM private key for --tls-client-chain",
+    )
     common.add_argument(
         "--timeout-seconds",
         type=_positive_float,
@@ -670,7 +744,15 @@ def main(
     try:
         endpoint = validate_endpoint(args.endpoint)
         instance_name = validate_instance_name(args.instance_name)
-        with transport_factory(endpoint, args.tls, args.timeout_seconds) as transport:
+        tls_credentials = load_tls_credentials(
+            args.tls,
+            args.tls_ca,
+            args.tls_client_chain,
+            args.tls_client_key,
+        )
+        with transport_factory(
+            endpoint, tls_credentials, args.timeout_seconds
+        ) as transport:
             if args.operation == "capabilities":
                 details = check_capabilities(transport, instance_name)
             elif args.operation == "cas-round-trip":

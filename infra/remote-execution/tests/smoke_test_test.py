@@ -57,6 +57,8 @@ if [[ ${1:-} == audit && ${2:-} == config ]]; then
     endpoint=''
     instance=''
     tls=''
+    tls_ca_certs=''
+    tls_client_cert=''
     while (($#)); do
         if [[ $1 == --config ]]; then
             case $2 in
@@ -68,6 +70,8 @@ if [[ ${1:-} == audit && ${2:-} == config ]]; then
                 buck2_re_client.engine_address=*) endpoint=${2#*=} ;;
                 buck2_re_client.instance_name=*) instance=${2#*=} ;;
                 buck2_re_client.tls=*) tls=${2#*=} ;;
+                buck2_re_client.tls_ca_certs=*) tls_ca_certs=${2#*=} ;;
+                buck2_re_client.tls_client_cert=*) tls_client_cert=${2#*=} ;;
             esac
             shift 2
         else
@@ -81,6 +85,8 @@ if [[ ${1:-} == audit && ${2:-} == config ]]; then
     engine_address = $endpoint
     instance_name = $instance
     tls = $tls
+    tls_ca_certs = $tls_ca_certs
+    tls_client_cert = $tls_client_cert
 [buckos]
     remote_cache = true
     remote_execution = $remote_execution
@@ -302,6 +308,10 @@ class SmokeTestScriptTest(unittest.TestCase):
         self.block_marker = self.root / "buck-blocked"
         self.grpc_helper = self.root / "reapi-helper"
         self.grpc_python = self.root / "python3"
+        self.tls_ca = self.root / "ca.pem"
+        self.tls_client_chain = self.root / "client-chain.pem"
+        self.tls_client_key = self.root / "client-key.pem"
+        self.buck_tls_client_cert = self.root / "buck-client.pem"
 
         for client in (self.client_a, self.client_b):
             client.mkdir()
@@ -317,6 +327,12 @@ class SmokeTestScriptTest(unittest.TestCase):
         self.grpc_helper.chmod(0o755)
         self.grpc_python.write_text(FAKE_PYTHON, encoding="utf-8")
         self.grpc_python.chmod(0o755)
+        self.tls_ca.write_text("test ca\n", encoding="utf-8")
+        self.tls_client_chain.write_text("test chain\n", encoding="utf-8")
+        self.tls_client_key.write_text("test key\n", encoding="utf-8")
+        self.buck_tls_client_cert.write_text(
+            "test combined identity\n", encoding="utf-8"
+        )
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -384,6 +400,16 @@ class SmokeTestScriptTest(unittest.TestCase):
             ),
         )
 
+    def tls_arguments(self) -> tuple[str, ...]:
+        return (
+            "--tls", "true",
+            "--tls-ca", str(self.tls_ca),
+            "--tls-client-chain", str(self.tls_client_chain),
+            "--tls-client-key", str(self.tls_client_key),
+            "--buck-tls-client-cert", str(self.buck_tls_client_cert),
+            "--cross-host",
+        )
+
     def test_readiness_uses_configured_helper(self) -> None:
         result = self.run_smoke(
             "readiness", "--grpc-helper", str(self.grpc_helper)
@@ -430,6 +456,64 @@ class SmokeTestScriptTest(unittest.TestCase):
         self.assertIn("reapi_readiness.py capabilities --endpoint", calls[1])
         self.assertIn("-I ", calls[2])
         self.assertIn("reapi_readiness.py cas-round-trip --endpoint", calls[2])
+
+    def test_tls_credentials_reach_helper_and_buck(self) -> None:
+        result = self.run_smoke(
+            "all",
+            *self.tls_arguments(),
+            "--grpc-helper", str(self.grpc_helper),
+        )
+
+        self.assert_success(result)
+        helper_calls = self.helper_call_log.read_text(encoding="utf-8")
+        self.assertIn("--tls true", helper_calls)
+        self.assertIn("--tls-ca {}".format(self.tls_ca), helper_calls)
+        self.assertIn(
+            "--tls-client-chain {}".format(self.tls_client_chain), helper_calls
+        )
+        self.assertIn(
+            "--tls-client-key {}".format(self.tls_client_key), helper_calls
+        )
+        buck_calls = self.call_log.read_text(encoding="utf-8")
+        self.assertIn(
+            "--config buck2_re_client.tls_ca_certs={}".format(self.tls_ca),
+            buck_calls,
+        )
+        self.assertIn(
+            "--config buck2_re_client.tls_client_cert={}".format(
+                self.buck_tls_client_cert
+            ),
+            buck_calls,
+        )
+        self.assertNotIn("test key", result.stdout + result.stderr)
+
+    def test_tls_rejects_incomplete_credential_set(self) -> None:
+        result = self.run_smoke(
+            "readiness",
+            "--tls", "true",
+            "--tls-ca", str(self.tls_ca),
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("--tls-client-chain is required", result.stdout)
+        self.assertFalse(self.helper_call_log.exists())
+
+    def test_plaintext_rejects_tls_credentials(self) -> None:
+        result = self.run_smoke(
+            "readiness",
+            "--tls-ca", str(self.tls_ca),
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("TLS credential options require --tls true", result.stdout)
+        self.assertFalse(self.helper_call_log.exists())
+
+    def test_cross_host_rejects_plaintext(self) -> None:
+        result = self.run_smoke("readiness", "--cross-host")
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("--cross-host requires --tls true", result.stdout)
+        self.assertFalse(self.helper_call_log.exists())
 
     def test_missing_grpc_fails_before_default_helper_operation(self) -> None:
         result = self.run_smoke(

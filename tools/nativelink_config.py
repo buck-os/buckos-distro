@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import sys
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 
 IMAGE_REPOSITORY = "ghcr.io/tracemachina/nativelink"
@@ -20,6 +20,32 @@ IMAGE_DIGEST = (
 IMAGE_REFERENCE = IMAGE_REPOSITORY + "@" + IMAGE_DIGEST
 INSTANCE = "main"
 WORKERS = {"x86_64": "worker-x86_64", "aarch64": "worker-aarch64"}
+PROFILES = ("plaintext", "mtls")
+CONTROL_CONFIGS = {
+    "plaintext": "control.json5",
+    "mtls": "control-mtls.json5",
+}
+WORKER_CONFIGS = {
+    "plaintext": {
+        arch: "worker-{}.json5".format(arch) for arch in WORKERS
+    },
+    "mtls": {
+        arch: "worker-{}-mtls.json5".format(arch) for arch in WORKERS
+    },
+}
+MTLS_SERVER_CERT = "/etc/nativelink/tls/control-chain.pem"
+MTLS_SERVER_KEY = "/etc/nativelink/tls/control-key.pem"
+MTLS_REAPI_CLIENT_CA = "/etc/nativelink/tls/reapi-client-ca.pem"
+MTLS_WORKER_CLIENT_CA = "/etc/nativelink/tls/worker-client-ca.pem"
+MTLS_CONTROL_CA = "/etc/nativelink/tls/control-ca.pem"
+MTLS_WORKER_CERT = "/etc/nativelink/tls/worker-chain.pem"
+MTLS_WORKER_KEY = "/etc/nativelink/tls/worker-key.pem"
+MTLS_REAPI_ADDRESS = "https://${NATIVELINK_CONTROL_DNS}:50051"
+MTLS_WORKER_API_ADDRESS = "https://${NATIVELINK_CONTROL_DNS}:50061"
+PLAINTEXT_REAPI_ADDRESS = "grpc://${NATIVELINK_REAPI_ADDRESS:-127.0.0.1}:50051"
+PLAINTEXT_WORKER_API_ADDRESS = (
+    "grpc://${NATIVELINK_WORKER_API_ADDRESS:-127.0.0.1}:50061"
+)
 PUBLIC_SERVICES = frozenset(
     {
         "ac",
@@ -77,10 +103,22 @@ def _load_json(path: str) -> JsonObject:
 
 def load_deployment(
     directory: str,
-) -> Tuple[JsonObject, JsonObject, Dict[str, JsonObject], str]:
+) -> Tuple[
+    JsonObject,
+    Dict[str, JsonObject],
+    Dict[str, Dict[str, JsonObject]],
+    str,
+]:
+    controls = {
+        profile: _load_json(os.path.join(directory, filename))
+        for profile, filename in CONTROL_CONFIGS.items()
+    }
     workers = {
-        arch: _load_json(os.path.join(directory, "worker-{}.json5".format(arch)))
-        for arch in WORKERS
+        profile: {
+            arch: _load_json(os.path.join(directory, filename))
+            for arch, filename in filenames.items()
+        }
+        for profile, filenames in WORKER_CONFIGS.items()
     }
     unit_path = os.path.join(directory, "nativelink.service")
     try:
@@ -92,7 +130,7 @@ def load_deployment(
         ) from error
     return (
         _load_json(os.path.join(directory, "deployment.json")),
-        _load_json(os.path.join(directory, "control.json5")),
+        controls,
         workers,
         unit,
     )
@@ -151,10 +189,240 @@ def _unit_values(text: str) -> Dict[str, List[str]]:
     return values
 
 
+def _validate_control_profile(
+    profile: str,
+    control: JsonObject,
+    check: Callable[[bool, str], None],
+) -> None:
+    stores = _named(control["stores"])
+    cas = stores["CAS_MAIN_STORE"]["compression"]["backend"]["filesystem"]
+    ac = stores["AC_MAIN_STORE"]["filesystem"]
+    check(_bounded(cas), "{} control CAS max_bytes must be bounded".format(profile))
+    check(_bounded(ac), "{} control AC max_bytes must be bounded".format(profile))
+
+    properties = _named(control["schedulers"])["MAIN_SCHEDULER"]["simple"][
+        "supported_platform_properties"
+    ]
+    for key in ("platform.OSFamily", "platform.arch"):
+        check(
+            properties.get(key) == "exact",
+            "{} control scheduler property {!r} must be exact".format(profile, key),
+        )
+
+    public = []
+    private = []
+    for server in control["servers"]:
+        services = server["services"]
+        if PUBLIC_SERVICES.intersection(services):
+            public.append(server)
+        if "worker_api" in services:
+            private.append(server)
+            check(
+                not PUBLIC_SERVICES.intersection(services),
+                "{} worker_api must not share a listener with public REAPI services".format(
+                    profile
+                ),
+            )
+    check(
+        len(public) == 1,
+        "{} control must define exactly one public REAPI listener".format(profile),
+    )
+    check(
+        len(private) == 1,
+        "{} control must define exactly one private worker_api listener".format(
+            profile
+        ),
+    )
+
+    if len(public) == 1:
+        server = public[0]
+        http = server["listener"]["http"]
+        _, port = _address(http["socket_address"])
+        check(port == 50051, "{} public REAPI listener must use port 50051".format(profile))
+        services = server["services"]
+        for name in ("cas", "ac", "bytestream", "execution", "capabilities"):
+            entries = services.get(name)
+            check(
+                isinstance(entries, list) and bool(entries),
+                "{} public service {} must use the array form".format(profile, name),
+            )
+            if isinstance(entries, list):
+                for entry in entries:
+                    check(
+                        entry.get("instance_name") == INSTANCE,
+                        "{} {}.instance_name must be 'main'".format(profile, name),
+                    )
+        if profile == "plaintext":
+            check(
+                "tls" not in http,
+                "plaintext public REAPI listener must not configure TLS",
+            )
+        else:
+            check(
+                http.get("tls")
+                == {
+                    "cert_file": MTLS_SERVER_CERT,
+                    "key_file": MTLS_SERVER_KEY,
+                    "client_ca_file": MTLS_REAPI_CLIENT_CA,
+                },
+                "mtls public REAPI listener must use the combined client trust bundle",
+            )
+
+    if len(private) == 1:
+        server = private[0]
+        http = server["listener"]["http"]
+        check(
+            _private_worker_address(http["socket_address"]),
+            "{} worker_api listener must default to a private address".format(profile),
+        )
+        check(
+            set(server["services"]) <= {"worker_api", "health", "admin"},
+            "{} worker_api listener contains a public service".format(profile),
+        )
+        if profile == "plaintext":
+            check(
+                "tls" not in http,
+                "plaintext worker_api listener must not configure TLS",
+            )
+        else:
+            check(
+                http.get("tls")
+                == {
+                    "cert_file": MTLS_SERVER_CERT,
+                    "key_file": MTLS_SERVER_KEY,
+                    "client_ca_file": MTLS_WORKER_CLIENT_CA,
+                },
+                "mtls worker_api listener must trust only the worker client CA",
+            )
+
+
+def _validate_worker_profile(
+    profile: str,
+    arch: str,
+    worker_name: str,
+    worker: JsonObject,
+    check: Callable[[bool, str], None],
+) -> None:
+    worker_stores = _named(worker["stores"])
+    expected_reapi_address = (
+        PLAINTEXT_REAPI_ADDRESS if profile == "plaintext" else MTLS_REAPI_ADDRESS
+    )
+    expected_tls = {
+        "ca_file": MTLS_CONTROL_CA,
+        "cert_file": MTLS_WORKER_CERT,
+        "key_file": MTLS_WORKER_KEY,
+    }
+    for name in ("REMOTE_CAS", "REMOTE_AC"):
+        grpc = worker_stores[name]["grpc"]
+        check(
+            grpc.get("instance_name") == INSTANCE,
+            "{} worker-{}.{}.grpc.instance_name must be 'main'".format(
+                profile, arch, name
+            ),
+        )
+        endpoints = grpc.get("endpoints")
+        check(
+            isinstance(endpoints, list) and len(endpoints) == 1,
+            "{} worker-{}.{} must define exactly one endpoint".format(
+                profile, arch, name
+            ),
+        )
+        if isinstance(endpoints, list) and len(endpoints) == 1:
+            endpoint = endpoints[0]
+            check(
+                endpoint.get("address") == expected_reapi_address,
+                "{} worker-{}.{} endpoint has the wrong scheme or address".format(
+                    profile, arch, name
+                ),
+            )
+            if profile == "plaintext":
+                check(
+                    "tls_config" not in endpoint,
+                    "plaintext worker-{}.{} must not configure TLS".format(
+                        arch, name
+                    ),
+                )
+            else:
+                check(
+                    endpoint.get("tls_config") == expected_tls,
+                    "mtls worker-{}.{} must use the complete worker TLS identity".format(
+                        arch, name
+                    ),
+                )
+
+    fast_slow = worker_stores["WORKER_CAS"]["fast_slow"]
+    check(
+        _bounded(fast_slow["fast"]["filesystem"]),
+        "{} worker-{} local CAS max_bytes must be bounded".format(profile, arch),
+    )
+    local_workers = worker["workers"]
+    check(
+        len(local_workers) == 1,
+        "{} worker-{} must define exactly one worker".format(profile, arch),
+    )
+    local = local_workers[0]["local"]
+    check(
+        local.get("name") == worker_name,
+        "{} worker-{} has the wrong identity".format(profile, arch),
+    )
+    check(
+        local.get("max_inflight_tasks") == 1,
+        "{} worker-{} max_inflight_tasks must initially be 1".format(
+            profile, arch
+        ),
+    )
+    properties = local["platform_properties"]
+    check(
+        properties.get("platform.OSFamily", {}).get("values") == ["linux"],
+        "{} worker-{} platform.OSFamily must be exactly ['linux']".format(
+            profile, arch
+        ),
+    )
+    check(
+        properties.get("platform.arch", {}).get("values") == [arch],
+        "{} worker-{} platform.arch must be exactly [{!r}]".format(
+            profile, arch, arch
+        ),
+    )
+    worker_api = local["worker_api_endpoint"]
+    expected_worker_api = (
+        PLAINTEXT_WORKER_API_ADDRESS
+        if profile == "plaintext"
+        else MTLS_WORKER_API_ADDRESS
+    )
+    check(
+        worker_api.get("uri") == expected_worker_api,
+        "{} worker-{} worker_api endpoint has the wrong scheme or address".format(
+            profile, arch
+        ),
+    )
+    if profile == "plaintext":
+        check(
+            "tls_config" not in worker_api,
+            "plaintext worker-{} worker_api must not configure TLS".format(arch),
+        )
+    else:
+        check(
+            worker_api.get("tls_config") == expected_tls,
+            "mtls worker-{} worker_api must use the complete worker TLS identity".format(
+                arch
+            ),
+        )
+    for key in ("use_namespaces", "use_mount_namespace"):
+        check(
+            local.get(key) is False,
+            "{} worker-{}.{} must be false".format(profile, arch, key),
+        )
+    check(
+        worker.get("servers") == [],
+        "{} worker-{} must not expose listeners".format(profile, arch),
+    )
+
+
 def validate_documents(
     metadata: JsonObject,
-    control: JsonObject,
-    workers: Dict[str, JsonObject],
+    controls: Dict[str, JsonObject],
+    workers: Dict[str, Dict[str, JsonObject]],
     unit: str,
 ) -> None:
     errors: List[str] = []
@@ -195,115 +463,45 @@ def validate_documents(
             metadata.get("instance_name") == INSTANCE,
             "deployment instance_name must be 'main'",
         )
-
-        stores = _named(control["stores"])
-        cas = stores["CAS_MAIN_STORE"]["compression"]["backend"]["filesystem"]
-        ac = stores["AC_MAIN_STORE"]["filesystem"]
-        check(_bounded(cas), "control CAS max_bytes must be bounded")
-        check(_bounded(ac), "control AC max_bytes must be bounded")
-
-        properties = _named(control["schedulers"])["MAIN_SCHEDULER"]["simple"][
-            "supported_platform_properties"
-        ]
-        for key in ("platform.OSFamily", "platform.arch"):
-            check(
-                properties.get(key) == "exact",
-                "control scheduler property {!r} must be exact".format(key),
-            )
-
-        public = []
-        private = []
-        for server in control["servers"]:
-            services = server["services"]
-            if PUBLIC_SERVICES.intersection(services):
-                public.append(server)
-            if "worker_api" in services:
-                private.append(server)
-                check(
-                    not PUBLIC_SERVICES.intersection(services),
-                    "worker_api must not share a listener with public REAPI services",
-                )
-        check(len(public) == 1, "control must define exactly one public REAPI listener")
+        configs = metadata["configs"]
         check(
-            len(private) == 1,
-            "control must define exactly one private worker_api listener",
+            configs.get("control") == CONTROL_CONFIGS["plaintext"],
+            "deployment plaintext control config is wrong",
+        )
+        check(
+            configs.get("workers") == WORKER_CONFIGS["plaintext"],
+            "deployment plaintext worker configs are wrong",
+        )
+        mtls_configs = configs.get("mtls", {})
+        check(
+            mtls_configs.get("control") == CONTROL_CONFIGS["mtls"],
+            "deployment mTLS control config is wrong",
+        )
+        check(
+            mtls_configs.get("workers") == WORKER_CONFIGS["mtls"],
+            "deployment mTLS worker configs are wrong",
+        )
+        check(
+            configs.get("systemd_unit") == "nativelink.service",
+            "deployment systemd unit config is wrong",
         )
 
-        if len(public) == 1:
-            server = public[0]
-            _, port = _address(server["listener"]["http"]["socket_address"])
-            check(port == 50051, "public REAPI listener must use port 50051")
-            services = server["services"]
-            for name in ("cas", "ac", "bytestream", "execution", "capabilities"):
-                entries = services.get(name)
-                check(
-                    isinstance(entries, list) and bool(entries),
-                    "public service {} must use the array form".format(name),
+        check(set(controls) == set(PROFILES), "control profiles are incomplete")
+        check(set(workers) == set(PROFILES), "worker profiles are incomplete")
+        for profile in PROFILES:
+            _validate_control_profile(profile, controls[profile], check)
+            check(
+                set(workers[profile]) == set(WORKERS),
+                "{} worker architectures are incomplete".format(profile),
+            )
+            for arch, worker_name in WORKERS.items():
+                _validate_worker_profile(
+                    profile,
+                    arch,
+                    worker_name,
+                    workers[profile][arch],
+                    check,
                 )
-                if isinstance(entries, list):
-                    for entry in entries:
-                        check(
-                            entry.get("instance_name") == INSTANCE,
-                            "{}.instance_name must be 'main'".format(name),
-                        )
-
-        if len(private) == 1:
-            server = private[0]
-            address = server["listener"]["http"]["socket_address"]
-            check(
-                _private_worker_address(address),
-                "worker_api listener must default to a private address",
-            )
-            check(
-                set(server["services"]) <= {"worker_api", "health", "admin"},
-                "worker_api listener contains a public service",
-            )
-
-        for arch, worker_name in WORKERS.items():
-            worker = workers[arch]
-            worker_stores = _named(worker["stores"])
-            for name in ("REMOTE_CAS", "REMOTE_AC"):
-                check(
-                    worker_stores[name]["grpc"].get("instance_name") == INSTANCE,
-                    "worker-{}.{}.grpc.instance_name must be 'main'".format(arch, name),
-                )
-            fast_slow = worker_stores["WORKER_CAS"]["fast_slow"]
-            check(
-                _bounded(fast_slow["fast"]["filesystem"]),
-                "worker-{} local CAS max_bytes must be bounded".format(arch),
-            )
-            local_workers = worker["workers"]
-            check(
-                len(local_workers) == 1,
-                "worker-{} must define exactly one worker".format(arch),
-            )
-            local = local_workers[0]["local"]
-            check(
-                local.get("name") == worker_name,
-                "worker-{} has the wrong identity".format(arch),
-            )
-            check(
-                local.get("max_inflight_tasks") == 1,
-                "worker-{} max_inflight_tasks must initially be 1".format(arch),
-            )
-            properties = local["platform_properties"]
-            check(
-                properties.get("platform.OSFamily", {}).get("values") == ["linux"],
-                "worker-{} platform.OSFamily must be exactly ['linux']".format(arch),
-            )
-            check(
-                properties.get("platform.arch", {}).get("values") == [arch],
-                "worker-{} platform.arch must be exactly [{!r}]".format(arch, arch),
-            )
-            for key in ("use_namespaces", "use_mount_namespace"):
-                check(
-                    local.get(key) is False,
-                    "worker-{}.{} must be false".format(arch, key),
-                )
-            check(
-                worker.get("servers") == [],
-                "worker-{} must not expose listeners".format(arch),
-            )
 
         service = _unit_values(unit)
         for key, value in {
@@ -329,7 +527,7 @@ def validate_documents(
         check(
             "NATIVELINK_CONFIG=/etc/nativelink/control.json5"
             in service.get("Environment", []),
-            "nativelink.service must select the control config by default",
+            "nativelink.service must select the plaintext control config by default",
         )
         for key in (
             "NoNewPrivileges",

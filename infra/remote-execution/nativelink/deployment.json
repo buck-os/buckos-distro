@@ -27,6 +27,13 @@
       "x86_64": "worker-x86_64.json5",
       "aarch64": "worker-aarch64.json5"
     },
+    "mtls": {
+      "control": "control-mtls.json5",
+      "workers": {
+        "x86_64": "worker-x86_64-mtls.json5",
+        "aarch64": "worker-aarch64-mtls.json5"
+      }
+    },
     "systemd_unit": "nativelink.service"
   }
 }

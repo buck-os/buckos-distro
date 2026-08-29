@@ -16,6 +16,11 @@ client_b_isolation=''
 endpoint=''
 instance_name=''
 tls=''
+tls_ca=''
+tls_client_chain=''
+tls_client_key=''
+buck_tls_client_cert=''
+cross_host=false
 event_dir=''
 buck='./buck2'
 grpc_helper="$script_dir/reapi_readiness.py"
@@ -64,6 +69,8 @@ Options:
   --grpc-helper PATH             Executable used by readiness. It must support:
                                    capabilities --endpoint E --instance-name I --tls B
                                    cas-round-trip --endpoint E --instance-name I --tls B
+                                 TLS calls also receive --tls-ca,
+                                 --tls-client-chain, and --tls-client-key.
                                  The first command must validate REAPI v2 and
                                  SHA-256 capability. The second must upload,
                                  read back, and hash-check a bounded CAS blob.
@@ -71,6 +78,11 @@ Options:
   --grpc-python PATH             Explicit interpreter for the default helper.
                                  Default: /usr/bin/python3. Ignored for an
                                  external --grpc-helper override.
+  --tls-ca PATH                  PEM CA bundle for the REAPI server.
+  --tls-client-chain PATH        PEM client certificate chain for readiness.
+  --tls-client-key PATH          PEM client private key for readiness.
+  --buck-tls-client-cert PATH    Combined PEM client identity for Buck2.
+  --cross-host                   Reject plaintext transport for this invocation.
   --timeout-seconds N            Per-command deadline. Default: 1800.
   --host-target LABEL            Required by host-provenance.
   --host-category CATEGORY       Required by host-provenance.
@@ -89,6 +101,11 @@ harness attempts `buck2 --isolation-dir NAME kill` only for clients that ran a
 daemon-capable command. Cleanup output is retained under --event-dir; cleanup
 failure changes a successful run to failure but never replaces an earlier
 failure status.
+
+Plaintext is limited to an explicitly local invocation. Pass --cross-host for
+any published or routed endpoint; it requires --tls true and all credential
+paths. Buck2 uses --buck-tls-client-cert as its combined certificate-chain and
+private-key PEM, while the readiness helper receives those files separately.
 EOF
 }
 
@@ -167,6 +184,30 @@ while (($#)); do
             require_value "$1" "$#"
             tls=$2
             shift 2
+            ;;
+        --tls-ca)
+            require_value "$1" "$#"
+            tls_ca=$2
+            shift 2
+            ;;
+        --tls-client-chain)
+            require_value "$1" "$#"
+            tls_client_chain=$2
+            shift 2
+            ;;
+        --tls-client-key)
+            require_value "$1" "$#"
+            tls_client_key=$2
+            shift 2
+            ;;
+        --buck-tls-client-cert)
+            require_value "$1" "$#"
+            buck_tls_client_cert=$2
+            shift 2
+            ;;
+        --cross-host)
+            cross_host=true
+            shift
             ;;
         --event-dir)
             require_value "$1" "$#"
@@ -251,6 +292,21 @@ canonical_executable() {
         usage_error "$name cannot be resolved: $candidate"
     fi
     [[ -f $resolved && -x $resolved ]] || usage_error "$name is not an executable regular file: $resolved"
+    resolved_path=$resolved
+}
+
+canonical_readable_file() {
+    local path=$1
+    local name=$2
+    local resolved
+
+    [[ -n $path ]] || usage_error "$name is required with --tls true"
+    [[ $path == /* ]] || usage_error "$name must be absolute"
+    if ! resolved=$(realpath -e -- "$path"); then
+        usage_error "$name cannot be resolved: $path"
+    fi
+    [[ -f $resolved && -r $resolved ]] || \
+        usage_error "$name is not a readable regular file: $resolved"
     resolved_path=$resolved
 }
 
@@ -541,8 +597,8 @@ set_config_args() {
         --config buckos.remote_cache=true
         --config "buckos.remote_execution=$remote_execution"
         --config buckos.aarch64_emulation=false
-        --config buckos.remote_x86_64_properties=platform.OSFamily=linux,platform.arch=x86_64
-        --config buckos.remote_aarch64_properties=platform.OSFamily=linux,platform.arch=aarch64
+        --config 'buckos.remote_x86_64_properties=platform.OSFamily=linux,platform.arch=x86_64'
+        --config 'buckos.remote_aarch64_properties=platform.OSFamily=linux,platform.arch=aarch64'
         --config buckos.remote_x86_64_use_case=buck2-default
         --config buckos.remote_aarch64_use_case=buck2-default
         --config "buck2_re_client.engine_address=$endpoint"
@@ -551,6 +607,12 @@ set_config_args() {
         --config "buck2_re_client.instance_name=$instance_name"
         --config "buck2_re_client.tls=$tls"
     )
+    if [[ $tls == true ]]; then
+        CONFIG_ARGS+=(
+            --config "buck2_re_client.tls_ca_certs=$tls_ca"
+            --config "buck2_re_client.tls_client_cert=$buck_tls_client_cert"
+        )
+    fi
 }
 
 audit_config() {
@@ -577,6 +639,8 @@ audit_config() {
         buck2_re_client.cas_address \
         buck2_re_client.instance_name \
         buck2_re_client.tls \
+        buck2_re_client.tls_ca_certs \
+        buck2_re_client.tls_client_cert \
         "${CONFIG_ARGS[@]}"
     assert_contains "config.$name.remote-cache" "$output" 'remote_cache = true'
     assert_contains "config.$name.remote-execution" "$output" "remote_execution = $remote_execution"
@@ -593,6 +657,12 @@ audit_config() {
     assert_contains "config.$name.cas" "$output" "cas_address = $endpoint"
     assert_contains "config.$name.instance" "$output" "instance_name = $instance_name"
     assert_contains "config.$name.tls" "$output" "tls = $tls"
+    if [[ $tls == true ]]; then
+        assert_contains "config.$name.tls-ca" "$output" \
+            "tls_ca_certs = $tls_ca"
+        assert_contains "config.$name.tls-client" "$output" \
+            "tls_client_cert = $buck_tls_client_cert"
+    fi
     record PASS "config.$name" "validated without editing .buckconfig.local"
 }
 
@@ -690,7 +760,7 @@ collect_log_evidence() {
 
 run_readiness() {
     local helper grpcio_version python_path
-    local -a helper_command
+    local -a helper_command tls_arguments
 
     canonical_executable "$grpc_helper" "$PWD" grpc-helper
     helper=$resolved_path
@@ -708,14 +778,23 @@ run_readiness() {
         helper_command=("$python_path" -I "$helper")
     fi
 
+    tls_arguments=(--tls "$tls")
+    if [[ $tls == true ]]; then
+        tls_arguments+=(
+            --tls-ca "$tls_ca"
+            --tls-client-chain "$tls_client_chain"
+            --tls-client-key "$tls_client_key"
+        )
+    fi
+
     run_capture "$PWD" readiness.capabilities "$event_dir/readiness-capabilities.log" \
         "${helper_command[@]}" capabilities --endpoint "$endpoint" \
-        --instance-name "$instance_name" --tls "$tls"
+        --instance-name "$instance_name" "${tls_arguments[@]}"
     record PASS readiness.capabilities "endpoint=$endpoint instance=$instance_name"
 
     run_capture "$PWD" readiness.cas "$event_dir/readiness-cas.log" \
         "${helper_command[@]}" cas-round-trip --endpoint "$endpoint" \
-        --instance-name "$instance_name" --tls "$tls"
+        --instance-name "$instance_name" "${tls_arguments[@]}"
     record PASS readiness.cas "digest-verified round trip completed"
 }
 
@@ -865,12 +944,12 @@ run_host_provenance() {
     for name in a b; do
         if [[ $name == a ]]; then
             client=$client_a
-            client_name=client-a
+            client_name='client-a'
             buck_path=$client_a_buck
             isolation=$client_a_isolation
         else
             client=$client_b
-            client_name=client-b
+            client_name='client-b'
             buck_path=$client_b_buck
             isolation=$client_b_isolation
         fi
@@ -954,6 +1033,21 @@ validate_arguments() {
         usage_error '--endpoint must be an authority such as host:50051, without a URI scheme'
     [[ -n $instance_name && $instance_name != *[[:space:]]* ]] || usage_error '--instance-name is required and cannot contain whitespace'
     [[ $tls == true || $tls == false ]] || usage_error '--tls must be true or false'
+    if [[ $cross_host == true && $tls != true ]]; then
+        usage_error '--cross-host requires --tls true'
+    fi
+    if [[ $tls == true ]]; then
+        canonical_readable_file "$tls_ca" --tls-ca
+        tls_ca=$resolved_path
+        canonical_readable_file "$tls_client_chain" --tls-client-chain
+        tls_client_chain=$resolved_path
+        canonical_readable_file "$tls_client_key" --tls-client-key
+        tls_client_key=$resolved_path
+        canonical_readable_file "$buck_tls_client_cert" --buck-tls-client-cert
+        buck_tls_client_cert=$resolved_path
+    elif [[ -n $tls_ca$tls_client_chain$tls_client_key$buck_tls_client_cert ]]; then
+        usage_error 'TLS credential options require --tls true'
+    fi
 
     [[ -n $event_dir ]] || usage_error '--event-dir is required'
     [[ $event_dir == /* ]] || usage_error '--event-dir must be absolute'
