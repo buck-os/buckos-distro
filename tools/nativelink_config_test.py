@@ -108,6 +108,14 @@ class TestNativeLinkDeployment(unittest.TestCase):
             "must not set NoNewPrivileges",
         )
 
+    def test_requires_route_netlink_for_action_isolation(self) -> None:
+        metadata, control, workers, unit = self.copied_documents()
+        unit = unit.replace(" AF_NETLINK", "")
+        self.assert_invalid(
+            (metadata, control, workers, unit),
+            "RestrictAddressFamilies must be 'AF_UNIX AF_INET AF_INET6 AF_NETLINK'",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

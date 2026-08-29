@@ -47,7 +47,8 @@ ProtectKernelModules=yes
 ProtectKernelTunables=yes
 LockPersonality=yes
 RestrictRealtime=yes
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Bubblewrap needs route netlink to configure loopback in its network namespace.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 RemoveIPC=yes
 
 # Worker actions create their own user and mount namespaces and use the setuid

@@ -320,6 +320,7 @@ def validate_documents(
             "ProtectKernelModules": "yes",
             "ProtectControlGroups": "yes",
             "RestrictRealtime": "yes",
+            "RestrictAddressFamilies": "AF_UNIX AF_INET AF_INET6 AF_NETLINK",
         }.items():
             check(
                 service.get(key) == [value],
