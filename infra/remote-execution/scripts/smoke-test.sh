@@ -4,6 +4,7 @@ set -euo pipefail
 CACHE_TARGET='//flavors/debian:hostname-13-x86_64-source'
 X86_TARGET='//flavors/debian:hostname-13-x86_64-build'
 AARCH64_TARGET='//flavors/debian:hostname-13-aarch64-build'
+script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 
 stage=''
 client_a=''
@@ -13,7 +14,7 @@ instance_name=''
 tls=''
 event_dir=''
 buck='./buck2'
-grpc_helper=''
+grpc_helper="$script_dir/reapi_readiness.py"
 timeout_seconds=1800
 host_target=''
 host_category=''
@@ -53,6 +54,7 @@ Options:
                                  The first command must validate REAPI v2 and
                                  SHA-256 capability. The second must upload,
                                  read back, and hash-check a bounded CAS blob.
+                                 Default: reapi_readiness.py beside this script.
   --timeout-seconds N            Per-command deadline. Default: 1800.
   --host-target LABEL            Required by host-provenance.
   --host-category CATEGORY       Required by host-provenance.

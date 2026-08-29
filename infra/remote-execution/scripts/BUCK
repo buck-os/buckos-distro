@@ -7,3 +7,12 @@ python_test(
     base_module = "",
     deps = ["//tools:_isolation"],
 )
+
+python_test(
+    name = "reapi_readiness_test",
+    srcs = [
+        "reapi_readiness.py",
+        "reapi_readiness_test.py",
+    ],
+    base_module = "",
+)

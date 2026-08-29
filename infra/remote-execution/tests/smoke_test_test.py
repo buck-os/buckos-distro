@@ -284,10 +284,12 @@ class SmokeTestScriptTest(unittest.TestCase):
         )
 
     def test_readiness_fails_without_helper(self) -> None:
-        result = self.run_smoke("readiness")
+        result = self.run_smoke(
+            "readiness", "--grpc-helper", str(self.root / "missing-helper")
+        )
 
         self.assertEqual(result.returncode, 2)
-        self.assertIn("FAIL arguments --grpc-helper is required", result.stdout)
+        self.assertIn("FAIL arguments grpc-helper cannot be resolved", result.stdout)
 
     def test_all_runs_only_bounded_stages(self) -> None:
         result = self.run_smoke(

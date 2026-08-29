@@ -52,4 +52,6 @@ Use `scripts/check_deployment.py --help` to configure stage-zero health, capabil
 
 Use `scripts/smoke-test.sh --help` for the bounded rollout. The sequence proves service readiness, cache-only reuse across clean clients, x86_64 remote execution, and native AArch64 routing with small Debian `hostname` targets. The smoke script does not contain an ISO target.
 
+The readiness stage defaults to `scripts/reapi_readiness.py`. It uses the standard Python `grpcio` transport (`python3-grpcio` on Debian-family clients), validates REAPI v2 execution and cache-update capabilities with SHA-256, then uploads and reads back a bounded random blob through CAS and ByteStream. It uses generic byte RPCs and does not require generated protocol modules or server reflection.
+
 Full source and prebuilt image matrices remain disabled until stage zero and every bounded smoke stage pass. Firmware boot tests continue to run on controlled local hosts.
