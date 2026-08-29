@@ -119,4 +119,18 @@ def all_live_iso_boot_tests():
 
     for architecture in ("x86_64", "aarch64"):
         live_iso_boot_tests("debian", "13", architecture, layout = "debian")
+        live_iso_boot_tests(
+            "debian",
+            "13",
+            architecture,
+            layout = "debian",
+            image_variant = "prebuilt",
+        )
         live_iso_boot_tests("ubuntu", "26.04", architecture, layout = "ubuntu")
+        live_iso_boot_tests(
+            "ubuntu",
+            "26.04",
+            architecture,
+            layout = "ubuntu",
+            image_variant = "prebuilt",
+        )

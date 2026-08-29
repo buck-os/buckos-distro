@@ -20,6 +20,68 @@ from rootfs_overlay import append_file, parse_file
 from squashfs_build import _build_mksquashfs_script, _mksquashfs_script, write_pseudo
 
 
+ISO_MATRIX = (
+    ("fedora", "44", "rpm", True),
+    ("fedora", "45", "rpm", True),
+    ("centos", "9", "rpm", True),
+    ("centos", "10", "rpm", True),
+    ("centos-hyperscale", "9", "rpm", True),
+    ("centos-hyperscale", "10", "rpm", True),
+    ("debian", "13", "debian", False),
+    ("ubuntu", "26.04", "ubuntu", False),
+)
+ARCHITECTURES = ("x86_64", "aarch64")
+IMAGE_VARIANTS = (None, "prebuilt")
+
+
+def repo_root():
+    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
+        path = start
+        while True:
+            if os.path.isfile(os.path.join(path, ".buckroot")):
+                return path
+            parent = os.path.dirname(path)
+            if parent == path:
+                break
+            path = parent
+    raise AssertionError("cannot locate repository root")
+
+
+def load_iso_test_graph():
+    rules = {
+        "iso_boot_test": [],
+        "iso_image": [],
+        "rootfs_overlay": [],
+        "squashfs": [],
+    }
+
+    def recorder(kind):
+        def record(**attributes):
+            rules[kind].append(attributes)
+
+        return record
+
+    namespace = {
+        "execution_compatible_with": lambda architecture: [architecture],
+        "iso_boot_test": recorder("iso_boot_test"),
+        "iso_image": recorder("iso_image"),
+        "load": lambda *_args, **_kwargs: None,
+        "rootfs_overlay": recorder("rootfs_overlay"),
+        "squashfs": recorder("squashfs"),
+        "target_platform": lambda flavor, release, architecture: (
+            flavor,
+            release,
+            architecture,
+        ),
+    }
+    path = os.path.join(repo_root(), "defs", "iso_tests.bzl")
+    with open(path, encoding="utf-8") as stream:
+        source = stream.read()
+    exec(compile(source, path, "exec"), namespace)
+    namespace["all_live_iso_boot_tests"]()
+    return rules
+
+
 class TestRootfsOverlay(unittest.TestCase):
     def test_appends_deterministic_root_owned_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -195,6 +257,147 @@ class TestIsoBootMarker(unittest.TestCase):
             "avc": "0",
         })
         self.assertRegex("; ".join(errors), "arch")
+
+
+class TestIsoBootMatrix(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.rules = load_iso_test_graph()
+
+    def test_complete_matrix_shape_and_wiring(self):
+        rootfs_rules = {
+            rule["name"]: rule for rule in self.rules["rootfs_overlay"]
+        }
+        squashfs_rules = {
+            rule["name"]: rule for rule in self.rules["squashfs"]
+        }
+        iso_rules = {rule["name"]: rule for rule in self.rules["iso_image"]}
+        boot_rules = {
+            rule["name"]: rule for rule in self.rules["iso_boot_test"]
+        }
+
+        self.assertEqual(32, len(rootfs_rules))
+        self.assertEqual(32, len(squashfs_rules))
+        self.assertEqual(32, len(iso_rules))
+        self.assertEqual(48, len(boot_rules))
+        self.assertEqual(len(rootfs_rules), len(self.rules["rootfs_overlay"]))
+        self.assertEqual(len(squashfs_rules), len(self.rules["squashfs"]))
+        self.assertEqual(len(iso_rules), len(self.rules["iso_image"]))
+        self.assertEqual(len(boot_rules), len(self.rules["iso_boot_test"]))
+
+        production_isos = set()
+        expected_boot_names = set()
+        for flavor, release, layout, expect_selinux in ISO_MATRIX:
+            for architecture in ARCHITECTURES:
+                for variant in IMAGE_VARIANTS:
+                    variant_suffix = "-" + variant if variant else ""
+                    image_suffix = "{}-{}-{}".format(
+                        variant_suffix,
+                        release,
+                        architecture,
+                    )
+                    test_suffix = "{}{}-{}-{}".format(
+                        flavor,
+                        variant_suffix,
+                        release.replace(".", "_"),
+                        architecture,
+                    )
+                    rootfs_name = "rootfs-verify-" + test_suffix
+                    squashfs_name = "squashfs-verify-" + test_suffix
+                    iso_name = "iso-verify-" + test_suffix
+                    production_rootfs = "//flavors/{}:rootfs-live{}".format(
+                        flavor,
+                        image_suffix,
+                    )
+
+                    self.assertEqual(
+                        production_rootfs,
+                        rootfs_rules[rootfs_name]["rootfs"],
+                    )
+                    self.assertEqual(
+                        ":" + rootfs_name,
+                        squashfs_rules[squashfs_name]["rootfs"],
+                    )
+                    self.assertEqual(
+                        "//flavors/{}:kernel-live{}".format(flavor, image_suffix),
+                        iso_rules[iso_name]["kernel"],
+                    )
+                    self.assertEqual(
+                        "//flavors/{}:initramfs-live{}".format(flavor, image_suffix),
+                        iso_rules[iso_name]["initramfs"],
+                    )
+                    self.assertEqual(
+                        ":" + squashfs_name,
+                        iso_rules[iso_name]["squashfs"],
+                    )
+                    self.assertEqual(layout, iso_rules[iso_name]["layout"])
+                    self.assertEqual(architecture, iso_rules[iso_name]["target_cpu"])
+                    self.assertEqual(
+                        "hybrid" if architecture == "x86_64" else "uefi",
+                        iso_rules[iso_name]["boot_mode"],
+                    )
+
+                    production_isos.add(
+                        production_rootfs.replace(":rootfs-live", ":iso-live")
+                    )
+                    firmwares = (
+                        ("bios", "uefi")
+                        if architecture == "x86_64"
+                        else ("uefi",)
+                    )
+                    for firmware in firmwares:
+                        boot_name = "boot-{}-{}".format(test_suffix, firmware)
+                        expected_boot_names.add(boot_name)
+                        boot = boot_rules[boot_name]
+                        self.assertEqual(":" + iso_name, boot["iso"])
+                        self.assertEqual(architecture, boot["architecture"])
+                        self.assertEqual(firmware, boot["firmware"])
+                        self.assertEqual(flavor, boot["expected_flavor"])
+                        self.assertEqual(release, boot["expected_version"])
+                        self.assertEqual(expect_selinux, boot["expect_selinux"])
+
+        expected_production_isos = {
+            "//flavors/{}:iso-live{}-{}-{}".format(
+                flavor,
+                "-" + variant if variant else "",
+                release,
+                architecture,
+            )
+            for flavor, release, _layout, _expect_selinux in ISO_MATRIX
+            for architecture in ARCHITECTURES
+            for variant in IMAGE_VARIANTS
+        }
+        self.assertEqual(32, len(expected_production_isos))
+        self.assertEqual(expected_production_isos, production_isos)
+        self.assertEqual(expected_boot_names, set(boot_rules))
+
+    def test_debian_prebuilt_boot_set_is_complete(self):
+        self.assertEqual(
+            {
+                "boot-debian-prebuilt-13-x86_64-bios",
+                "boot-debian-prebuilt-13-x86_64-uefi",
+                "boot-debian-prebuilt-13-aarch64-uefi",
+            },
+            {
+                rule["name"]
+                for rule in self.rules["iso_boot_test"]
+                if rule["name"].startswith("boot-debian-prebuilt-")
+            },
+        )
+
+    def test_ubuntu_prebuilt_boot_set_is_complete(self):
+        self.assertEqual(
+            {
+                "boot-ubuntu-prebuilt-26_04-x86_64-bios",
+                "boot-ubuntu-prebuilt-26_04-x86_64-uefi",
+                "boot-ubuntu-prebuilt-26_04-aarch64-uefi",
+            },
+            {
+                rule["name"]
+                for rule in self.rules["iso_boot_test"]
+                if rule["name"].startswith("boot-ubuntu-prebuilt-")
+            },
+        )
 
 
 class TestUbuntuIsoManifest(unittest.TestCase):
