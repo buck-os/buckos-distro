@@ -342,6 +342,8 @@ Enable remote cache lookups or remote execution through the execution platform:
 
 A remote backend still requires a matching `[buck2_re_client]` configuration. The property keys and values are backend-defined; the repository contains no service-specific defaults. Remote workers need Linux user namespaces, an accepted isolation tool, subordinate IDs, package-manager namespace helpers, and enough scratch space for unpacked package trees. Architecture constraints select the matching x86_64 or AArch64 platform.
 
+See [REMOTE_EXECUTION.md](REMOTE_EXECUTION.md) for the implementation-ready NativeLink reference topology, worker preflight contract, cache policy, deployment layout, bring-up sequence, and acceptance gates.
+
 ## Repository layout
 
 ```text
@@ -353,6 +355,7 @@ flavors/debian/          Debian lockfile, generated package data, and replay tar
 flavors/ubuntu/          Ubuntu lockfile, generated package data, and replay targets
 flavors/buckos/          BuckOS implementation-status documentation
 platforms/               Target constraints and execution-platform registration
+REMOTE_EXECUTION.md       NativeLink reference deployment and acceptance plan
 tests/                   Checked-in source RPM replay fixtures
 toolchains/              Prelude toolchain registrations
 tools/                   Solver, generators, action drivers, and tests

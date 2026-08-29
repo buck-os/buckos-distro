@@ -149,6 +149,8 @@ Rules that consume a buildroot derive `local_only` and cache-upload permission f
 
 The repository does not provide service addresses or credentials for a remote backend. A configured worker must support the Linux isolation and scratch-space requirements used by the same actions locally.
 
+`REMOTE_EXECUTION.md` defines the reference NativeLink topology, the boundary between tracked graph policy and deployment-owned configuration, mandatory worker preflight checks, staged rollout, cache operations, and acceptance criteria.
+
 ## Source layout
 
 ```text
