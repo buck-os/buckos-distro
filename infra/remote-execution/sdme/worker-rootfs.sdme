@@ -28,15 +28,15 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User="" update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-COPY fs:buckos-re-nativelink-5c2e6eca51c6:/oci/apps/buckos-re-nativelink-5c2e6eca51c6/root/nix /nix
-COPY fs:buckos-re-nativelink-5c2e6eca51c6:/oci/apps/buckos-re-nativelink-5c2e6eca51c6/root/bin/nativelink /opt/buckos-re/image-bin/nativelink
+COPY fs:buckos-re-nativelink-5c2e6eca51c6:/nix /nix
+COPY fs:buckos-re-nativelink-5c2e6eca51c6:/bin/nativelink /opt/buckos-re/image-bin/nativelink
 
 RUN set -eu; \
     source=$(readlink -f /opt/buckos-re/image-bin/nativelink); \
     test -f "$source"; \
     install -m 0755 "$source" /usr/bin/nativelink; \
-    test "$(/usr/bin/nativelink --version)" = "nativelink 1.6.6"; \
     rm -rf /nix /opt/buckos-re/image-bin; \
+    test "$(/usr/bin/nativelink --version)" = "nativelink 1.6.6"; \
     getent group nativelink >/dev/null || groupadd --system nativelink; \
     id nativelink >/dev/null 2>&1 || useradd --system --gid nativelink --home-dir /var/lib/nativelink --shell /usr/sbin/nologin nativelink; \
     sed -i '/^nativelink:/d' /etc/subuid /etc/subgid; \

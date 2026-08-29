@@ -28,7 +28,10 @@ python_test(
 
 python_test(
     name = "sdme_provision_test",
-    srcs = ["sdme_provision_test.py"],
+    srcs = [
+        "oci_archive.py",
+        "sdme_provision_test.py",
+    ],
     base_module = "",
     resources = {
         "sdme-provision.sh": "sdme-provision.sh",
@@ -48,4 +51,13 @@ export_file(
     name = "smoke-test-script",
     src = "smoke-test.sh",
     visibility = ["PUBLIC"],
+)
+
+python_test(
+    name = "oci_archive_test",
+    srcs = [
+        "oci_archive.py",
+        "oci_archive_test.py",
+    ],
+    base_module = "",
 )

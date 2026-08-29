@@ -4,7 +4,9 @@
 
 Start with the read-only `plan` operation. `apply` performs provisioning. `start`, `stop`, and `restart` change only runtime state and preserve the bind-mounted control and worker data.
 
-Applying a plan requires root access, SDME 0.18 or newer, Podman, a Btrfs-backed SDME storage pool, and active `systemd-networkd`. Workers additionally require a native host architecture and an immutable probe sysroot.
+Applying a plan requires root access, SDME 0.18 or newer, a Btrfs-backed SDME storage pool, and active `systemd-networkd`. Podman is required when either image uses the default registry acquisition. Workers additionally require a native host architecture and an immutable probe sysroot.
+
+For an offline image, pass `--ubuntu-oci-archive ABSOLUTE_PATH` or `--nativelink-oci-archive ABSOLUTE_PATH`. Each option replaces registry acquisition only for that image. The archive must match the exact architecture record in `offline-oci-archives.json`, including its canonical filename, parent image reference, selected platform manifest, byte size, and SHA-256. The validator also hashes the selected config and layer closure before the provisioner copies the archive into its managed cache. Missing architecture records fail closed.
 
 Worker containers use `--userns --userns-nested 1` and explicit capability drops. They intentionally do not use `--hardened` because its `NoNewPrivileges` setting prevents the non-root `nativelink` service from using the setuid `newuidmap` and `newgidmap` helpers. The mandatory worker preflight is installed as an `ExecStartPre` gate.
 
@@ -19,6 +21,11 @@ Example plans:
 ```sh
 infra/remote-execution/scripts/sdme-provision.sh plan control \
   --data-root /srv/buckos-re
+
+infra/remote-execution/scripts/sdme-provision.sh plan control \
+  --data-root /srv/buckos-re \
+  --ubuntu-oci-archive /path/to/ubuntu-2604-x86_64.oci.tar \
+  --nativelink-oci-archive /path/to/nativelink-166-x86_64.oci.tar
 
 infra/remote-execution/scripts/sdme-provision.sh plan worker \
   --data-root /srv/buckos-re \

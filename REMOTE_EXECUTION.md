@@ -74,11 +74,13 @@ infra/remote-execution/
     worker-x86_64.json5
     worker-aarch64.json5
   sdme/
+    offline-oci-archives.json
     README.md
     worker-preflight.conf
     worker-rootfs.sdme
   scripts/
     check_deployment.py
+    oci_archive.py
     preflight-worker.sh
     sdme-provision.sh
     smoke-test.sh

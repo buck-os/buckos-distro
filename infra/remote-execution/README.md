@@ -10,6 +10,10 @@ Run these checks before provisioning:
 
 ```sh
 python3 tools/nativelink_config.py
+python3 infra/remote-execution/scripts/oci_archive.py metadata \
+  infra/remote-execution/sdme/offline-oci-archives.json \
+  --expect 'ubuntu=docker.io/library/ubuntu@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b' \
+  --expect 'nativelink=ghcr.io/tracemachina/nativelink@sha256:5c2e6eca51c6d3ac40b94f703e08a243fd036cc136cc858a99040ca90fa57d61'
 bash -n infra/remote-execution/scripts/*.sh
 python3 -m unittest discover -s infra/remote-execution/scripts -p '*_test.py'
 python3 -m unittest -v infra/remote-execution/tests/smoke_test_test.py
@@ -65,6 +69,10 @@ After reviewing the worker plan, replace `plan` with `apply` while retaining the
 ## Apply the deployment
 
 After reviewing the plan, replace `plan` with `apply` and run as root. Applying imports the pinned Ubuntu and NativeLink images, builds a native runtime rootfs, creates or validates the requested SDME container, installs the tracked configuration, and starts the systemd service.
+
+Registry acquisition is the default. When a registry is unavailable, pass `--ubuntu-oci-archive ABSOLUTE_PATH` or `--nativelink-oci-archive ABSOLUTE_PATH` to select an independently supplied archive for that image. The archive basename, whole-file SHA-256 and size, pinned parent index, selected platform manifest, config, and layer closure must match `sdme/offline-oci-archives.json`. Offline admission is available only for architecture records present in that file.
+
+The provisioner copies a validated offline archive atomically into the root-owned image cache and stores structured provenance beside it and inside the imported SDME filesystem. Reuse requires the same acquisition mode and revalidates the archive and both provenance records. Incomplete caches, the legacy text-only `.reference` sidecar, untrusted paths, and existing filesystems without provenance are refused. Repeat the same archive options on later runs that reuse an offline deployment.
 
 No ports are published by default. Cross-host clients or workers require `--publish`, explicit client and worker CIDR allowlists, an external read-only firewall policy checker, and a trusted encrypted private network unless NativeLink TLS is configured.
 

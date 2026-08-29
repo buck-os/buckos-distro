@@ -16,6 +16,8 @@ readonly RUNTIME_FS='buckos-re-runtime-5c2e6eca51c6'
 readonly SERVICE_USER='nativelink'
 readonly REAPI_PORT='50051'
 readonly WORKER_API_PORT='50061'
+readonly IMAGE_PROVENANCE_PATH='/buckos-re-image-provenance.json'
+readonly RUNTIME_PROVENANCE_PATH='/etc/buckos-re-runtime-provenance.json'
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 repo_root=$(CDPATH='' cd -- "$script_dir/../../.." && pwd -P)
@@ -44,6 +46,10 @@ publish=0
 client_cidrs=''
 worker_cidrs=''
 firewall_check=''
+ubuntu_oci_archive=''
+nativelink_oci_archive=''
+ubuntu_oci_archive_set=0
+nativelink_oci_archive_set=0
 verbose=0
 
 sdme_bin=''
@@ -52,6 +58,8 @@ python_bin=''
 tar_bin=''
 sha256_bin=''
 systemctl_bin=''
+oci_archive_tool=''
+oci_archive_metadata=''
 cleanup_paths=()
 
 cleanup() {
@@ -102,6 +110,9 @@ Optional:
   --cas-max-bytes N            control CAS override
   --ac-max-bytes N             control action-cache override
   --worker-cas-max-bytes N     worker fast-CAS override
+  --ubuntu-oci-archive PATH    trusted offline Ubuntu OCI archive
+  --nativelink-oci-archive PATH
+                               trusted offline NativeLink OCI archive
   --publish                    publish control ports through SDME
   --client-cidrs LIST          comma-separated client allowlist
   --worker-cidrs LIST          comma-separated worker allowlist
@@ -230,6 +241,27 @@ validate_data_root() {
     fi
 }
 
+validate_apply_path_ancestry() {
+    [[ "$operation" =~ ^(prepare-runtime|apply)$ ]] || return 0
+    local current="$data_root"
+    local mode owner
+    while [[ ! -e "$current" ]]; do
+        current=$(dirname -- "$current")
+    done
+    current=$(realpath -e -- "$current") || die "cannot resolve --data-root ancestry"
+    while :; do
+        [[ -d "$current" && ! -L "$current" ]] || \
+            die "--data-root ancestor is not a real directory: $current"
+        owner=$(stat -c '%u' -- "$current")
+        mode=$(stat -c '%a' -- "$current")
+        [[ "$owner" == 0 ]] || die "--data-root ancestor is not root-owned: $current"
+        (( (8#$mode & 8#022) == 0 )) || \
+            die "--data-root ancestor is group/world-writable: $current"
+        [[ "$current" == / ]] && break
+        current=$(dirname -- "$current")
+    done
+}
+
 validate_probe_root() {
     [[ "$probe_sysroot" == /* ]] || die "--probe-sysroot must be absolute"
     probe_sysroot=$(realpath -e -- "$probe_sysroot") || die "probe sysroot does not exist"
@@ -336,6 +368,20 @@ parse_args() {
             --cas-max-bytes) (($# >= 2)) || die "$1 needs a value"; cas_max_bytes="$2"; shift 2 ;;
             --ac-max-bytes) (($# >= 2)) || die "$1 needs a value"; ac_max_bytes="$2"; shift 2 ;;
             --worker-cas-max-bytes) (($# >= 2)) || die "$1 needs a value"; worker_cas_max_bytes="$2"; shift 2 ;;
+            --ubuntu-oci-archive)
+                (($# >= 2)) || die "$1 needs a value"
+                ((ubuntu_oci_archive_set == 0)) || die "$1 may be supplied only once"
+                ubuntu_oci_archive="$2"
+                ubuntu_oci_archive_set=1
+                shift 2
+                ;;
+            --nativelink-oci-archive)
+                (($# >= 2)) || die "$1 needs a value"
+                ((nativelink_oci_archive_set == 0)) || die "$1 may be supplied only once"
+                nativelink_oci_archive="$2"
+                nativelink_oci_archive_set=1
+                shift 2
+                ;;
             --publish) publish=1; shift ;;
             --client-cidrs) (($# >= 2)) || die "$1 needs a value"; client_cidrs="$2"; shift 2 ;;
             --worker-cidrs) (($# >= 2)) || die "$1 needs a value"; worker_cidrs="$2"; shift 2 ;;
@@ -404,6 +450,23 @@ validate_operation_args() {
         fi
     fi
 
+    if [[ "$operation" =~ ^(plan|prepare-runtime|apply)$ ]]; then
+        if ((ubuntu_oci_archive_set)); then
+            [[ -n "$ubuntu_oci_archive" ]] || die "--ubuntu-oci-archive must not be empty"
+            ubuntu_oci_archive=$(validate_safe_file '--ubuntu-oci-archive' "$ubuntu_oci_archive")
+            path_is_beneath "$ubuntu_oci_archive" "$data_root" && \
+                die "--ubuntu-oci-archive must be outside --data-root"
+        fi
+        if ((nativelink_oci_archive_set)); then
+            [[ -n "$nativelink_oci_archive" ]] || die "--nativelink-oci-archive must not be empty"
+            nativelink_oci_archive=$(validate_safe_file '--nativelink-oci-archive' "$nativelink_oci_archive")
+            path_is_beneath "$nativelink_oci_archive" "$data_root" && \
+                die "--nativelink-oci-archive must be outside --data-root"
+        fi
+    elif ((ubuntu_oci_archive_set || nativelink_oci_archive_set)); then
+        die "local OCI archive options are valid only for plan/prepare-runtime/apply"
+    fi
+
     if [[ -n "$cas_max_bytes" ]]; then validate_positive_integer '--cas-max-bytes' "$cas_max_bytes"; fi
     if [[ -n "$ac_max_bytes" ]]; then validate_positive_integer '--ac-max-bytes' "$ac_max_bytes"; fi
     if [[ -n "$worker_cas_max_bytes" ]]; then validate_positive_integer '--worker-cas-max-bytes' "$worker_cas_max_bytes"; fi
@@ -423,6 +486,7 @@ validate_operation_args() {
         native=$(normalize_arch "$(uname -m)") || die "unsupported native architecture: $(uname -m)"
         [[ "$arch" == "$native" ]] || die "$operation requires a native $arch host; this host is $native"
         ((EUID == 0)) || die "$operation must run as root"
+        validate_apply_path_ancestry
     fi
 }
 
@@ -444,32 +508,44 @@ if data.get("image", {}).get("version") != "v1.6.6":
 PY
 }
 
+validate_oci_archive_metadata() {
+    run_command "$python_bin" "$oci_archive_tool" metadata "$oci_archive_metadata" \
+        --expect "ubuntu=$UBUNTU_IMAGE" \
+        --expect "nativelink=$NATIVELINK_IMAGE"
+}
+
 validate_metadata() {
     validate_runtime_metadata
+    validate_oci_archive_metadata
     "$python_bin" "$repo_root/tools/nativelink_config.py" "$asset_root/nativelink"
 }
 
 validate_runtime_assets() {
     local files=(
         "$asset_root/nativelink/deployment.json"
+        "$asset_root/sdme/offline-oci-archives.json"
         "$asset_root/sdme/worker-rootfs.sdme"
+        "$asset_root/scripts/oci_archive.py"
     )
     local file
     for file in "${files[@]}"; do
         validate_safe_file 'runtime asset' "$file" >/dev/null
     done
     validate_runtime_metadata
+    validate_oci_archive_metadata
 }
 
 validate_assets() {
     local files=(
         "$asset_root/nativelink/deployment.json"
+        "$asset_root/sdme/offline-oci-archives.json"
         "$asset_root/nativelink/nativelink.service"
         "$asset_root/nativelink/control.json5"
         "$asset_root/nativelink/worker-x86_64.json5"
         "$asset_root/nativelink/worker-aarch64.json5"
         "$asset_root/sdme/worker-rootfs.sdme"
         "$asset_root/scripts/sdme_select_address.py"
+        "$asset_root/scripts/oci_archive.py"
         "$repo_root/tools/nativelink_config.py"
     )
     if [[ "$role" == worker ]]; then
@@ -518,12 +594,15 @@ prepare_tools() {
     if [[ "$operation" != plan ]]; then
         sdme_bin=$(resolve_command sdme)
     fi
-    if [[ "$operation" =~ ^(prepare-runtime|apply)$ ]]; then
+    if [[ "$operation" =~ ^(prepare-runtime|apply)$ && \
+          ( -z "$ubuntu_oci_archive" || -z "$nativelink_oci_archive" ) ]]; then
         podman_bin=$(resolve_command podman)
     fi
     if [[ "$operation" == apply ]]; then
         systemctl_bin=$(resolve_command systemctl)
     fi
+    oci_archive_tool="$asset_root/scripts/oci_archive.py"
+    oci_archive_metadata="$asset_root/sdme/offline-oci-archives.json"
 }
 
 validate_host_prerequisites() {
@@ -573,6 +652,100 @@ emit_environment() {
     fi
 }
 
+run_oci_archive_tool() {
+    local arguments=()
+    if ((verbose)); then arguments+=(-v); fi
+    run_command "$python_bin" "$oci_archive_tool" "${arguments[@]}" "$@"
+}
+
+archive_acquisition() {
+    if [[ -n "$1" ]]; then
+        printf 'offline\n'
+    else
+        printf 'registry\n'
+    fi
+}
+
+archive_provenance_path() {
+    printf '%s.provenance.json\n' "$1"
+}
+
+validate_offline_archive() {
+    local image_name="$1"
+    local image="$2"
+    local source="$3"
+    local destination="${4:-/dev/null}"
+    local require_filename="${5:-0}"
+    local arguments=()
+    if ((require_filename)); then arguments+=(--require-filename); fi
+    run_oci_archive_tool verify "$oci_archive_metadata" "$image_name" "$arch" \
+        "$image" "$source" --acquisition offline "${arguments[@]}" > "$destination"
+}
+
+validate_archive_cache() {
+    local image_name="$1"
+    local image="$2"
+    local output="$3"
+    local acquisition="$4"
+    local provenance
+    local legacy="$output.reference"
+    provenance=$(archive_provenance_path "$output")
+
+    if [[ ! -e "$output" && ! -L "$output" && \
+          ! -e "$provenance" && ! -L "$provenance" && \
+          ! -e "$legacy" && ! -L "$legacy" ]]; then
+        return 1
+    fi
+    [[ ! -L "$output" && ! -L "$provenance" && ! -e "$legacy" && ! -L "$legacy" ]] || \
+        die "unsafe or legacy cached OCI archive state: $output"
+    [[ -f "$output" && -f "$provenance" ]] || \
+        die "incomplete cached OCI archive pair: $output"
+    validate_safe_file 'cached OCI archive' "$output" >/dev/null
+    validate_safe_file 'cached OCI provenance' "$provenance" >/dev/null
+    if [[ "$operation" =~ ^(prepare-runtime|apply)$ ]]; then
+        [[ "$(stat -c '%u' -- "$output")" == 0 ]] || \
+            die "cached OCI archive is not root-owned: $output"
+        [[ "$(stat -c '%u' -- "$provenance")" == 0 ]] || \
+            die "cached OCI provenance is not root-owned: $provenance"
+    fi
+    run_oci_archive_tool cache "$oci_archive_metadata" "$image_name" "$arch" \
+        "$image" "$output" "$provenance" --acquisition "$acquisition"
+}
+
+plan_archive() {
+    local image_name="$1"
+    local image="$2"
+    local output="$3"
+    local platform="$4"
+    local source="$5"
+    local acquisition result provenance
+    acquisition=$(archive_acquisition "$source")
+    provenance=$(archive_provenance_path "$output")
+
+    if [[ -n "$source" ]]; then
+        validate_offline_archive "$image_name" "$image" "$source" /dev/null 1
+    fi
+    if validate_archive_cache "$image_name" "$image" "$output" "$acquisition"; then
+        printf '# Reuse validated %s OCI archive %s.\n' "$image_name" "$output"
+        return
+    else
+        result=$?
+        ((result == 1)) || return "$result"
+    fi
+
+    if [[ "$acquisition" == offline ]]; then
+        print_command "$python_bin" "$oci_archive_tool" verify "$oci_archive_metadata" \
+            "$image_name" "$arch" "$image" "$source" --acquisition offline \
+            --require-filename
+        print_command install -m 0600 -- "$source" "$output.tmp"
+    else
+        print_command podman pull --platform "linux/$platform" "$image"
+        print_command podman save --format oci-archive --output "$output.tmp" "$image"
+    fi
+    printf '# Validate %s.tmp and atomically install it with canonical provenance at %s.\n' \
+        "$output" "$provenance"
+}
+
 plan_commands() {
     local platform
     platform=$(oci_arch "$arch")
@@ -581,8 +754,18 @@ plan_commands() {
     if [[ "$role" == worker ]]; then
         printf '# Fresh worker bootstrap sequence:\n'
         printf '# 1. Prepare and validate the native runtime without creating a container:\n'
-        print_command "$asset_root/scripts/sdme-provision.sh" prepare-runtime worker \
-            --arch "$arch" --data-root "$data_root"
+        local prepare_runtime_command=(
+            "$asset_root/scripts/sdme-provision.sh" prepare-runtime worker
+            --arch "$arch"
+            --data-root "$data_root"
+        )
+        if [[ -n "$ubuntu_oci_archive" ]]; then
+            prepare_runtime_command+=(--ubuntu-oci-archive "$ubuntu_oci_archive")
+        fi
+        if [[ -n "$nativelink_oci_archive" ]]; then
+            prepare_runtime_command+=(--nativelink-oci-archive "$nativelink_oci_archive")
+        fi
+        print_command "${prepare_runtime_command[@]}"
         printf '# 2. Create the immutable probe root; its stdout is the probe SHA-256:\n'
         print_command "$asset_root/scripts/prepare-worker-probe-root.sh" apply \
             --runtime-fs "$RUNTIME_FS" --arch "$arch" --destination "$probe_sysroot"
@@ -605,19 +788,29 @@ plan_commands() {
         if [[ -n "$worker_cas_max_bytes" ]]; then
             worker_apply+=(--worker-cas-max-bytes "$worker_cas_max_bytes")
         fi
+        if [[ -n "$ubuntu_oci_archive" ]]; then
+            worker_apply+=(--ubuntu-oci-archive "$ubuntu_oci_archive")
+        fi
+        if [[ -n "$nativelink_oci_archive" ]]; then
+            worker_apply+=(--nativelink-oci-archive "$nativelink_oci_archive")
+        fi
         print_command "${worker_apply[@]}"
     fi
     print_command install -d -m 0750 "$images_dir" "$provision_dir" "$state_dir"
     if [[ "$role" == worker ]]; then
         print_command install -d -m 0750 "$scratch_dir"
     fi
-    print_command podman pull --platform "linux/$platform" "$UBUNTU_IMAGE"
-    print_command podman save --format oci-archive --output "$ubuntu_archive" "$UBUNTU_IMAGE"
+    plan_archive ubuntu "$UBUNTU_IMAGE" "$ubuntu_archive" "$platform" "$ubuntu_oci_archive"
     print_command sdme fs import "$ubuntu_archive" --name "$UBUNTU_FS" --oci-mode base --install-packages yes
-    print_command podman pull --platform "linux/$platform" "$NATIVELINK_IMAGE"
-    print_command podman save --format oci-archive --output "$nativelink_archive" "$NATIVELINK_IMAGE"
-    print_command sdme fs import "$nativelink_archive" --name "$NATIVELINK_FS" --oci-mode app --base-fs "$UBUNTU_FS"
+    print_command sdme cp "$(archive_provenance_path "$ubuntu_archive")" \
+        "fs:$UBUNTU_FS:$IMAGE_PROVENANCE_PATH"
+    plan_archive nativelink "$NATIVELINK_IMAGE" "$nativelink_archive" "$platform" "$nativelink_oci_archive"
+    print_command sdme fs import "$nativelink_archive" --name "$NATIVELINK_FS" --install-packages no -f
+    print_command sdme cp "$(archive_provenance_path "$nativelink_archive")" \
+        "fs:$NATIVELINK_FS:$IMAGE_PROVENANCE_PATH"
     print_command sdme fs build "$RUNTIME_FS" "$asset_root/sdme/worker-rootfs.sdme" --timeout 600
+    printf '# Bind the runtime to both admitted image records and the build definition at %s.\n' \
+        "$RUNTIME_PROVENANCE_PATH"
 
     if ((publish)); then
         printf '# Required pre-existing network policy check:\n'
@@ -768,50 +961,119 @@ print(status)
 }
 
 materialize_archive() {
-    local image="$1"
-    local output="$2"
-    local platform="$3"
-    local marker="$output.reference"
+    local image_name="$1"
+    local image="$2"
+    local output="$3"
+    local platform="$4"
+    local source="$5"
+    local acquisition provenance input_provenance
     local temporary="$output.tmp.$$"
-    local marker_temporary="$marker.tmp.$$"
-    cleanup_paths+=("$temporary" "$marker_temporary")
+    local provenance_temporary
+    local result
+    acquisition=$(archive_acquisition "$source")
+    provenance=$(archive_provenance_path "$output")
+    provenance_temporary="$provenance.tmp.$$"
+    input_provenance="$provision_dir/${image_name}-input-provenance.tmp.$$"
+    cleanup_paths+=("$temporary" "$provenance_temporary" "$input_provenance")
 
-    if [[ -e "$output" || -e "$marker" ]]; then
-        [[ -f "$output" && -f "$marker" ]] || die "incomplete cached OCI archive pair: $output"
-        [[ "$(<"$marker")" == "$image" ]] || die "cached OCI archive reference mismatch: $output"
-        debug "reusing pinned OCI archive $output"
+    if [[ -n "$source" ]]; then
+        validate_offline_archive "$image_name" "$image" "$source" "$input_provenance" 1
+    fi
+    if validate_archive_cache "$image_name" "$image" "$output" "$acquisition"; then
+        debug "reusing validated $acquisition OCI archive $output"
+        rm -f -- "$input_provenance"
         return
+    else
+        result=$?
+        ((result == 1)) || return "$result"
     fi
 
-    run_command "$podman_bin" pull --platform "linux/$platform" "$image"
-    run_command "$podman_bin" save --format oci-archive --output "$temporary" "$image"
-    printf '%s\n' "$image" > "$marker_temporary"
+    if [[ "$acquisition" == offline ]]; then
+        run_command install -m 0600 -- "$source" "$temporary"
+        validate_offline_archive "$image_name" "$image" "$temporary" "$provenance_temporary"
+        cmp -s -- "$input_provenance" "$provenance_temporary" || \
+            die "offline OCI archive changed while being copied: $source"
+        rm -f -- "$input_provenance"
+    else
+        run_command "$podman_bin" pull --platform "linux/$platform" "$image"
+        run_command "$podman_bin" save --format oci-archive --output "$temporary" "$image"
+        chmod 0600 "$temporary"
+        run_oci_archive_tool verify "$oci_archive_metadata" "$image_name" "$arch" \
+            "$image" "$temporary" --acquisition registry \
+            --record-filename "$(basename -- "$output")" > "$provenance_temporary"
+    fi
+    chmod 0600 "$provenance_temporary"
     mv -- "$temporary" "$output"
-    mv -- "$marker_temporary" "$marker"
+    mv -- "$provenance_temporary" "$provenance"
+}
+
+validate_image_fs_provenance() {
+    local fs_name="$1"
+    local provenance="$2"
+    local temporary marker
+    temporary=$(mktemp -d "$provision_dir/image-check.XXXXXX")
+    cleanup_paths+=("$temporary")
+    if ! query_sdme cp "fs:$fs_name:$IMAGE_PROVENANCE_PATH" "$temporary" >/dev/null; then
+        rm -rf -- "$temporary"
+        die "rootfs lacks image provenance: $fs_name"
+    fi
+    marker="$temporary/$(basename -- "$IMAGE_PROVENANCE_PATH")"
+    cmp -s -- "$provenance" "$marker" || {
+        rm -rf -- "$temporary"
+        die "rootfs image provenance mismatch: $fs_name"
+    }
+    rm -rf -- "$temporary"
+}
+
+install_image_fs_provenance() {
+    local fs_name="$1"
+    local provenance="$2"
+    run_sdme cp "$provenance" "fs:$fs_name:$IMAGE_PROVENANCE_PATH"
+    validate_image_fs_provenance "$fs_name" "$provenance"
+}
+
+ensure_image_fs() {
+    local image_name="$1"
+    local image="$2"
+    local fs_name="$3"
+    local archive="$4"
+    local platform="$5"
+    local source="$6"
+    shift 6
+    local acquisition provenance result
+    acquisition=$(archive_acquisition "$source")
+    provenance=$(archive_provenance_path "$archive")
+
+    if fs_exists "$fs_name"; then
+        if [[ -n "$source" ]]; then
+            validate_offline_archive "$image_name" "$image" "$source" /dev/null 1
+        fi
+        validate_archive_cache "$image_name" "$image" "$archive" "$acquisition" || {
+            result=$?
+            ((result == 1)) && die "rootfs exists without a managed OCI archive: $fs_name"
+            return "$result"
+        }
+        validate_image_fs_provenance "$fs_name" "$provenance"
+        debug "reusing provenance-validated rootfs $fs_name"
+        return
+    else
+        result=$?
+        ((result == 1)) || die "could not inspect rootfs $fs_name"
+    fi
+
+    materialize_archive "$image_name" "$image" "$archive" "$platform" "$source"
+    run_sdme fs import "$archive" --name "$fs_name" "$@"
+    install_image_fs_provenance "$fs_name" "$provenance"
 }
 
 ensure_runtime_fs() {
     local platform result
     platform=$(oci_arch "$arch")
-    if fs_exists "$UBUNTU_FS"; then
-        debug "reusing rootfs $UBUNTU_FS"
-    else
-        result=$?
-        ((result == 1)) || die "could not inspect rootfs $UBUNTU_FS"
-        materialize_archive "$UBUNTU_IMAGE" "$ubuntu_archive" "$platform"
-        run_sdme fs import "$ubuntu_archive" \
-            --name "$UBUNTU_FS" --oci-mode base --install-packages yes
-    fi
-
-    if fs_exists "$NATIVELINK_FS"; then
-        debug "reusing rootfs $NATIVELINK_FS"
-    else
-        result=$?
-        ((result == 1)) || die "could not inspect rootfs $NATIVELINK_FS"
-        materialize_archive "$NATIVELINK_IMAGE" "$nativelink_archive" "$platform"
-        run_sdme fs import "$nativelink_archive" \
-            --name "$NATIVELINK_FS" --oci-mode app --base-fs "$UBUNTU_FS"
-    fi
+    ensure_image_fs ubuntu "$UBUNTU_IMAGE" "$UBUNTU_FS" "$ubuntu_archive" \
+        "$platform" "$ubuntu_oci_archive" --oci-mode base --install-packages yes
+    ensure_image_fs nativelink "$NATIVELINK_IMAGE" "$NATIVELINK_FS" \
+        "$nativelink_archive" "$platform" "$nativelink_oci_archive" \
+        --install-packages no -f
 
     if fs_exists "$RUNTIME_FS"; then
         debug "reusing rootfs $RUNTIME_FS"
@@ -820,18 +1082,48 @@ ensure_runtime_fs() {
         ((result == 1)) || die "could not inspect rootfs $RUNTIME_FS"
         run_sdme fs build "$RUNTIME_FS" \
             "$asset_root/sdme/worker-rootfs.sdme" --timeout 600
+        install_runtime_provenance
     fi
     validate_runtime_fs
 }
 
+generate_runtime_provenance() {
+    local destination="$1"
+    run_oci_archive_tool runtime "$arch" "$asset_root/sdme/worker-rootfs.sdme" \
+        "$(archive_provenance_path "$ubuntu_archive")" \
+        "$(archive_provenance_path "$nativelink_archive")" > "$destination"
+}
+
+install_runtime_provenance() {
+    local temporary="$provision_dir/runtime-provenance.tmp.$$"
+    cleanup_paths+=("$temporary")
+    generate_runtime_provenance "$temporary"
+    chmod 0600 "$temporary"
+    run_sdme cp "$temporary" "fs:$RUNTIME_FS:$RUNTIME_PROVENANCE_PATH"
+    rm -f -- "$temporary"
+}
+
+validate_managed_directories() {
+    local directory mode owner
+    for directory in "$data_root" "$@"; do
+        [[ -d "$directory" && ! -L "$directory" ]] || \
+            die "managed data path is not a real directory: $directory"
+        owner=$(stat -c '%u' -- "$directory")
+        mode=$(stat -c '%a' -- "$directory")
+        [[ "$owner" == 0 ]] || die "managed data path is not root-owned: $directory"
+        (( (8#$mode & 8#022) == 0 )) || \
+            die "managed data path is group/world-writable: $directory"
+    done
+}
+
 prepare_runtime() {
     run_command install -d -m 0750 "$images_dir" "$provision_dir"
+    validate_managed_directories "$images_dir" "$provision_dir"
     ensure_runtime_fs
 }
 
 validate_runtime_fs() {
-    local temporary
-    local marker
+    local temporary marker expected_provenance actual_provenance
     temporary=$(mktemp -d "$provision_dir/runtime-check.XXXXXX")
     cleanup_paths+=("$temporary")
     if ! query_sdme cp "fs:$RUNTIME_FS:/etc/nativelink/runtime-images" "$temporary" >/dev/null; then
@@ -850,6 +1142,17 @@ validate_runtime_fs() {
     grep -Fxq "architecture=$arch" "$marker" || {
         rm -rf -- "$temporary"
         die "runtime rootfs architecture mismatch: $RUNTIME_FS"
+    }
+    expected_provenance="$temporary/expected-runtime-provenance.json"
+    generate_runtime_provenance "$expected_provenance"
+    if ! query_sdme cp "fs:$RUNTIME_FS:$RUNTIME_PROVENANCE_PATH" "$temporary" >/dev/null; then
+        rm -rf -- "$temporary"
+        die "runtime rootfs lacks strict provenance: $RUNTIME_FS"
+    fi
+    actual_provenance="$temporary/$(basename -- "$RUNTIME_PROVENANCE_PATH")"
+    cmp -s -- "$expected_provenance" "$actual_provenance" || {
+        rm -rf -- "$temporary"
+        die "runtime rootfs strict provenance mismatch: $RUNTIME_FS"
     }
     rm -rf -- "$temporary"
 }
@@ -1012,6 +1315,7 @@ apply_deployment() {
     local directories=("$images_dir" "$provision_dir" "$state_dir")
     if [[ "$role" == worker ]]; then directories+=("$scratch_dir"); fi
     run_command install -d -m 0750 "${directories[@]}"
+    validate_managed_directories "${directories[@]}"
 
     if ((publish)); then
         run_command "$firewall_check" \
