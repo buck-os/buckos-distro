@@ -41,6 +41,15 @@ python_test(
 )
 
 python_test(
+    name = "what_ran_evidence_test",
+    srcs = [
+        "what_ran_evidence.py",
+        "what_ran_evidence_test.py",
+    ],
+    base_module = "",
+)
+
+python_test(
     name = "prepare_worker_probe_root_test",
     srcs = [
         "prepare_worker_probe_root.py",
@@ -73,6 +82,12 @@ export_file(
 export_file(
     name = "smoke-test-script",
     src = "smoke-test.sh",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "what-ran-evidence-source",
+    src = "what_ran_evidence.py",
     visibility = ["PUBLIC"],
 )
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 CACHE_TARGET='//flavors/debian:hostname-13-x86_64-source'
 X86_TARGET='//flavors/debian:hostname-13-x86_64-build'
@@ -24,6 +25,7 @@ cross_host=false
 event_dir=''
 buck='./buck2'
 grpc_helper="$script_dir/reapi_readiness.py"
+what_ran_helper="$script_dir/what_ran_evidence.py"
 grpc_helper_overridden=false
 grpc_python='/usr/bin/python3'
 timeout_seconds=1800
@@ -32,14 +34,18 @@ host_category=''
 host_buildroot_config=''
 verbose=false
 
-client_a_config_fingerprint=''
-client_b_config_fingerprint=''
+client_a_config_temp=''
+client_b_config_temp=''
+client_a_config_identity=''
+client_b_config_identity=''
+client_a_config_published=false
+client_b_config_published=false
 client_a_buck=''
 client_b_buck=''
 timeout_bin=''
 resolved_path=''
-config_fingerprint_value=''
 parsed_count=''
+parsed_action_digest=''
 client_a_daemon_touched=false
 client_b_daemon_touched=false
 active_command_pid=''
@@ -54,6 +60,8 @@ Usage:
 Stages:
   readiness        Run Capabilities and CAS round-trip checks through --grpc-helper.
   cache            Prove Client A upload and clean Client B cache reuse.
+  probe-x86_64     Run only the uncached x86_64 execution attestation.
+  probe-aarch64    Run only the uncached native AArch64 execution attestation.
   x86_64           Attest x86_64 execution, then run the bounded Debian source build.
   aarch64          Attest native AArch64 execution, then run the bounded Debian source build.
   host-provenance  Prove a supplied host-buildroot action remains local on two clients.
@@ -92,15 +100,14 @@ Options:
   -h, --help                     Show this help.
 
 The two clients must be distinct clean checkouts at the same commit, with no
-buck-out entry when a build stage starts. Configuration is passed with Buck2
---config flags; this script never edits .buckconfig.local. Use an empty
-dedicated NativeLink instance for the cache stage. Event logs and derived
-evidence are retained under --event-dir. Every Buck invocation uses its
-client's isolation directory. On normal exit, failure, HUP, INT, or TERM, the
-harness attempts `buck2 --isolation-dir NAME kill` only for clients that ran a
-daemon-capable command. Cleanup output is retained under --event-dir; cleanup
-failure changes a successful run to failure but never replaces an earlier
-failure status.
+.buckconfig.local or buck-out entry when a build stage starts. Before any Buck
+command, the harness exclusively installs a mode-0600 .buckconfig.local with
+the static RE client settings. On normal exit, failure, HUP, INT, or TERM, it
+kills daemons started through the selected isolation directories and then
+removes only the exact files it installed. Use an empty dedicated NativeLink
+instance for the cache stage. Event logs and derived evidence are retained
+under --event-dir. Cleanup failure changes a successful run to failure but
+never replaces an earlier failure status.
 
 Plaintext is limited to an explicitly local invocation. Pass --cross-host for
 any published or routed endpoint; it requires --tls true and all credential
@@ -305,45 +312,161 @@ canonical_readable_file() {
     if ! resolved=$(realpath -e -- "$path"); then
         usage_error "$name cannot be resolved: $path"
     fi
+    [[ $resolved != *$'\n'* && $resolved != *$'\r'* ]] || \
+        usage_error "$name cannot contain a line break"
     [[ -f $resolved && -r $resolved ]] || \
         usage_error "$name is not a readable regular file: $resolved"
     resolved_path=$resolved
 }
 
-config_fingerprint() {
-    local path=$1
-    if [[ ! -e $path ]]; then
-        config_fingerprint_value=absent
-        return 0
-    fi
-    [[ -f $path ]] || return 1
-    if ! config_fingerprint_value=$(sha256sum -- "$path" | awk '{print $1}'); then
-        return 1
+require_config_absent() {
+    local client=$1
+    local name=$2
+    local path="$client/.buckconfig.local"
+
+    if [[ -e $path || -L $path ]]; then
+        usage_error "$name must not contain .buckconfig.local"
     fi
 }
 
-check_config_unchanged() {
-    local changed=false
+install_client_config() {
+    local name=$1
+    local client=$2
+    local path="$client/.buckconfig.local"
+    local temporary identity
 
-    if [[ -n $client_a_config_fingerprint ]]; then
-        if ! config_fingerprint "$client_a/.buckconfig.local"; then
-            record FAIL config.client-a ".buckconfig.local is no longer a regular readable file"
-            changed=true
-        elif [[ $config_fingerprint_value != "$client_a_config_fingerprint" ]]; then
-            record FAIL config.client-a ".buckconfig.local changed"
-            changed=true
+    if ! temporary=$(mktemp "$client/.buckconfig.local.tmp.XXXXXX"); then
+        fail "config.$name.install" 'cannot create temporary configuration'
+    fi
+    case $name in
+        client-a)
+            client_a_config_temp=$temporary
+            ;;
+        client-b)
+            client_b_config_temp=$temporary
+            ;;
+        *)
+            fail internal "unknown client identity: $name"
+            ;;
+    esac
+
+    {
+        printf '[buck2_re_client]\n'
+        printf '  engine_address = %s\n' "$endpoint"
+        printf '  action_cache_address = %s\n' "$endpoint"
+        printf '  cas_address = %s\n' "$endpoint"
+        printf '  instance_name = %s\n' "$instance_name"
+        printf '  tls = %s\n' "$tls"
+        if [[ $tls == true ]]; then
+            printf '  tls_ca_certs = %s\n' "$tls_ca"
+            printf '  tls_client_cert = %s\n' "$buck_tls_client_cert"
+        fi
+    } >"$temporary"
+    chmod 0600 -- "$temporary"
+    identity=$(stat -Lc '%d:%i' -- "$temporary")
+    case $name in
+        client-a)
+            client_a_config_identity=$identity
+            ;;
+        client-b)
+            client_b_config_identity=$identity
+            ;;
+    esac
+
+    if ! ln -- "$temporary" "$path"; then
+        fail "config.$name.install" ".buckconfig.local appeared before publish"
+    fi
+    case $name in
+        client-a)
+            client_a_config_published=true
+            ;;
+        client-b)
+            client_b_config_published=true
+            ;;
+    esac
+    rm -- "$temporary"
+    case $name in
+        client-a)
+            client_a_config_temp=''
+            ;;
+        client-b)
+            client_b_config_temp=''
+            ;;
+    esac
+    record PASS "config.$name.install" 'mode=0600 source=.buckconfig.local'
+}
+
+cleanup_client_config() {
+    local name=$1
+    local client path temporary identity published actual failed=false
+
+    case $name in
+        client-a)
+            client=$client_a
+            temporary=$client_a_config_temp
+            identity=$client_a_config_identity
+            published=$client_a_config_published
+            ;;
+        client-b)
+            client=$client_b
+            temporary=$client_b_config_temp
+            identity=$client_b_config_identity
+            published=$client_b_config_published
+            ;;
+        *)
+            record FAIL cleanup.config "unknown client identity: $name"
+            return 1
+            ;;
+    esac
+    path="$client/.buckconfig.local"
+
+    if [[ -e $path || -L $path ]]; then
+        if [[ -L $path || ! -f $path ]]; then
+            record FAIL "cleanup.config.$name" \
+                'refusing to remove replacement .buckconfig.local entry'
+            failed=true
+        elif ! actual=$(stat -Lc '%d:%i' -- "$path"); then
+            record FAIL "cleanup.config.$name" \
+                'cannot identify installed .buckconfig.local'
+            failed=true
+        elif [[ -z $identity || $actual != "$identity" ]]; then
+            record FAIL "cleanup.config.$name" \
+                'refusing to remove replaced .buckconfig.local file'
+            failed=true
+        elif ! rm -- "$path"; then
+            record FAIL "cleanup.config.$name" \
+                'cannot remove installed .buckconfig.local'
+            failed=true
+        fi
+    elif [[ $published == true ]]; then
+        record FAIL "cleanup.config.$name" \
+            'installed .buckconfig.local disappeared before cleanup'
+        failed=true
+    fi
+
+    if [[ -n $temporary && ( -e $temporary || -L $temporary ) ]]; then
+        if ! rm -- "$temporary"; then
+            record FAIL "cleanup.config.$name" \
+                'cannot remove temporary .buckconfig.local'
+            failed=true
         fi
     fi
-    if [[ -n $client_b_config_fingerprint ]]; then
-        if ! config_fingerprint "$client_b/.buckconfig.local"; then
-            record FAIL config.client-b ".buckconfig.local is no longer a regular readable file"
-            changed=true
-        elif [[ $config_fingerprint_value != "$client_b_config_fingerprint" ]]; then
-            record FAIL config.client-b ".buckconfig.local changed"
-            changed=true
-        fi
+    if [[ $failed == false ]]; then
+        record PASS "cleanup.config.$name" 'installed configuration removed'
     fi
-    [[ $changed == false ]]
+    [[ $failed == false ]]
+}
+
+cleanup_client_configs() {
+    local failed=false
+
+    if ! cleanup_client_config client-a; then
+        failed=true
+    fi
+    if ! cleanup_client_config client-b; then
+        failed=true
+    fi
+    [[ $failed == false ]]
 }
 
 mark_daemon_touched() {
@@ -441,12 +564,10 @@ on_exit() {
             status=1
         fi
     fi
-    if ! check_config_unchanged; then
+    if ! cleanup_client_configs; then
         if ((status == 0)); then
             status=1
         fi
-    elif ((original_status == 0)); then
-        record PASS config.unchanged '.buckconfig.local unchanged on both clients'
     fi
     if ((status == 0)); then
         record PASS smoke-test "stage=$stage"
@@ -519,6 +640,38 @@ run_buck_capture() {
     mark_daemon_touched "$client_name"
     run_capture "$client" "$check" "$output" \
         "$buck_path" --isolation-dir "$isolation" "$@"
+}
+
+run_buck_capture_split() {
+    local client=$1
+    local client_name=$2
+    local buck_path=$3
+    local isolation=$4
+    local check=$5
+    local stdout_path=$6
+    local stderr_path=$7
+    shift 7
+
+    reserve_output "$stdout_path"
+    reserve_output "$stderr_path"
+    mark_daemon_touched "$client_name"
+    debug "$check: cwd=$client stdout=$stdout_path stderr=$stderr_path command=$*"
+    (
+        cd "$client"
+        exec "$timeout_bin" --signal=TERM --kill-after=30s \
+            "${timeout_seconds}s" "$buck_path" --isolation-dir "$isolation" "$@"
+    ) >"$stdout_path" 2>"$stderr_path" &
+    active_command_pid=$!
+    if wait "$active_command_pid"; then
+        active_command_pid=''
+        return 0
+    else
+        local status=$?
+        active_command_pid=''
+        record FAIL "$check" \
+            "command exited $status; see $stdout_path and $stderr_path"
+        exit "$status"
+    fi
 }
 
 assert_contains() {
@@ -601,18 +754,7 @@ set_config_args() {
         --config 'buckos.remote_aarch64_properties=platform.OSFamily=linux,platform.arch=aarch64'
         --config buckos.remote_x86_64_use_case=buck2-default
         --config buckos.remote_aarch64_use_case=buck2-default
-        --config "buck2_re_client.engine_address=$endpoint"
-        --config "buck2_re_client.action_cache_address=$endpoint"
-        --config "buck2_re_client.cas_address=$endpoint"
-        --config "buck2_re_client.instance_name=$instance_name"
-        --config "buck2_re_client.tls=$tls"
     )
-    if [[ $tls == true ]]; then
-        CONFIG_ARGS+=(
-            --config "buck2_re_client.tls_ca_certs=$tls_ca"
-            --config "buck2_re_client.tls_client_cert=$buck_tls_client_cert"
-        )
-    fi
 }
 
 audit_config() {
@@ -623,10 +765,12 @@ audit_config() {
     local name=$5
     local remote_execution=$6
     local output="$event_dir/config-$name.log"
+    local source_count expected_source_count
 
     set_config_args "$remote_execution"
     run_buck_capture "$client" "$client_name" "$buck_path" "$isolation" \
         "config.$name" "$output" audit config \
+        --location direct \
         buckos.remote_cache \
         buckos.remote_execution \
         buckos.aarch64_emulation \
@@ -657,13 +801,41 @@ audit_config() {
     assert_contains "config.$name.cas" "$output" "cas_address = $endpoint"
     assert_contains "config.$name.instance" "$output" "instance_name = $instance_name"
     assert_contains "config.$name.tls" "$output" "tls = $tls"
+    source_count=$(grep -Fc '(defined at .buckconfig.local:' "$output" || true)
+    expected_source_count=5
     if [[ $tls == true ]]; then
+        expected_source_count=7
         assert_contains "config.$name.tls-ca" "$output" \
             "tls_ca_certs = $tls_ca"
         assert_contains "config.$name.tls-client" "$output" \
             "tls_client_cert = $buck_tls_client_cert"
     fi
-    record PASS "config.$name" "validated without editing .buckconfig.local"
+    require_equal "config.$name.file-backed-values" \
+        "$source_count" "$expected_source_count"
+    record PASS "config.$name" 'validated file-backed static RE configuration'
+}
+
+validate_what_ran() {
+    local check=$1
+    local path=$2
+    local identity=$3
+    local executor=$4
+    local require_digest=$5
+    local output
+    local -a arguments=(
+        --input "$path"
+        --identity "$identity"
+        --executor "$executor"
+    )
+
+    if [[ $require_digest == true ]]; then
+        arguments+=(--require-action-digest)
+    fi
+    if ! output=$("$what_ran_helper" "${arguments[@]}"); then
+        fail "$check" "structured what-ran evidence rejected: $path"
+    fi
+    parsed_action_digest=$output
+    record PASS "$check" "executor=$executor identity=$identity"
 }
 
 audit_execution_platform() {
@@ -724,14 +896,9 @@ run_architecture_probe() {
     require_equal "$prefix.local-fallback" "$local_actions" 0
     require_equal "$prefix.cache-hit" "$cached_actions" 0
     require_equal "$prefix.remote-actions" "$remote_actions" 1
-    assert_contains "$prefix.action" "$event_dir/$prefix-what-ran.jsonl" "${target##*:}"
-    assert_contains "$prefix.executor" "$event_dir/$prefix-what-ran.jsonl" '"executor":"RE"'
-    assert_not_contains_regex "$prefix.no-local-record" \
-        "$event_dir/$prefix-what-ran.jsonl" '"executor":"Local"'
-    assert_not_contains_regex "$prefix.no-cache-record" \
-        "$event_dir/$prefix-what-ran.jsonl" '"executor":"Cache"'
-
-    action_digest=$(grep -Eo '[[:xdigit:]]{64}:[0-9]+' "$event_dir/$prefix-what-ran.jsonl" | head -n 1 || true)
+    validate_what_ran "$prefix.executor" \
+        "$event_dir/$prefix-what-ran.jsonl" "$target" Re true
+    action_digest=$parsed_action_digest
     [[ -n $action_digest ]] || fail "$prefix.action-digest" "remote architecture probe action digest is absent"
     record PASS "$prefix.action-digest" "digest=$action_digest"
     record PASS "$prefix" "native architecture attested through uncached remote execution"
@@ -752,8 +919,10 @@ collect_log_evidence() {
     run_buck_capture "$client" "$client_name" "$buck_path" "$isolation" \
         "$prefix.uploads" "$event_dir/$prefix-uploads.log" \
         log what-uploaded --format json "$event_log"
-    run_buck_capture "$client" "$client_name" "$buck_path" "$isolation" \
+    run_buck_capture_split \
+        "$client" "$client_name" "$buck_path" "$isolation" \
         "$prefix.what-ran" "$event_dir/$prefix-what-ran.jsonl" \
+        "$event_dir/$prefix-what-ran.stderr.log" \
         log what-ran --format json --emit-cache-queries \
         --filter-category "$category" "$event_log"
 }
@@ -911,15 +1080,39 @@ run_execution() {
     require_equal "$prefix.local-fallback" "$local_actions" 0
     require_positive "$prefix.remote-actions" "$remote_actions"
     require_equal "$prefix.cache-hit" "$cached_actions" 0
-    assert_contains "$prefix.action" "$event_dir/$prefix-what-ran.jsonl" "${target#//flavors/debian:}"
-    assert_contains "$prefix.executor" "$event_dir/$prefix-what-ran.jsonl" '"executor":"RE"'
-    assert_not_contains_regex "$prefix.no-local-record" \
-        "$event_dir/$prefix-what-ran.jsonl" '"executor":"Local"'
-
-    action_digest=$(grep -Eo '[[:xdigit:]]{64}:[0-9]+' "$event_dir/$prefix-what-ran.jsonl" | head -n 1 || true)
+    validate_what_ran "$prefix.executor" \
+        "$event_dir/$prefix-what-ran.jsonl" "$target" Re true
+    action_digest=$parsed_action_digest
     [[ -n $action_digest ]] || fail "$prefix.action-digest" "remote deb_build action digest is absent"
     record PASS "$prefix.action-digest" "digest=$action_digest"
     record PASS "$prefix" "forced remote execution completed without cache or local fallback"
+}
+
+run_probe() {
+    local architecture=$1
+    local target expected_platform prefix
+
+    case "$architecture" in
+        x86_64)
+            target=$X86_PROBE_TARGET
+            expected_platform='buckos//platforms:platforms-remote-x86_64'
+            prefix=probe-only-x86_64
+            ;;
+        aarch64)
+            target=$AARCH64_PROBE_TARGET
+            expected_platform='buckos//platforms:platforms-remote-aarch64'
+            prefix=probe-only-aarch64
+            ;;
+        *)
+            fail internal "unsupported architecture: $architecture"
+            ;;
+    esac
+
+    audit_config \
+        "$client_a" client-a "$client_a_buck" "$client_a_isolation" \
+        "$prefix" true
+    set_config_args true
+    run_architecture_probe "$architecture" "$target" "$expected_platform"
 }
 
 validate_host_options() {
@@ -1004,13 +1197,14 @@ configure_isolation_names() {
 validate_arguments() {
     local required_tool
 
-    for required_tool in realpath sha256sum awk grep sed tail head timeout cmp; do
+    for required_tool in realpath sha256sum awk grep sed tail timeout cmp \
+        mktemp chmod stat ln rm; do
         command -v "$required_tool" >/dev/null 2>&1 || \
             usage_error "required evidence tool is unavailable: $required_tool"
     done
 
     case "$stage" in
-        readiness|cache|x86_64|aarch64|host-provenance|all)
+        readiness|cache|probe-x86_64|probe-aarch64|x86_64|aarch64|host-provenance|all)
             ;;
         '')
             usage_error '--stage is required'
@@ -1070,15 +1264,17 @@ validate_arguments() {
     client_a_buck=$resolved_path
     canonical_executable "$buck" "$client_b" 'Buck2 for Client B'
     client_b_buck=$resolved_path
+    canonical_executable "$what_ran_helper" "$PWD" what-ran-helper
+    what_ran_helper=$resolved_path
 
-    config_fingerprint "$client_a/.buckconfig.local" || usage_error "$client_a/.buckconfig.local is not a regular readable file"
-    client_a_config_fingerprint=$config_fingerprint_value
-    config_fingerprint "$client_b/.buckconfig.local" || usage_error "$client_b/.buckconfig.local is not a regular readable file"
-    client_b_config_fingerprint=$config_fingerprint_value
+    require_config_absent "$client_a" client-a
+    require_config_absent "$client_b" client-b
     trap on_exit EXIT
     trap 'on_signal HUP 129' HUP
     trap 'on_signal INT 130' INT
     trap 'on_signal TERM 143' TERM
+    install_client_config client-a "$client_a"
+    install_client_config client-b "$client_b"
 
     local version_a version_b
     if ! version_a=$(
@@ -1103,7 +1299,7 @@ validate_arguments() {
             require_clean_client "$client_a" client-a
             require_clean_client "$client_b" client-b
             ;;
-        x86_64|aarch64)
+        probe-x86_64|probe-aarch64|x86_64|aarch64)
             require_clean_client "$client_a" client-a
             ;;
         host-provenance)
@@ -1123,6 +1319,12 @@ main() {
             ;;
         cache)
             run_cache
+            ;;
+        probe-x86_64)
+            run_probe x86_64
+            ;;
+        probe-aarch64)
+            run_probe aarch64
             ;;
         x86_64)
             run_execution x86_64
