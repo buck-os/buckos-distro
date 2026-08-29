@@ -22,6 +22,15 @@ python_test(
 )
 
 python_test(
+    name = "check_deployment_test",
+    srcs = [
+        "check_deployment.py",
+        "check_deployment_test.py",
+    ],
+    base_module = "",
+)
+
+python_test(
     name = "preflight_worker_test",
     srcs = [
         "preflight_worker.py",
