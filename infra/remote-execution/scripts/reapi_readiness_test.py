@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import importlib.util
 import io
@@ -176,6 +177,14 @@ class ProtoTest(unittest.TestCase):
     def test_oversized_varint_is_rejected(self) -> None:
         with self.assertRaisesRegex(reapi.CheckFailure, "exceeds 64 bits"):
             reapi.parse_fields(b"\x08" + b"\xff" * 9 + b"\x02")
+
+
+class RuntimeContractTest(unittest.TestCase):
+    def test_uses_the_distro_python_interpreter(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+
+        self.assertEqual("#!/usr/bin/python3", source.splitlines()[0])
+        ast.parse(source, filename=str(SCRIPT), feature_version=(3, 9))
 
 
 class CapabilitiesTest(unittest.TestCase):

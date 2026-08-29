@@ -184,6 +184,37 @@ esac
 """
 
 
+FAKE_PYTHON = r"""#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$*" >>"${FAKE_PYTHON_CALL_LOG:?}"
+if [[ ${1:-} == -I && ${2:-} == -c ]]; then
+    if [[ ${FAKE_SCENARIO:-} == missing_grpc ]]; then
+        echo 'No module named grpc' >&2
+        exit 7
+    fi
+    echo '1.51.1'
+    exit 0
+fi
+
+[[ ${1:-} == -I ]]
+helper=${2:?}
+operation=${3:?}
+[[ $(basename "$helper") == reapi_readiness.py ]]
+case $operation in
+    capabilities)
+        echo 'PASS reapi.capabilities'
+        ;;
+    cas-round-trip)
+        echo 'PASS reapi.cas-round-trip'
+        ;;
+    *)
+        exit 90
+        ;;
+esac
+"""
+
+
 class SmokeTestScriptTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -193,7 +224,9 @@ class SmokeTestScriptTest(unittest.TestCase):
         self.event_dir = self.root / "events"
         self.call_log = self.root / "buck-calls.log"
         self.helper_call_log = self.root / "helper-calls.log"
+        self.python_call_log = self.root / "python-calls.log"
         self.grpc_helper = self.root / "reapi-helper"
+        self.grpc_python = self.root / "python3"
 
         for client in (self.client_a, self.client_b):
             client.mkdir()
@@ -207,6 +240,8 @@ class SmokeTestScriptTest(unittest.TestCase):
 
         self.grpc_helper.write_text(FAKE_GRPC_HELPER, encoding="utf-8")
         self.grpc_helper.chmod(0o755)
+        self.grpc_python.write_text(FAKE_PYTHON, encoding="utf-8")
+        self.grpc_python.chmod(0o755)
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -220,6 +255,7 @@ class SmokeTestScriptTest(unittest.TestCase):
         environment = os.environ.copy()
         environment["FAKE_CALL_LOG"] = str(self.call_log)
         environment["FAKE_HELPER_CALL_LOG"] = str(self.helper_call_log)
+        environment["FAKE_PYTHON_CALL_LOG"] = str(self.python_call_log)
         environment["FAKE_SCENARIO"] = scenario
         command = [
             "bash",
@@ -282,6 +318,41 @@ class SmokeTestScriptTest(unittest.TestCase):
             "cas-round-trip --endpoint re.test.invalid:50051 --instance-name main --tls false",
             calls,
         )
+        self.assertFalse(self.python_call_log.exists())
+
+    def test_readiness_uses_explicit_python_for_default_helper(self) -> None:
+        result = self.run_smoke(
+            "readiness", "--grpc-python", str(self.grpc_python)
+        )
+
+        self.assert_success(result)
+        self.assertIn(
+            "PASS readiness.python interpreter={} grpcio=1.51.1".format(
+                self.grpc_python
+            ),
+            result.stdout,
+        )
+        calls = self.python_call_log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(3, len(calls))
+        self.assertTrue(calls[0].startswith("-I -c import grpc, sys;"))
+        self.assertIn("-I ", calls[1])
+        self.assertIn("reapi_readiness.py capabilities --endpoint", calls[1])
+        self.assertIn("-I ", calls[2])
+        self.assertIn("reapi_readiness.py cas-round-trip --endpoint", calls[2])
+
+    def test_missing_grpc_fails_before_default_helper_operation(self) -> None:
+        result = self.run_smoke(
+            "readiness",
+            "--grpc-python",
+            str(self.grpc_python),
+            scenario="missing_grpc",
+        )
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("FAIL readiness.python command exited 7", result.stdout)
+        calls = self.python_call_log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(1, len(calls))
+        self.assertTrue(calls[0].startswith("-I -c import grpc, sys;"))
 
     def test_readiness_fails_without_helper(self) -> None:
         result = self.run_smoke(

@@ -15,6 +15,8 @@ tls=''
 event_dir=''
 buck='./buck2'
 grpc_helper="$script_dir/reapi_readiness.py"
+grpc_helper_overridden=false
+grpc_python='/usr/bin/python3'
 timeout_seconds=1800
 host_target=''
 host_category=''
@@ -55,6 +57,9 @@ Options:
                                  SHA-256 capability. The second must upload,
                                  read back, and hash-check a bounded CAS blob.
                                  Default: reapi_readiness.py beside this script.
+  --grpc-python PATH             Explicit interpreter for the default helper.
+                                 Default: /usr/bin/python3. Ignored for an
+                                 external --grpc-helper override.
   --timeout-seconds N            Per-command deadline. Default: 1800.
   --host-target LABEL            Required by host-provenance.
   --host-category CATEGORY       Required by host-provenance.
@@ -150,6 +155,12 @@ while (($#)); do
         --grpc-helper)
             require_value "$1" "$#"
             grpc_helper=$2
+            grpc_helper_overridden=true
+            shift 2
+            ;;
+        --grpc-python)
+            require_value "$1" "$#"
+            grpc_python=$2
             shift 2
             ;;
         --timeout-seconds)
@@ -423,18 +434,32 @@ collect_log_evidence() {
 }
 
 run_readiness() {
-    [[ -n $grpc_helper ]] || usage_error "--grpc-helper is required for stage $stage"
-    local helper
+    local helper grpcio_version python_path
+    local -a helper_command
+
     canonical_executable "$grpc_helper" "$PWD" grpc-helper
     helper=$resolved_path
+    if [[ $grpc_helper_overridden == true ]]; then
+        helper_command=("$helper")
+    else
+        canonical_executable "$grpc_python" "$PWD" grpc-python
+        python_path=$resolved_path
+        run_capture "$PWD" readiness.python "$event_dir/readiness-python.log" \
+            "$python_path" -I -c \
+            'import grpc, sys; version = getattr(grpc, "__version__", ""); print(version) if version else sys.exit("grpcio has no version")'
+        grpcio_version=$(tail -n 1 "$event_dir/readiness-python.log")
+        [[ -n $grpcio_version ]] || fail readiness.python 'grpcio version output is empty'
+        record PASS readiness.python "interpreter=$python_path grpcio=$grpcio_version"
+        helper_command=("$python_path" -I "$helper")
+    fi
 
     run_capture "$PWD" readiness.capabilities "$event_dir/readiness-capabilities.log" \
-        "$helper" capabilities --endpoint "$endpoint" \
+        "${helper_command[@]}" capabilities --endpoint "$endpoint" \
         --instance-name "$instance_name" --tls "$tls"
     record PASS readiness.capabilities "endpoint=$endpoint instance=$instance_name"
 
     run_capture "$PWD" readiness.cas "$event_dir/readiness-cas.log" \
-        "$helper" cas-round-trip --endpoint "$endpoint" \
+        "${helper_command[@]}" cas-round-trip --endpoint "$endpoint" \
         --instance-name "$instance_name" --tls "$tls"
     record PASS readiness.cas "digest-verified round trip completed"
 }

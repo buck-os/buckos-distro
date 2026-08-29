@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """Validate REAPI capabilities and perform a bounded CAS round trip.
 
 The protocol field numbers used here come from the canonical
