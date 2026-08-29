@@ -4,6 +4,20 @@
     "nativelink": {
       "reference": "ghcr.io/tracemachina/nativelink@sha256:5c2e6eca51c6d3ac40b94f703e08a243fd036cc136cc858a99040ca90fa57d61",
       "platforms": {
+        "aarch64": {
+          "architecture": "arm64",
+          "archive": {
+            "filename": "nativelink-166-aarch64.oci.tar",
+            "sha256": "bc4df613c83fa8ec6b88eef8eaa0d3df100ccda0d91f5d83f1e0051df9cdc795",
+            "size": 43673600
+          },
+          "manifest": {
+            "digest": "sha256:238d55bc2d28d8b66a98a0cd0494df5c0609f79cb4e76264c6c4f0259077f00d",
+            "media_type": "application/vnd.oci.image.manifest.v1+json",
+            "size": 406
+          },
+          "os": "linux"
+        },
         "x86_64": {
           "architecture": "amd64",
           "archive": {
@@ -23,6 +37,21 @@
     "ubuntu": {
       "reference": "docker.io/library/ubuntu@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b",
       "platforms": {
+        "aarch64": {
+          "architecture": "arm64",
+          "archive": {
+            "filename": "ubuntu-2604-aarch64.oci.tar",
+            "sha256": "1d646f258d7773e632e33b7de02a1288c838e707f900711004fc9eb27eb657ae",
+            "size": 40724480
+          },
+          "manifest": {
+            "digest": "sha256:61b65dc6bddff5e68c552f22126fe77496395f956ff2e983e05d8a52efd63e55",
+            "media_type": "application/vnd.oci.image.manifest.v1+json",
+            "size": 1392
+          },
+          "os": "linux",
+          "variant": "v8"
+        },
         "x86_64": {
           "architecture": "amd64",
           "archive": {
