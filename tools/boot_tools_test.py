@@ -258,6 +258,44 @@ class TestIsoBootMarker(unittest.TestCase):
         })
         self.assertRegex("; ".join(errors), "arch")
 
+    def test_reports_each_mismatched_marker_field(self):
+        args = type("Args", (), {
+            "expected_flavor": "fedora",
+            "expected_version": "45",
+            "architecture": "aarch64",
+            "expect_selinux": True,
+        })()
+        valid = {
+            "flavor": "fedora",
+            "version": "45",
+            "arch": "aarch64",
+            "pid1": "systemd",
+            "failed": "0",
+            "selinux": "Enforcing",
+            "avc": "0",
+        }
+        cases = (
+            ("flavor", "ubuntu"),
+            ("version", "44"),
+            ("pid1", "busybox"),
+            ("failed", "1"),
+            ("selinux", "Permissive"),
+            ("avc", "1"),
+        )
+
+        for field, wrong_value in cases:
+            with self.subTest(field=field):
+                fields = dict(valid)
+                fields[field] = wrong_value
+                self.assertEqual(
+                    ["{}: expected {!r}, got {!r}".format(
+                        field,
+                        valid[field],
+                        wrong_value,
+                    )],
+                    validate(args, fields),
+                )
+
 
 class TestIsoBootMatrix(unittest.TestCase):
     @classmethod
