@@ -5,6 +5,9 @@ import json
 import os
 import unittest
 
+from solve import rpm_source_policy_inputs
+from source_policy import validate_source_policy
+
 
 MATRIX = {
     "fedora": ("44", "45"),
@@ -61,6 +64,53 @@ class TestLockMatrix(unittest.TestCase):
     def test_fedora_43_is_not_supported(self):
         lock_dir = os.path.join(repo_root(), "flavors", "fedora", "lock")
         self.assertFalse(any(name.startswith("fedora-43") for name in os.listdir(lock_dir)))
+
+    def test_fedora_source_policy_covers_both_architectures(self):
+        root = repo_root()
+        expected = {
+            "44": {"pinned": 5, "source": 181, "total": 186},
+            "45": {"pinned": 6, "source": 187, "total": 193},
+        }
+        for release in MATRIX["fedora"]:
+            locks = {}
+            for architecture in ARCHITECTURES:
+                path = os.path.join(
+                    root,
+                    "flavors",
+                    "fedora",
+                    "lock",
+                    "fedora-{}-{}.lock.json".format(release, architecture),
+                )
+                with open(path, encoding="utf-8") as stream:
+                    lock = json.load(stream)
+                images, producers = rpm_source_policy_inputs(lock)
+                validate_source_policy(lock["source_policy"], images, producers)
+                self.assertEqual(
+                    lock["source_policy"]["summary"]["live"],
+                    expected[release],
+                )
+                expected_build = {
+                    entry["source"] for entry in lock["image_sets"]["live"]
+                } - set(lock["solve"]["prebuilt_sources"])
+                expected_build.update(
+                    variant.split("=", 1)[0]
+                    for variant in lock["solve"]["source_variants"]
+                )
+                self.assertEqual(set(lock["solve"]["build"]), expected_build)
+                locks[architecture] = lock
+
+            self.assertEqual(
+                locks["x86_64"]["solve"]["build"],
+                locks["aarch64"]["solve"]["build"],
+            )
+            self.assertEqual(
+                locks["x86_64"]["source_policy"],
+                locks["aarch64"]["source_policy"],
+            )
+            self.assertEqual(
+                [repo["name"] for repo in locks["x86_64"]["repos"]],
+                [repo["name"] for repo in locks["aarch64"]["repos"]],
+            )
 
 
 if __name__ == "__main__":

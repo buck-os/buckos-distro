@@ -252,6 +252,7 @@ python_test(
     name = "lock_matrix_test",
     srcs = ["lock_matrix_test.py"],
     base_module = "",
+    deps = [":solve_lib"],
 )
 
 python_test(
