@@ -16,3 +16,12 @@ python_test(
     ],
     base_module = "",
 )
+
+python_test(
+    name = "prepare_worker_probe_root_test",
+    srcs = [
+        "prepare_worker_probe_root.py",
+        "prepare_worker_probe_root_test.py",
+    ],
+    base_module = "",
+)
