@@ -339,8 +339,11 @@ def _deb_package(
         version_full = "",
         release = "",
         build_deps = None,
+        build_env = None,
         subpackages = None,
         binary_metadata = None,
+        build_options = None,
+        build_type = "binary",
         build_profiles = None,
         nocheck = True,
         buildroot = None,
@@ -351,8 +354,10 @@ def _deb_package(
     """Replay one Debian source package with dpkg-buildpackage."""
     source_name = source_name or name
     build_deps = build_deps or []
+    build_env = build_env or {}
     subpackages = subpackages or [source_name]
     binary_metadata = binary_metadata or {}
+    build_options = build_options or []
     build_profiles = [profile for profile in (build_profiles or [])]
     if nocheck and "nocheck" not in build_profiles:
         build_profiles.append("nocheck")
@@ -374,7 +379,11 @@ def _deb_package(
         source = ":" + name + "-source",
         dsc = dsc,
         build_deps = build_deps,
+        build_env = build_env,
+        build_options = build_options,
+        build_type = build_type,
         build_profiles = build_profiles,
+        install_packages = subpackages,
         nocheck = nocheck,
         buildroot = buildroot,
         dpkg_buildpackage = read_config("buckos." + flavor, "dpkg_buildpackage", None),

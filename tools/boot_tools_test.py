@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from _deb import fakeroot_command
 from deb_rootfs_install import (
     bootstrap_script,
     cleanup_script,
@@ -14,6 +15,7 @@ from deb_rootfs_install import (
 )
 from iso_build import _bios_script, _write_md5sums, _xorriso_script
 from iso_boot_test import parse_marker, qemu_command, validate
+from initramfs_build import _install_image_tool_script, stage_image_tool
 from rootfs_overlay import append_file, parse_file
 from squashfs_build import _build_mksquashfs_script, _mksquashfs_script, write_pseudo
 
@@ -43,6 +45,20 @@ class TestRootfsOverlay(unittest.TestCase):
 
 
 class TestDebRootfsTransaction(unittest.TestCase):
+    def test_fakeroot_command_preserves_state_across_phases(self):
+        runtime = {
+            "fakeroot-sysv": "/work/fakeroot/fakeroot-sysv",
+            "faked-sysv": "/work/fakeroot/faked-sysv",
+            "library": "/work/fakeroot/libfakeroot-sysv.so",
+            "state": "/work/fakeroot/state",
+        }
+        initial = fakeroot_command(runtime, ["dpkg-deb", "--extract"])
+        resumed = fakeroot_command(runtime, ["tar", "--create"], load=True)
+        self.assertNotIn("-i", initial)
+        self.assertIn("-s", initial)
+        self.assertIn("-i", resumed)
+        self.assertEqual(resumed[-2:], ["tar", "--create"])
+
     def test_bootstrap_extracts_before_running_maintainer_scripts(self):
         script = bootstrap_script("/target", "/debs")
         self.assertLess(script.index("dpkg-deb --extract"), script.index("/usr/bin/dpkg"))
@@ -74,6 +90,35 @@ class TestDebRootfsTransaction(unittest.TestCase):
 
     def test_cleanup_runs_inside_owning_namespace(self):
         self.assertEqual("set -e\nrm -rf /target", cleanup_script("/target"))
+
+
+class TestInitramfsTools(unittest.TestCase):
+    def test_stages_binary_seeded_construction_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            buildroot = os.path.join(tmp, "buildroot")
+            work = os.path.join(tmp, "work")
+            source = os.path.join(buildroot, "usr", "bin", "cp")
+            os.makedirs(os.path.dirname(source))
+            os.makedirs(work)
+            with open(source, "wb") as stream:
+                stream.write(b"binary-seeded-cp")
+            os.chmod(source, 0o755)
+
+            destination = stage_image_tool(buildroot, work, "cp")
+
+            with open(destination, "rb") as stream:
+                self.assertEqual(b"binary-seeded-cp", stream.read())
+            self.assertTrue(os.access(destination, os.X_OK))
+
+    def test_installs_tool_only_in_ephemeral_root(self):
+        script = _install_image_tool_script(
+            "/work/image-tools-bin/cp", "/work/root", "cp"
+        )
+        self.assertEqual(
+            "/work/image-tools-bin/cp --preserve=mode,timestamps "
+            "/work/image-tools-bin/cp /work/root/usr/bin/cp",
+            script,
+        )
 
 
 class TestSquashfsPseudoFile(unittest.TestCase):

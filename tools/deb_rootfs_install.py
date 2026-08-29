@@ -13,6 +13,7 @@ from _isolation import (
     resolve_isolation,
     run_isolated,
 )
+from _deb import fakeroot_command, stage_fakeroot_runtime
 from _rpm import make_dirs_writable, reproducible_env, scratch_dir
 
 
@@ -165,12 +166,17 @@ def main():
     stage_debs(debs, staging)
     shutil.copytree(args.buildroot_tree, sysroot, symlinks=True, dirs_exist_ok=True)
     make_dirs_writable(sysroot)
+    fakeroot = stage_fakeroot_runtime(sysroot, work)
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
+    env["FAKEROOTDONTTRYCHOWN"] = "1"
     try:
         try:
             run_isolated(
-                ["/bin/sh", "-c", bootstrap_script(target, staging)],
+                fakeroot_command(
+                    fakeroot,
+                    ["/bin/sh", "-c", bootstrap_script(target, staging)],
+                ),
                 isolation,
                 work,
                 work,
@@ -178,7 +184,11 @@ def main():
                 env=env,
             )
             run_isolated(
-                ["/bin/sh", "-c", transaction_script(staging)],
+                fakeroot_command(
+                    fakeroot,
+                    ["/bin/sh", "-c", transaction_script(staging)],
+                    load=True,
+                ),
                 isolation,
                 work,
                 work,
@@ -186,7 +196,11 @@ def main():
                 env=env,
             )
             run_isolated(
-                ["/bin/sh", "-c", normalize_merged_usr_script(target)],
+                fakeroot_command(
+                    fakeroot,
+                    ["/bin/sh", "-c", normalize_merged_usr_script(target)],
+                    load=True,
+                ),
                 isolation,
                 work,
                 work,
@@ -194,11 +208,15 @@ def main():
                 env=env,
             )
             run_isolated(
-                ["/bin/sh", "-c", archive_script(
-                    target,
-                    tarball,
-                    args.source_date_epoch,
-                )],
+                fakeroot_command(
+                    fakeroot,
+                    ["/bin/sh", "-c", archive_script(
+                        target,
+                        tarball,
+                        args.source_date_epoch,
+                    )],
+                    load=True,
+                ),
                 isolation,
                 work,
                 work,

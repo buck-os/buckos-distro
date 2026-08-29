@@ -50,6 +50,7 @@ import shlex
 import shutil
 import sys
 
+from _deb import fakeroot_command, stage_fakeroot_runtime
 from _isolation import (
     ISOLATION_MODES,
     require_target_execution,
@@ -468,6 +469,8 @@ def _build(args, isolation, rootfs, work, out):
     make_dirs_writable(sysroot)
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
+    env["FAKEROOTDONTTRYCHOWN"] = "1"
+    fakeroot = stage_fakeroot_runtime(sysroot, work)
 
     mksquashfs = None
     if args.mksquashfs_source:
@@ -489,7 +492,10 @@ def _build(args, isolation, rootfs, work, out):
     print("buckos-distro: unpacking the image to compress it",
           file=sys.stderr, flush=True)
     run_isolated(
-        ["/bin/sh", "-c", _unpack_script(staged, root)],
+        fakeroot_command(
+            fakeroot,
+            ["/bin/sh", "-c", _unpack_script(staged, root)],
+        ),
         isolation, work, work, sysroot, env=env,
     )
 
@@ -506,9 +512,13 @@ def _build(args, isolation, rootfs, work, out):
     )
     try:
         run_isolated(
-            ["/bin/sh", "-c", _mksquashfs_script(
-                args, root, image, pseudo, mksquashfs
-            )],
+            fakeroot_command(
+                fakeroot,
+                ["/bin/sh", "-c", _mksquashfs_script(
+                    args, root, image, pseudo, mksquashfs
+                )],
+                load=True,
+            ),
             isolation, work, work, sysroot, env=env,
         )
     finally:

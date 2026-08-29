@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import stat
 import tempfile
 import unittest
 from unittest import mock
@@ -10,13 +11,19 @@ from _deb import (
     clear_signed_payload,
     compatible_binary_version,
     dsc_files,
+    ensure_base_files,
     parse_control,
     source_identity,
 )
-from deb_buildroot_assemble import ensure_base_files
 from deb_extract import select_deb
-from dsc_unpack import validate_sources
+from dsc_unpack import archive_source_tree, validate_sources
 from deb_generate import bzl_literal, validate_lock
+from dpkgbuild_replay import (
+    build_environment,
+    build_option,
+    copy_source,
+    select_installroot_debs,
+)
 from deb_lock import (
     apt_options,
     apt_uri_lines,
@@ -74,6 +81,27 @@ class TestControlParsing(unittest.TestCase):
 
 
 class TestSourceValidation(unittest.TestCase):
+    def test_archives_source_nodes_buck_cannot_represent_directly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, "source")
+            destination = os.path.join(tmp, "destination")
+            archive = os.path.join(tmp, "source.tar")
+            os.makedirs(os.path.join(source, "debian"))
+            with open(os.path.join(source, "debian", "rules"), "w", encoding="utf-8") as stream:
+                stream.write("#!/usr/bin/make -f\n")
+            with open(os.path.join(source, "regular"), "w", encoding="utf-8") as stream:
+                stream.write("payload")
+            os.mkfifo(os.path.join(source, "fixture.fifo"))
+            with open(os.path.join(source, "literal\\slash"), "w", encoding="utf-8") as stream:
+                stream.write("unit")
+
+            archive_source_tree(source, archive, "1700000000")
+            copy_source(archive, destination)
+
+            self.assertTrue(os.path.isfile(os.path.join(destination, "regular")))
+            self.assertTrue(stat.S_ISFIFO(os.lstat(os.path.join(destination, "fixture.fifo")).st_mode))
+            self.assertTrue(os.path.isfile(os.path.join(destination, "literal\\slash")))
+
     def test_rejects_a_digest_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = os.path.join(tmp, "hello.orig.tar.gz")
@@ -109,6 +137,182 @@ class TestBuildrootSkeleton(unittest.TestCase):
             path = os.path.join(root, "var", "lib", "dpkg", "info", "format")
             with open(path, encoding="utf-8") as stream:
                 self.assertEqual("1\n", stream.read())
+
+    def test_restores_multilib_links_created_by_libc_maintainer_scripts(self):
+        with tempfile.TemporaryDirectory() as root:
+            lib32 = os.path.join(root, "usr", "lib32")
+            os.makedirs(lib32)
+            open(os.path.join(lib32, "ld-linux.so.2"), "wb").close()
+
+            ensure_base_files(root)
+
+            self.assertEqual("usr/lib32", os.readlink(os.path.join(root, "lib32")))
+            self.assertEqual(
+                "../lib32/ld-linux.so.2",
+                os.readlink(os.path.join(root, "usr", "lib", "ld-linux.so.2")),
+            )
+
+    def test_restores_accounts_from_base_passwd_master_files(self):
+        with tempfile.TemporaryDirectory() as root:
+            shared = os.path.join(root, "usr", "share", "base-passwd")
+            os.makedirs(shared)
+            with open(os.path.join(shared, "passwd.master"), "w", encoding="utf-8") as stream:
+                stream.write("root:*:0:0:root:/root:/bin/bash\n")
+                stream.write("_apt:*:42:65534::/nonexistent:/usr/sbin/nologin\n")
+            with open(os.path.join(shared, "group.master"), "w", encoding="utf-8") as stream:
+                stream.write("root:*:0:\n")
+                stream.write("shadow:*:42:\n")
+
+            ensure_base_files(root)
+
+            with open(os.path.join(root, "etc", "passwd"), encoding="utf-8") as stream:
+                passwd = stream.read()
+            with open(os.path.join(root, "etc", "group"), encoding="utf-8") as stream:
+                group = stream.read()
+            self.assertIn("_apt:*:42:65534:", passwd)
+            self.assertIn("shadow:*:42:", group)
+            self.assertEqual(1, sum(line.startswith("root:") for line in passwd.splitlines()))
+            self.assertEqual(1, sum(line.startswith("root:") for line in group.splitlines()))
+
+    def test_selects_the_packaged_dpkg_vendor(self):
+        with tempfile.TemporaryDirectory() as root:
+            origins = os.path.join(root, "etc", "dpkg", "origins")
+            os.makedirs(origins)
+            open(os.path.join(origins, "debian"), "wb").close()
+
+            ensure_base_files(root)
+
+            self.assertEqual("debian", os.readlink(os.path.join(origins, "default")))
+
+    def test_restores_package_alternative_links_after_overlay(self):
+        with tempfile.TemporaryDirectory() as root:
+            bindir = os.path.join(root, "usr", "bin")
+            os.makedirs(bindir)
+            open(os.path.join(bindir, "mawk"), "wb").close()
+            open(os.path.join(bindir, "gcc"), "wb").close()
+            open(os.path.join(bindir, "bison.yacc"), "wb").close()
+            open(os.path.join(bindir, "which.debianutils"), "wb").close()
+            open(os.path.join(bindir, "lua5.1"), "wb").close()
+            open(os.path.join(bindir, "luac5.1"), "wb").close()
+            open(os.path.join(bindir, "openjade-1.4devel"), "wb").close()
+            open(os.path.join(bindir, "osgmlnorm"), "wb").close()
+            ensure_base_files(root)
+            self.assertEqual("mawk", os.readlink(os.path.join(bindir, "awk")))
+            self.assertEqual("mawk", os.readlink(os.path.join(bindir, "nawk")))
+            self.assertEqual("gcc", os.readlink(os.path.join(bindir, "cc")))
+            self.assertEqual("bison.yacc", os.readlink(os.path.join(bindir, "yacc")))
+            self.assertEqual(
+                "which.debianutils",
+                os.readlink(os.path.join(bindir, "which")),
+            )
+            self.assertEqual("lua5.1", os.readlink(os.path.join(bindir, "lua")))
+            self.assertEqual("luac5.1", os.readlink(os.path.join(bindir, "luac")))
+            self.assertEqual(
+                "openjade-1.4devel",
+                os.readlink(os.path.join(bindir, "openjade")),
+            )
+            self.assertEqual("osgmlnorm", os.readlink(os.path.join(bindir, "sgmlnorm")))
+
+    def test_registers_payload_xml_catalogs(self):
+        with tempfile.TemporaryDirectory() as root:
+            for name, filename in (("a", "catalog.xml"), ("b", "catalog-docbook5.xml")):
+                directory = os.path.join(root, "usr", "share", "xml", name)
+                os.makedirs(directory)
+                open(os.path.join(directory, filename), "wb").close()
+
+            ensure_base_files(root)
+
+            catalog = os.path.join(root, "etc", "xml", "catalog")
+            with open(catalog, encoding="utf-8") as stream:
+                contents = stream.read()
+            self.assertIn('catalog="/usr/share/xml/a/catalog.xml"', contents)
+            self.assertIn('catalog="/usr/share/xml/b/catalog-docbook5.xml"', contents)
+
+    def test_registers_payload_sgml_catalogs(self):
+        with tempfile.TemporaryDirectory() as root:
+            catalog_dir = os.path.join(root, "etc", "sgml")
+            os.makedirs(catalog_dir)
+            open(os.path.join(catalog_dir, "docbook.cat"), "wb").close()
+            open(os.path.join(catalog_dir, "openjade.cat"), "wb").close()
+
+            ensure_base_files(root)
+
+            catalog = os.path.join(catalog_dir, "catalog")
+            self.assertEqual(
+                "/var/lib/sgml-base/supercatalog",
+                os.readlink(catalog),
+            )
+            with open(
+                os.path.join(root, "var", "lib", "sgml-base", "supercatalog"),
+                encoding="utf-8",
+            ) as stream:
+                contents = stream.read()
+            self.assertIn("CATALOG /etc/sgml/docbook.cat\n", contents)
+            self.assertIn("CATALOG /etc/sgml/openjade.cat\n", contents)
+
+    def test_restores_default_java_alternatives(self):
+        with tempfile.TemporaryDirectory() as root:
+            java_bindir = os.path.join(root, "usr", "lib", "jvm", "default-java", "bin")
+            os.makedirs(java_bindir)
+            java = os.path.join(java_bindir, "java")
+            open(java, "wb").close()
+            os.chmod(java, 0o755)
+
+            ensure_base_files(root)
+
+            self.assertEqual(
+                "../lib/jvm/default-java/bin/java",
+                os.readlink(os.path.join(root, "usr", "bin", "java")),
+            )
+
+    def test_assembles_payload_ca_certificate_bundle(self):
+        with tempfile.TemporaryDirectory() as root:
+            certificates = os.path.join(root, "usr", "share", "ca-certificates", "test")
+            os.makedirs(certificates)
+            with open(os.path.join(certificates, "a.crt"), "wb") as stream:
+                stream.write(b"certificate-a")
+            with open(os.path.join(certificates, "b.crt"), "wb") as stream:
+                stream.write(b"certificate-b\n")
+
+            ensure_base_files(root)
+
+            bundle = os.path.join(root, "etc", "ssl", "certs", "ca-certificates.crt")
+            with open(bundle, "rb") as stream:
+                self.assertEqual(b"certificate-a\ncertificate-b\n", stream.read())
+
+    def test_maps_requested_binary_kind_to_dpkg_buildpackage_option(self):
+        self.assertEqual("-b", build_option("binary"))
+        self.assertEqual("-B", build_option("arch"))
+        self.assertEqual("-A", build_option("indep"))
+
+    def test_prepares_root_compatible_build_environment(self):
+        env = build_environment("1700000000", ["parallel=1", "parallel=1"])
+        self.assertEqual("1", env["FAKEROOTDONTTRYCHOWN"])
+        self.assertEqual("1", env["FORCE_UNSAFE_CONFIGURE"])
+        self.assertEqual("parallel=1", env["DEB_BUILD_OPTIONS"])
+
+    def test_aggregate_installroot_contains_only_declared_packages(self):
+        paths = ["/tmp/one.deb", "/tmp/unrelated.deb"]
+        fields = {
+            "/tmp/one.deb": {"Package": "one"},
+            "/tmp/unrelated.deb": {"Package": "unrelated"},
+        }
+        with mock.patch(
+            "dpkgbuild_replay.deb_fields",
+            side_effect=lambda path: fields[path],
+        ):
+            self.assertEqual(
+                ["/tmp/one.deb"],
+                select_installroot_debs(paths, ["one"]),
+            )
+
+    def test_aggregate_installroot_rejects_missing_declared_package(self):
+        with mock.patch(
+            "dpkgbuild_replay.deb_fields",
+            return_value={"Package": "other"},
+        ):
+            with self.assertRaisesRegex(ValueError, "did not produce"):
+                select_installroot_debs(["/tmp/other.deb"], ["one"])
 
 
 class TestAptMetadata(unittest.TestCase):
@@ -204,11 +408,6 @@ class TestAptMetadata(unittest.TestCase):
 
 
 class TestDebProjection(unittest.TestCase):
-    def _fields(self, entries):
-        def field(path, name):
-            return entries[os.path.basename(path)].get(name, "")
-        return field
-
     def test_selects_exact_binary_architecture_and_source_version(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "libexample1_1.0-1+b2_amd64.deb")
@@ -219,7 +418,7 @@ class TestDebProjection(unittest.TestCase):
                 "Source": "example (1.0-1)",
                 "Version": "1.0-1+b2",
             }}
-            with mock.patch("deb_extract.deb_field", side_effect=self._fields(entries)):
+            with mock.patch("deb_extract.deb_fields", side_effect=lambda path: entries[os.path.basename(path)]):
                 self.assertEqual(
                     path,
                     select_deb(tmp, "libexample1", "amd64", "example", "1.0-1"),
@@ -235,7 +434,7 @@ class TestDebProjection(unittest.TestCase):
                 "Source": "example",
                 "Version": "1",
             }}
-            with mock.patch("deb_extract.deb_field", side_effect=self._fields(entries)):
+            with mock.patch("deb_extract.deb_fields", side_effect=lambda path: entries[os.path.basename(path)]):
                 with self.assertRaisesRegex(ValueError, "wrong architecture"):
                     select_deb(tmp, "example", "amd64", "example", "1")
 
@@ -249,7 +448,7 @@ class TestDebProjection(unittest.TestCase):
                 "Source": "example",
                 "Version": "2",
             }}
-            with mock.patch("deb_extract.deb_field", side_effect=self._fields(entries)):
+            with mock.patch("deb_extract.deb_fields", side_effect=lambda path: entries[os.path.basename(path)]):
                 with self.assertRaisesRegex(ValueError, "incompatible version"):
                     select_deb(tmp, "example", "amd64", "example", "1")
 
@@ -265,7 +464,7 @@ class TestDebProjection(unittest.TestCase):
                     "Source": "example",
                     "Version": "1",
                 }
-            with mock.patch("deb_extract.deb_field", side_effect=self._fields(entries)):
+            with mock.patch("deb_extract.deb_fields", side_effect=lambda path: entries[os.path.basename(path)]):
                 with self.assertRaisesRegex(ValueError, "ambiguous deb"):
                     select_deb(tmp, "example", "amd64", "example", "1")
 

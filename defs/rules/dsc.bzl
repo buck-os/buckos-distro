@@ -13,12 +13,13 @@ load("//defs:providers.bzl", "DebArtifactInfo", "PackageInfo", "SourcePackageInf
 
 
 def _dsc_unpack_impl(ctx: AnalysisContext) -> list[Provider]:
-    out = ctx.actions.declare_output("source", dir = True)
+    out = ctx.actions.declare_output("source.tar")
     cmd = cmd_args(ctx.attrs._unpack[RunInfo])
     cmd.add("--dsc", ctx.attrs.dsc)
     for source in ctx.attrs.source_files:
         cmd.add("--file", source)
     cmd.add("--out", out.as_output())
+    cmd.add("--source-date-epoch", ctx.attrs.source_date_epoch)
 
     ctx.actions.run(
         cmd,
@@ -49,6 +50,7 @@ dsc_unpack = rule(
         "package_name": attrs.string(),
         "release": attrs.string(default = ""),
         "source_files": attrs.list(attrs.source()),
+        "source_date_epoch": attrs.string(default = "1700000000"),
         "version": attrs.string(default = ""),
         "_unpack": attrs.default_only(attrs.exec_dep(default = "//tools:dsc_unpack")),
     },
@@ -68,14 +70,21 @@ def _deb_build_impl(ctx: AnalysisContext) -> list[Provider]:
     cmd.add("--out-manifest", manifest.as_output())
     cmd.add(buildroot_sysroot_args(ctx))
     cmd.add(buildroot_env(ctx))
+    for key, value in sorted(ctx.attrs.build_env.items()):
+        cmd.add("--env", "{}={}".format(key, value))
     cmd.add(dep_installroot_args(ctx.attrs.build_deps))
     for dep in ctx.attrs.build_deps:
         for artifact in dep[PackageInfo].artifacts or []:
             cmd.add(cmd_args("--dep-deb", artifact, hidden = artifact))
     if ctx.attrs.dpkg_buildpackage:
         cmd.add("--dpkg-buildpackage", ctx.attrs.dpkg_buildpackage)
+    cmd.add("--build-type", ctx.attrs.build_type)
+    for option in ctx.attrs.build_options:
+        cmd.add("--build-option", option)
     for profile in ctx.attrs.build_profiles:
         cmd.add("--build-profile", profile)
+    for package_name in ctx.attrs.install_packages:
+        cmd.add("--install-package", package_name)
     if ctx.attrs.nocheck:
         cmd.add("--nocheck")
     cmd.add("--source-date-epoch", ctx.attrs.source_date_epoch)
@@ -128,12 +137,16 @@ deb_build = rule(
     impl = _deb_build_impl,
     attrs = {
         "build_deps": attrs.list(attrs.dep(providers = [PackageInfo]), default = []),
+        "build_env": attrs.dict(attrs.string(), attrs.string(), default = {}),
+        "build_options": attrs.list(attrs.string(), default = []),
         "build_profiles": attrs.list(attrs.string(), default = []),
+        "build_type": attrs.enum(["binary", "arch", "indep"], default = "binary"),
         "cpe": attrs.option(attrs.string(), default = None),
         "description": attrs.string(default = ""),
         "dpkg_buildpackage": attrs.option(attrs.string(), default = None),
         "dsc": attrs.source(),
         "homepage": attrs.option(attrs.string(), default = None),
+        "install_packages": attrs.list(attrs.string()),
         "libraries": attrs.list(attrs.string(), default = []),
         "license": attrs.string(default = ""),
         "nocheck": attrs.bool(default = True),

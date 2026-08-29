@@ -1,5 +1,6 @@
 """Shared Debian package helpers for buckos-distro action scripts."""
 
+import glob
 import hashlib
 import os
 import re
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from xml.sax.saxutils import quoteattr
 
 
 SOURCE_FIELD_RE = re.compile(r"^([^\s()]+)(?:\s+\(([^()]+)\))?$")
@@ -40,6 +42,17 @@ CONTROL_FILES = (
     "shlibs",
     "symbols",
     "triggers",
+)
+
+SKELETON = (
+    "builddir",
+    "dev",
+    "etc",
+    "proc",
+    "sys",
+    "tmp",
+    "var/lib/dpkg/info",
+    "var/tmp",
 )
 
 
@@ -156,6 +169,248 @@ def compatible_binary_version(actual: str, source_version: str) -> bool:
     return strip_binary_nmu(actual) == source_version
 
 
+def merge_base_passwd_database(root: str, name: str) -> None:
+    """Add accounts from base-passwd's master database when not configured."""
+    target = os.path.join(root, "etc", name)
+    master = os.path.join(root, "usr", "share", "base-passwd", name + ".master")
+    if not os.path.isfile(master):
+        return
+
+    with open(target, encoding="utf-8") as stream:
+        existing_lines = stream.read().splitlines()
+    existing_names = {
+        line.split(":", 1)[0]
+        for line in existing_lines
+        if line and not line.startswith("#") and ":" in line
+    }
+    with open(master, encoding="utf-8") as stream:
+        master_lines = stream.read().splitlines()
+    additions = [
+        line for line in master_lines
+        if line and not line.startswith("#") and line.split(":", 1)[0] not in existing_names
+    ]
+    if additions:
+        with open(target, "a", encoding="utf-8") as stream:
+            for line in additions:
+                stream.write(line + "\n")
+
+
+def ensure_base_files(root: str) -> None:
+    """Create the minimal runtime skeleton and package-managed tool links."""
+    for rel in SKELETON:
+        path = os.path.join(root, rel)
+        os.makedirs(path, exist_ok=True)
+    os.chmod(os.path.join(root, "tmp"), 0o1777)
+    os.chmod(os.path.join(root, "var", "tmp"), 0o1777)
+
+    info_format = os.path.join(root, "var", "lib", "dpkg", "info", "format")
+    if not os.path.exists(info_format):
+        with open(info_format, "w", encoding="utf-8") as stream:
+            stream.write("1\n")
+
+    for name, target in (
+        ("bin", "usr/bin"),
+        ("sbin", "usr/sbin"),
+        ("lib", "usr/lib"),
+        ("lib32", "usr/lib32"),
+        ("lib64", "usr/lib64"),
+        ("libx32", "usr/libx32"),
+    ):
+        path = os.path.join(root, name)
+        target_path = os.path.join(root, target)
+        if not os.path.lexists(path) and os.path.exists(target_path):
+            os.symlink(target, path)
+
+    passwd = os.path.join(root, "etc", "passwd")
+    if not os.path.exists(passwd):
+        with open(passwd, "w", encoding="utf-8") as stream:
+            stream.write("root:x:0:0:root:/root:/bin/bash\n")
+    group = os.path.join(root, "etc", "group")
+    if not os.path.exists(group):
+        with open(group, "w", encoding="utf-8") as stream:
+            stream.write("root:x:0:\n")
+    merge_base_passwd_database(root, "passwd")
+    merge_base_passwd_database(root, "group")
+
+    # base-files selects the native dpkg vendor in its postinst. Some large
+    # source packages, including GCC, query it even during debian/rules clean.
+    origins = os.path.join(root, "etc", "dpkg", "origins")
+    default_origin = os.path.join(origins, "default")
+    if not os.path.lexists(default_origin):
+        for vendor in ("ubuntu", "debian"):
+            if os.path.isfile(os.path.join(origins, vendor)):
+                os.symlink(vendor, default_origin)
+                break
+
+    bindir = os.path.join(root, "usr", "bin")
+    os.makedirs(bindir, exist_ok=True)
+    for name in ("aclocal", "automake", "openjade"):
+        link = os.path.join(bindir, name)
+        candidates = sorted(glob.glob(link + "-*"))
+        if not os.path.lexists(link) and len(candidates) == 1:
+            os.symlink(os.path.basename(candidates[0]), link)
+    for name in ("lua", "luac"):
+        link = os.path.join(bindir, name)
+        candidates = sorted(glob.glob(link + "[0-9]*"))
+        if not os.path.lexists(link) and len(candidates) == 1:
+            os.symlink(os.path.basename(candidates[0]), link)
+
+    # These links are normally registered by package maintainer scripts.
+    # Buildroots are payload-composed rather than configured, so reproduce
+    # the stable defaults when the selected implementation is present.
+    for name, target in (
+        ("awk", "mawk"),
+        ("nawk", "mawk"),
+        ("cc", "gcc"),
+        ("c++", "g++"),
+        ("c89", "c89-gcc"),
+        ("c99", "c99-gcc"),
+        ("jade", "openjade-1.4devel"),
+        ("nsgmls", "onsgmls"),
+        ("sgmlnorm", "osgmlnorm"),
+        ("spam", "ospam"),
+        ("spent", "ospent"),
+        ("yacc", "bison.yacc"),
+        ("which", "which.debianutils"),
+    ):
+        link = os.path.join(bindir, name)
+        if not os.path.lexists(link) and os.path.isfile(os.path.join(bindir, target)):
+            os.symlink(target, link)
+
+    java_bindir = os.path.join(root, "usr", "lib", "jvm", "default-java", "bin")
+    if os.path.isdir(java_bindir):
+        for executable in sorted(os.listdir(java_bindir)):
+            source = os.path.join(java_bindir, executable)
+            link = os.path.join(bindir, executable)
+            if os.path.isfile(source) and os.access(source, os.X_OK) and not os.path.lexists(link):
+                os.symlink("../lib/jvm/default-java/bin/{}".format(executable), link)
+
+    # libc6-i386 normally creates this through its postinst. Its linker script
+    # names /lib/ld-linux.so.2, which resolves through merged-/usr to this link.
+    i386_loader = os.path.join(root, "usr", "lib32", "ld-linux.so.2")
+    loader_link = os.path.join(root, "usr", "lib", "ld-linux.so.2")
+    if os.path.isfile(i386_loader) and not os.path.lexists(loader_link):
+        os.makedirs(os.path.dirname(loader_link), exist_ok=True)
+        os.symlink("../lib32/ld-linux.so.2", loader_link)
+
+    # xml-core normally creates /etc/xml/catalog from package triggers. Point a
+    # payload-composed buildroot at every packaged catalog instead.
+    catalog = os.path.join(root, "etc", "xml", "catalog")
+    packaged_catalogs = sorted(glob.glob(os.path.join(
+        root,
+        "usr",
+        "share",
+        "xml",
+        "**",
+        "catalog*.xml",
+    ), recursive=True))
+    if packaged_catalogs and not os.path.lexists(catalog):
+        os.makedirs(os.path.dirname(catalog), exist_ok=True)
+        with open(catalog, "w", encoding="utf-8") as stream:
+            stream.write('<?xml version="1.0"?>\n')
+            stream.write('<catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">\n')
+            for packaged_catalog in packaged_catalogs:
+                chroot_path = "/" + os.path.relpath(packaged_catalog, root)
+                stream.write("  <nextCatalog catalog={}/><!-- packaged -->\n".format(
+                    quoteattr(chroot_path),
+                ))
+            stream.write("</catalog>\n")
+
+    # sgml-base normally regenerates this supercatalog from package triggers.
+    # Without it, docbook-utils falls back to every catalog under
+    # /usr/share/sgml, including OpenJade's Unicode SGML declaration.  That
+    # declaration has limits too small for DocBook and breaks otherwise valid
+    # package documentation builds.
+    sgml_catalog = os.path.join(root, "etc", "sgml", "catalog")
+    packaged_sgml_catalogs = sorted(glob.glob(os.path.join(
+        root,
+        "etc",
+        "sgml",
+        "*.cat",
+    )))
+    if packaged_sgml_catalogs and not os.path.lexists(sgml_catalog):
+        supercatalog = os.path.join(root, "var", "lib", "sgml-base", "supercatalog")
+        os.makedirs(os.path.dirname(supercatalog), exist_ok=True)
+        with open(supercatalog, "w", encoding="utf-8") as stream:
+            stream.write("--\n")
+            stream.write("## Generated from packaged SGML catalogs.\n")
+            stream.write("--\n")
+            for packaged_catalog in packaged_sgml_catalogs:
+                chroot_path = "/" + os.path.relpath(packaged_catalog, root)
+                stream.write("CATALOG {}\n".format(chroot_path))
+        os.symlink("/var/lib/sgml-base/supercatalog", sgml_catalog)
+
+    # ca-certificates normally assembles this bundle in its postinst. Python's
+    # bundled requests imports it even for offline package installation.
+    ca_bundle = os.path.join(root, "etc", "ssl", "certs", "ca-certificates.crt")
+    packaged_certificates = sorted(glob.glob(os.path.join(
+        root,
+        "usr",
+        "share",
+        "ca-certificates",
+        "**",
+        "*.crt",
+    ), recursive=True))
+    if packaged_certificates and not os.path.lexists(ca_bundle):
+        os.makedirs(os.path.dirname(ca_bundle), exist_ok=True)
+        with open(ca_bundle, "wb") as output:
+            for certificate in packaged_certificates:
+                with open(certificate, "rb") as source:
+                    contents = source.read()
+                output.write(contents)
+                if contents and not contents.endswith(b"\n"):
+                    output.write(b"\n")
+
+
+def stage_fakeroot_runtime(buildroot: str, work: str) -> dict[str, str]:
+    """Copy the target's fakeroot runtime into the shared work mount."""
+    runtime = os.path.join(work, "fakeroot")
+    os.makedirs(runtime)
+    paths = {}
+    for name in ("fakeroot-sysv", "faked-sysv"):
+        source = os.path.join(buildroot, "usr", "bin", name)
+        if not os.path.isfile(source):
+            sys.exit("Debian buildroot has no /usr/bin/{}".format(name))
+        destination = os.path.join(runtime, name)
+        shutil.copy2(source, destination)
+        paths[name] = destination
+
+    libraries = glob.glob(os.path.join(
+        buildroot,
+        "usr",
+        "lib",
+        "*",
+        "libfakeroot",
+        "libfakeroot-sysv.so",
+    ))
+    if len(libraries) != 1:
+        sys.exit(
+            "Debian buildroot must contain exactly one libfakeroot-sysv.so, "
+            "found {}".format(len(libraries))
+        )
+    library = os.path.join(runtime, "libfakeroot-sysv.so")
+    shutil.copy2(libraries[0], library)
+    paths["library"] = library
+    paths["state"] = os.path.join(runtime, "state")
+    return paths
+
+
+def fakeroot_command(
+    runtime: dict[str, str],
+    command: list[str],
+    load: bool = False,
+) -> list[str]:
+    wrapped = [
+        runtime["fakeroot-sysv"],
+        "-f", runtime["faked-sysv"],
+        "-l", runtime["library"],
+    ]
+    if load:
+        wrapped.extend(["-i", runtime["state"]])
+    wrapped.extend(["-s", runtime["state"], "--"])
+    return wrapped + command
+
+
 def sha256_file(path):
     digest = hashlib.sha256()
     with open(path, "rb") as stream:
@@ -201,6 +456,15 @@ def deb_field(path, field):
     return result.stdout.strip()
 
 
+def deb_fields(path: str) -> dict[str, str]:
+    result = run(
+        [require_tool("dpkg-deb"), "--field", path],
+        capture_output=True,
+        text=True,
+    )
+    return parse_control(result.stdout)
+
+
 def extract_deb(path, out):
     run([require_tool("dpkg-deb"), "--extract", path, out])
 
@@ -225,19 +489,20 @@ def payload_paths(deb: str) -> list[str]:
     return sorted(set(paths))
 
 
-def package_key(deb: str) -> str:
-    package = deb_field(deb, "Package")
-    architecture = deb_field(deb, "Architecture")
-    if deb_field(deb, "Multi-Arch") == "same":
+def package_key(deb: str, fields: dict[str, str] | None = None) -> str:
+    fields = fields or deb_fields(deb)
+    package = fields["Package"]
+    architecture = fields["Architecture"]
+    if fields.get("Multi-Arch") == "same":
         return "{}:{}".format(package, architecture)
     return package
 
 
-def extract_control(deb: str, root: str) -> None:
+def extract_control(deb: str, root: str, key: str | None = None) -> None:
     dpkg_deb = require_tool("dpkg-deb")
     with tempfile.TemporaryDirectory(prefix="buckos-deb-control-") as tmp:
         run([dpkg_deb, "--control", deb, tmp])
-        key = package_key(deb)
+        key = key or package_key(deb)
         info = os.path.join(root, "var", "lib", "dpkg", "info")
         os.makedirs(info, exist_ok=True)
         for name in CONTROL_FILES:
@@ -249,13 +514,8 @@ def extract_control(deb: str, root: str) -> None:
                 stream.write(path + "\n")
 
 
-def status_paragraph(deb: str) -> str:
-    result = run(
-        [require_tool("dpkg-deb"), "--field", deb],
-        capture_output=True,
-        text=True,
-    )
-    fields = parse_control(result.stdout)
+def status_paragraph(deb: str, fields: dict[str, str] | None = None) -> str:
+    fields = dict(fields or deb_fields(deb))
     fields["Status"] = "install ok installed"
     lines = []
     for name in STATUS_FIELDS:
@@ -284,8 +544,10 @@ def register_debs(debs: list[str], root: str) -> None:
         ) + "\n"
 
     for deb in debs:
-        extract_control(deb, root)
-        paragraphs[package_key(deb)] = status_paragraph(deb)
+        fields = deb_fields(deb)
+        key = package_key(deb, fields)
+        extract_control(deb, root, key)
+        paragraphs[key] = status_paragraph(deb, fields)
 
     os.makedirs(os.path.dirname(status_path), exist_ok=True)
     with open(status_path, "w", encoding="utf-8") as stream:

@@ -44,6 +44,7 @@ import shlex
 import shutil
 import sys
 
+from _deb import fakeroot_command, stage_fakeroot_runtime
 from _image import find_kernel
 from _isolation import (
     ISOLATION_MODES,
@@ -59,6 +60,39 @@ from _rpm import make_dirs_writable, reproducible_env, scratch_dir
 _ROOTFS = "image.tar"
 _ROOT = "root"
 _IMAGE = "initramfs.img"
+
+
+def stage_image_tool(buildroot, work, name):
+    """Stage one binary-seeded construction tool outside the image root.
+
+    Debian's source-built coreutils cp cannot preserve ownership on symlinks
+    in the user-namespace bind mount used here, even under fakeroot.  The
+    binary-seeded buildroot's cp can, and image construction tools are meant
+    to come from that buildroot rather than become rootfs payload.  The work
+    directory is bind-mounted at the same absolute path inside the image, so
+    putting the binary there makes it available without modifying the image.
+    """
+    source = os.path.join(buildroot, "usr", "bin", name)
+    if not os.path.isfile(source):
+        sys.exit(
+            "image-tools buildroot has no /usr/bin/{} for initramfs "
+            "construction".format(name)
+        )
+    directory = os.path.join(work, "image-tools-bin")
+    os.makedirs(directory, exist_ok=True)
+    destination = os.path.join(directory, name)
+    shutil.copy2(source, destination)
+    return destination
+
+
+def _install_image_tool_script(tool, root, name):
+    """Replace a tool only in the ephemeral tree used by the generator."""
+    destination = os.path.join(root, "usr", "bin", name)
+    return "{} --preserve=mode,timestamps {} {}".format(
+        shlex.quote(tool),
+        shlex.quote(tool),
+        shlex.quote(destination),
+    )
 
 
 def stage_rootfs(rootfs, work):
@@ -253,6 +287,16 @@ def _build(args, isolation, rootfs, kver, work, out):
     make_dirs_writable(sysroot)
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
+    env["FAKEROOTDONTTRYCHOWN"] = "1"
+    fakeroot = stage_fakeroot_runtime(sysroot, work)
+
+    image_cp = None
+    if args.generator != "dracut":
+        # mkinitramfs resets PATH, so a PATH override cannot select the
+        # construction copy of cp.  Replace cp only in the ephemeral unpacked
+        # tree.  The source-built cp remains in the input rootfs tarball and
+        # therefore in the resulting image.
+        image_cp = stage_image_tool(sysroot, work, "cp")
 
     staged = stage_rootfs(rootfs, work)
 
@@ -262,8 +306,14 @@ def _build(args, isolation, rootfs, kver, work, out):
         file=sys.stderr,
         flush=True,
     )
+    unpack = _unpack_script(staged, root)
+    if image_cp:
+        unpack += "\n" + _install_image_tool_script(image_cp, root, "cp")
     run_isolated(
-        ["/bin/sh", "-c", _unpack_script(staged, root)],
+        fakeroot_command(
+            fakeroot,
+            ["/bin/sh", "-c", unpack],
+        ),
         isolation, work, work, sysroot, env=env,
     )
 
@@ -286,7 +336,11 @@ def _build(args, isolation, rootfs, kver, work, out):
         if args.generator != "dracut":
             script = _initramfs_tools_script(args, kver, image)
         run_isolated(
-            ["/bin/sh", "-c", script],
+            fakeroot_command(
+                fakeroot,
+                ["/bin/sh", "-c", script],
+                load=True,
+            ),
             isolation, work, work, root, env=env,
         )
     finally:

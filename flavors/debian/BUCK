@@ -13,5 +13,22 @@ DEFAULT_RELEASE = default_release("debian", RELEASES)
 
 deb_downloads_for("debian", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE_ARCH)
 deb_buildroots_for("debian", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE_ARCH)
-deb_packages_for("debian", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE_ARCH)
+deb_packages_for(
+    "debian",
+    RELEASES,
+    DEFAULT_RELEASE,
+    DATA_BY_RELEASE_ARCH,
+    build_env_by_source = {
+        # This upstream stage builds only the runtime libraries selected by
+        # the live closure.
+        "gcc-14": {"DEB_STAGE": "rtlibs"},
+    },
+    build_options_by_source = {
+        # The live closure needs GCC's runtime packages, not a profiled and
+        # LTO-bootstrapped compiler toolchain.
+        "gcc-14": ["nostrap", "nolto", "nonvptx", "nogcn"],
+        # Its generated sudoers parser rule races through shared y.tab files.
+        "sudo": ["parallel=1"],
+    },
+)
 deb_images_for("debian", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE_ARCH)

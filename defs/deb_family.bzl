@@ -114,12 +114,33 @@ def _base_debs(data):
         return base
     return data.SEED_DEBS
 
+def _fakeroot_debs(data):
+    return [
+        entry
+        for entry in _base_debs(data)
+        if entry["package"] in ("fakeroot", "libfakeroot")
+    ]
+
 def _target_cpu(flavor, architecture):
     if architecture == "amd64":
         return "x86_64"
     if architecture == "arm64":
         return "aarch64"
     fail("unsupported {} architecture: {}".format(flavor, architecture))
+
+def _deb_build_type(binary_metadata):
+    has_all = False
+    has_arch = False
+    for package_name in binary_metadata:
+        if binary_metadata[package_name]["architecture"] == "all":
+            has_all = True
+        else:
+            has_arch = True
+    if has_all and not has_arch:
+        return "indep"
+    if has_arch and not has_all:
+        return "arch"
+    return "binary"
 
 def deb_buildroots(flavor, data, suffix, platform, exec_constraints):
     _validate_flavor(flavor)
@@ -142,8 +163,17 @@ def deb_buildroot_target(flavor, suffix):
     provenance = read_config("buckos." + flavor, "buildroot", "binary-seed")
     return ":buildroot-{}{}".format(provenance, suffix)
 
-def deb_packages(flavor, data, suffix, platform, exec_constraints):
+def deb_packages(
+        flavor,
+        data,
+        suffix,
+        platform,
+        exec_constraints,
+        build_env_by_source = None,
+        build_options_by_source = None):
     _validate_flavor(flavor)
+    build_env_by_source = build_env_by_source or {}
+    build_options_by_source = build_options_by_source or {}
     base_targets = {entry["target"]: True for entry in _base_debs(data)}
     build_deps = {}
     for source in data.SOURCES:
@@ -201,6 +231,9 @@ def deb_packages(flavor, data, suffix, platform, exec_constraints):
             release = source["release"],
             subpackages = subpackages,
             binary_metadata = binary_metadata,
+            build_env = build_env_by_source.get(source["name"], {}),
+            build_options = build_options_by_source.get(source["name"], []),
+            build_type = _deb_build_type(binary_metadata),
             build_deps = [
                 ":" + _seedroot_target(entry, suffix)
                 for entry in source.get("build_deps", [])
@@ -226,7 +259,10 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
     tools = ":buildroot-image-tools" + suffix
     seeded_deb_buildroot(
         name = "buildroot-image-tools" + suffix,
-        seed_debs = [":" + entry["target"] + suffix for entry in data.IMAGE_SETS["image-tools"]],
+        seed_debs = [
+            ":" + entry["target"] + suffix
+            for entry in data.IMAGE_SETS["image-tools"] + _fakeroot_debs(data)
+        ],
         target_cpu = data.TARGET_CPU,
         default_target_platform = platform,
         visibility = ["PUBLIC"],
@@ -351,13 +387,19 @@ def deb_buildroots_for(flavor, releases, default, data_by_release_arch):
         deb_buildroots(flavor, _data_for(flavor, data_by_release_arch, release, DEFAULT_ARCHITECTURE), release_suffix(release), target_platform(flavor, release, DEFAULT_ARCHITECTURE), execution_compatible_with(DEFAULT_ARCHITECTURE))
     deb_buildroots(flavor, _data_for(flavor, data_by_release_arch, default, DEFAULT_ARCHITECTURE), "", target_platform(flavor, default, DEFAULT_ARCHITECTURE), execution_compatible_with(DEFAULT_ARCHITECTURE))
 
-def deb_packages_for(flavor, releases, default, data_by_release_arch):
+def deb_packages_for(
+        flavor,
+        releases,
+        default,
+        data_by_release_arch,
+        build_env_by_source = None,
+        build_options_by_source = None):
     for release in releases:
         for architecture in ARCHITECTURES:
-            deb_packages(flavor, _data_for(flavor, data_by_release_arch, release, architecture), release_arch_suffix(release, architecture), target_platform(flavor, release, architecture), execution_compatible_with(architecture))
+            deb_packages(flavor, _data_for(flavor, data_by_release_arch, release, architecture), release_arch_suffix(release, architecture), target_platform(flavor, release, architecture), execution_compatible_with(architecture), build_env_by_source, build_options_by_source)
     for release in releases:
-        deb_packages(flavor, _data_for(flavor, data_by_release_arch, release, DEFAULT_ARCHITECTURE), release_suffix(release), target_platform(flavor, release, DEFAULT_ARCHITECTURE), execution_compatible_with(DEFAULT_ARCHITECTURE))
-    deb_packages(flavor, _data_for(flavor, data_by_release_arch, default, DEFAULT_ARCHITECTURE), "", target_platform(flavor, default, DEFAULT_ARCHITECTURE), execution_compatible_with(DEFAULT_ARCHITECTURE))
+        deb_packages(flavor, _data_for(flavor, data_by_release_arch, release, DEFAULT_ARCHITECTURE), release_suffix(release), target_platform(flavor, release, DEFAULT_ARCHITECTURE), execution_compatible_with(DEFAULT_ARCHITECTURE), build_env_by_source, build_options_by_source)
+    deb_packages(flavor, _data_for(flavor, data_by_release_arch, default, DEFAULT_ARCHITECTURE), "", target_platform(flavor, default, DEFAULT_ARCHITECTURE), execution_compatible_with(DEFAULT_ARCHITECTURE), build_env_by_source, build_options_by_source)
 
 def deb_images_for(flavor, releases, default, data_by_release_arch):
     for release in releases:

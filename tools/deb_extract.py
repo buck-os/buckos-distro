@@ -7,7 +7,7 @@ import os
 import shutil
 import sys
 
-from _deb import compatible_binary_version, deb_field, extract_deb, source_identity
+from _deb import compatible_binary_version, deb_fields, extract_deb, source_identity
 from _rpm import make_dirs_writable
 
 
@@ -23,12 +23,7 @@ def select_deb(
     patterns = ("*.deb", "*.ddeb")
     for pattern in patterns:
         for path in sorted(glob.glob(os.path.join(deb_dir, pattern))):
-            fields = {
-                "Architecture": deb_field(path, "Architecture"),
-                "Package": deb_field(path, "Package"),
-                "Source": deb_field(path, "Source"),
-                "Version": deb_field(path, "Version"),
-            }
+            fields = deb_fields(path)
             name = fields["Package"]
             available.append("{}:{}={}".format(
                 name,
@@ -122,7 +117,7 @@ def main():
             directory = os.path.dirname(os.path.abspath(args.deb))
             path = select_deb(
                 directory,
-                args.select or deb_field(args.deb, "Package"),
+                args.select or deb_fields(args.deb)["Package"],
                 args.architecture,
                 args.source_name,
                 args.source_version,

@@ -48,11 +48,30 @@ def validate_sources(dsc, source_paths):
     return provided
 
 
+def archive_source_tree(source, destination, source_date_epoch):
+    """Archive every source node into one Buck-representable artifact."""
+    run([
+        require_tool("tar"),
+        "--create",
+        "--format=posix",
+        "--sort=name",
+        "--numeric-owner",
+        "--owner=0",
+        "--group=0",
+        "--mtime=@{}".format(source_date_epoch),
+        "--pax-option=delete=atime,delete=ctime",
+        "--file", destination,
+        "--directory", source,
+        ".",
+    ])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dsc", required=True)
     parser.add_argument("--file", action="append", default=[])
     parser.add_argument("--out", required=True)
+    parser.add_argument("--source-date-epoch", default="1700000000")
     args = parser.parse_args()
 
     try:
@@ -79,8 +98,8 @@ def main():
     ])
 
     out = os.path.abspath(args.out)
-    shutil.rmtree(out, ignore_errors=True)
-    shutil.copytree(unpacked, out, symlinks=True)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    archive_source_tree(unpacked, out, args.source_date_epoch)
     print(
         "buckos-distro: unpacked {} -> {}".format(dsc_name, args.out),
         file=sys.stderr,

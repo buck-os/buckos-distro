@@ -148,6 +148,7 @@ python_binary(
     name = "deb_rootfs_install",
     main = "deb_rootfs_install.py",
     deps = [
+        ":_deb",
         ":_isolation",
         ":_rpm",
     ],
@@ -165,6 +166,7 @@ python_binary(
     name = "initramfs_build",
     main = "initramfs_build.py",
     deps = [
+        ":_deb",
         ":_image",
         ":_isolation",
         ":_rpm",
@@ -180,6 +182,7 @@ python_binary(
     name = "squashfs_build",
     main = "squashfs_build.py",
     deps = [
+        ":_deb",
         ":_isolation",
         ":_rpm",
     ],
@@ -235,6 +238,7 @@ python_test(
     srcs = [
         "boot_tools_test.py",
         "deb_rootfs_install.py",
+        "initramfs_build.py",
         "iso_build.py",
         "iso_boot_test.py",
         "rootfs_overlay.py",
@@ -242,6 +246,7 @@ python_test(
     ],
     base_module = "",
     deps = [
+        ":_deb",
         ":_image",
         ":_isolation",
         ":_rpm",
@@ -280,10 +285,12 @@ python_test(
         "dsc_unpack.py",
         "deb_generate.py",
         "deb_lock.py",
+        "dpkgbuild_replay.py",
     ],
     base_module = "",
     deps = [
         ":_deb",
+        ":_isolation",
         ":_rpm",
         ":source_policy",
     ],

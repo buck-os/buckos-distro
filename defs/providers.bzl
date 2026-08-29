@@ -90,7 +90,7 @@ FlavorInfo = provider(fields = [
 
 SourcePackageInfo = provider(fields = [
     "topdir",           # artifact: rpm-style topdir (SOURCES/, SPECS/) or
-                        #           debian-style unpacked source tree
+                        #           Debian source-tree archive
     "recipe",           # str: path within topdir to the build recipe,
                         #      e.g. "SPECS/zlib.spec" or "debian/rules"
     "name",             # str
