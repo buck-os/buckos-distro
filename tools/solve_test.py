@@ -423,14 +423,69 @@ class TestProbeFile(unittest.TestCase):
                 target_cpu="x86_64",
             )
 
-    def test_legacy_probe_without_target_cpu_keeps_working(self):
+    def test_a_probe_for_another_architecture_is_refused(self):
+        path = self.write({
+            "schema": PROBE_SCHEMA,
+            "flavor": "fedora",
+            "release": "44",
+            "target_cpu": "x86_64",
+            "packages": {"widget": {"dynamic": []}},
+        })
+        with self.assertRaisesRegex(
+            SystemExit, "target_cpu='x86_64', expected 'aarch64'"
+        ):
+            load_probe(
+                path,
+                {"widget"},
+                flavor="fedora",
+                release="44",
+                target_cpu="aarch64",
+            )
+
+    def test_a_probe_stating_no_architecture_is_refused(self):
+        # The rename this exists for: an x86_64 report carrying no
+        # target_cpu, moved to the AArch64 filename.  Its contents are
+        # indistinguishable from a real AArch64 report, so the absence of
+        # the field is the only thing left to refuse on.
+        path = self.write({
+            "schema": PROBE_SCHEMA,
+            "flavor": "fedora",
+            "release": "44",
+            "packages": {"widget": {"dynamic": []}},
+        })
+        with self.assertRaisesRegex(
+            SystemExit, "target_cpu=None, expected 'aarch64'"
+        ):
+            load_probe(
+                path,
+                {"widget"},
+                flavor="fedora",
+                release="44",
+                target_cpu="aarch64",
+            )
+
+    def test_a_probe_stating_no_architecture_is_refused_by_its_own_arch(self):
+        # Not a rename, and still refused: nothing recorded which
+        # architecture produced it, so nothing can confirm it belongs here.
+        self.assertEqual(
+            ["target_cpu=None, expected 'x86_64'"],
+            probe_identity_errors(
+                {"flavor": "fedora", "release": "44"},
+                flavor="fedora",
+                release="44",
+                target_cpu="x86_64",
+            ),
+        )
+
+    def test_an_architecture_is_not_checked_when_the_solve_omits_it(self):
+        # probe.py asks about identities the caller knows.  A caller that
+        # passes no architecture is not asserting one.
         self.assertEqual(
             [],
             probe_identity_errors(
                 {"flavor": "fedora", "release": "44"},
                 flavor="fedora",
                 release="44",
-                target_cpu="x86_64",
             ),
         )
 

@@ -4127,5 +4127,6 @@
     }
   },
   "release": "44",
-  "schema": 1
+  "schema": 1,
+  "target_cpu": "x86_64"
 }

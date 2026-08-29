@@ -1037,8 +1037,13 @@ def probed_buildrequires(report, implicit=BUILDSYS_BUILD):
 def probe_identity_errors(data, flavor=None, release=None, target_cpu=None):
     """Return mismatches between a probe and the solve consuming it.
 
-    Schema-1 probe files predate ``target_cpu``. Accept that missing field
-    for compatibility, but validate it whenever a writer supplies it.
+    A probe must state every identity the solve reading it asserts,
+    ``target_cpu`` included.  Nothing in a report's contents names an
+    architecture -- the capabilities are the same strings either way -- so
+    a file that omits the field cannot be shown to belong to the lock that
+    names it, and copying an x86_64 report to the AArch64 filename would
+    otherwise be accepted in silence.  A probe run writes the field, so the
+    only files this refuses are ones whose architecture nothing recorded.
     """
     errors = []
     expected = {
@@ -1050,8 +1055,6 @@ def probe_identity_errors(data, flavor=None, release=None, target_cpu=None):
         if wanted is None:
             continue
         actual = data.get(field)
-        if actual is None and field == "target_cpu":
-            continue
         if str(actual) != str(wanted):
             errors.append("{}={!r}, expected {!r}".format(
                 field, actual, wanted
