@@ -118,6 +118,7 @@ def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
         cmd.add("--omit-module", module)
     for arg in ctx.attrs.dracut_args:
         cmd.add("--dracut-arg", arg)
+    cmd.add("--generator", ctx.attrs.generator)
     cmd.add("--source-date-epoch", ctx.attrs.source_date_epoch)
 
     ctx.actions.run(
@@ -146,6 +147,7 @@ initramfs = rule(
         # find a squashfs on a CD and the boot stops at a dracut shell.
         "add_modules": attrs.list(attrs.string(), default = []),
         "dracut_args": attrs.list(attrs.string(), default = []),
+        "generator": attrs.enum(["dracut", "live-boot", "casper"], default = "dracut"),
         "kver": attrs.string(default = ""),
         "omit_modules": attrs.list(attrs.string(), default = []),
         "rootfs": attrs.dep(),

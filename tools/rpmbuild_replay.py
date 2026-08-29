@@ -42,7 +42,12 @@ import shlex
 import shutil
 import sys
 
-from _isolation import remove_tree, resolve_isolation, run_isolated
+from _isolation import (
+    remove_tree,
+    require_target_execution,
+    resolve_isolation,
+    run_isolated,
+)
 from _rpm import (
     extract_rpm,
     make_dirs_writable,
@@ -618,6 +623,7 @@ def main():
             ap.error("--stage {} requires --{}".format(
                 args.stage, name.replace("_", "-")))
 
+    require_target_execution(args.target_cpu, args.provenance)
     args.isolation = resolve_isolation(args.isolation)
 
     # Only the unsandboxed path uses the host's rpmbuild.  Under a sandbox

@@ -2,12 +2,13 @@
 """Compress an image rootfs into a squashfs, using the target's mksquashfs.
 
 Same argument tools/initramfs_build.py makes about dracut, applied to
-squashfs-tools: the host's mksquashfs is whatever the build machine
-happens to have, and the compressor it was built with is not a detail.  A
-squashfs written with a zstd the target's kernel cannot decompress mounts
-nowhere, and an image built on one machine and one built on another are
-not the same bytes.  So mksquashfs comes out of the image-tools buildroot,
-which is pinned by the lockfile like everything else.
+squashfs-tools: the host's mksquashfs is whatever the build machine happens
+to have, and the compressor it was built with is not a detail.  A squashfs
+written with a zstd the target's kernel cannot decompress mounts nowhere,
+and an image built on one machine and one built on another are not the same
+bytes.  So mksquashfs comes from a pinned target buildroot.  Releases whose
+packaged tool predates pseudo-file xattrs compile a pinned newer source in
+that buildroot before creating the image.
 
 Trips into the sandbox:
 
@@ -49,7 +50,12 @@ import shlex
 import shutil
 import sys
 
-from _isolation import ISOLATION_MODES, resolve_isolation, run_isolated
+from _isolation import (
+    ISOLATION_MODES,
+    require_target_execution,
+    resolve_isolation,
+    run_isolated,
+)
 from _rpm import make_dirs_writable, reproducible_env, scratch_dir
 
 # Names inside the work area.  All three are referenced from shell, so
@@ -57,6 +63,8 @@ from _rpm import make_dirs_writable, reproducible_env, scratch_dir
 _ROOTFS = "image.tar"
 _ROOT = "root"
 _IMAGE = "squashfs.img"
+_SOURCE = "squashfs-tools.tar"
+_BUILT_MKSQUASHFS = "mksquashfs"
 
 
 def stage_rootfs(rootfs, work):
@@ -194,7 +202,7 @@ def image_paths(rootfs):
                 name = name[1:]
             elif not name.startswith("/"):
                 name = "/" + name
-            if name != "/":
+            if name not in ("/", "/."):
                 paths.append(name)
     return paths
 
@@ -223,7 +231,9 @@ def write_pseudo(contexts, pseudo):
     backslash is skipped rather than guessed at: the pseudo grammar splits
     on spaces and gives the backslash meaning of its own, so emitting one
     would label some other path, and mislabelling is worse than leaving a
-    file unlabelled.  Two of Fedora 43's 22912 land here -- systemd's
+    file unlabelled.  Pseudo-file paths are relative to the source tree;
+    an absolute path is rejected by some mksquashfs releases.  Two systemd
+    unit files with escaped names currently land here --
     `system-systemd\\x2dcryptsetup.slice` and its veritysetup sibling --
     and both are unit files that never execute.
     """
@@ -231,17 +241,43 @@ def write_pseudo(contexts, pseudo):
     with open(contexts) as src, open(pseudo, "w") as dst:
         for line in src:
             path, _, context = line.rstrip("\n").partition("\t")
-            if not path or not context:
+            if not path or path in (".", "/", "/.") or not context:
                 continue
             if any(char in path for char in " \t\\"):
                 skipped += 1
                 continue
-            dst.write("{} x security.selinux={}\n".format(path, context))
+            pseudo_path = path.lstrip("/")
+            if not pseudo_path:
+                continue
+            dst.write("{} x security.selinux={}\n".format(pseudo_path, context))
             written += 1
     return written, skipped
 
 
-def _mksquashfs_script(args, root, image, pseudo=None):
+def _build_mksquashfs_script(source, work, output):
+    """Build a current mksquashfs with the target buildroot's compiler."""
+    source_tree = os.path.join(work, "squashfs-tools-source")
+    build_dir = os.path.join(source_tree, "squashfs-tools")
+    return "\n".join([
+        "set -e",
+        "rm -rf {}".format(shlex.quote(source_tree)),
+        "mkdir -p {}".format(shlex.quote(source_tree)),
+        "tar -xf {} -C {} --strip-components=1".format(
+            shlex.quote(source), shlex.quote(source_tree)
+        ),
+        "make -C {} CONFIG=1 GZIP_SUPPORT=0 ZSTD_SUPPORT=1 "
+        "COMP_DEFAULT=zstd XATTR_SUPPORT=1 USE_PREBUILT_MANPAGES=1 "
+        "EXTRA_CFLAGS='-g0 -ffile-prefix-map={}=/usr/src/squashfs-tools' "
+        "mksquashfs".format(shlex.quote(build_dir), work),
+        "cp {} {}".format(
+            shlex.quote(os.path.join(build_dir, "mksquashfs")),
+            shlex.quote(output),
+        ),
+        "chmod 0755 {}".format(shlex.quote(output)),
+    ])
+
+
+def _mksquashfs_script(args, root, image, pseudo=None, mksquashfs=None):
     cmd = [
         "$MKSQUASHFS",
         root,
@@ -285,9 +321,14 @@ def _mksquashfs_script(args, root, image, pseudo=None):
         cmd.append("-e")
         cmd += args.exclude
 
+    resolve = (
+        "MKSQUASHFS={}\ntest -x \"$MKSQUASHFS\"".format(shlex.quote(mksquashfs))
+        if mksquashfs
+        else _resolve("MKSQUASHFS", _MKSQUASHFS_CANDIDATES)
+    )
     return "\n".join([
         "set -e",
-        _resolve("MKSQUASHFS", _MKSQUASHFS_CANDIDATES),
+        resolve,
         # $MKSQUASHFS is the one word left unquoted, on purpose: it is a
         # path this script just resolved, not caller input.
         " ".join(
@@ -310,6 +351,9 @@ def main():
     ap.add_argument("--out", required=True, help="squashfs image to write")
     ap.add_argument("--buildroot-tree", default=None,
                     help="tree providing mksquashfs")
+    ap.add_argument("--mksquashfs-source", default=None,
+                    help="source archive to compile when the packaged "
+                         "mksquashfs lacks pseudo-file xattrs")
     ap.add_argument("--isolation", default="auto", choices=ISOLATION_MODES)
     ap.add_argument("--compressor", default="zstd",
                     help="mksquashfs -comp")
@@ -327,8 +371,10 @@ def main():
     ap.add_argument("--keep-work", action="store_true",
                     help="do not delete the scratch area, for debugging")
     ap.add_argument("--source-date-epoch", default="1700000000")
+    ap.add_argument("--target-cpu", default="x86_64")
     args = ap.parse_args()
 
+    require_target_execution(args.target_cpu)
     isolation = resolve_isolation(args.isolation)
     if isolation == "none":
         sys.exit(
@@ -423,6 +469,21 @@ def _build(args, isolation, rootfs, work, out):
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
 
+    mksquashfs = None
+    if args.mksquashfs_source:
+        source = os.path.join(work, _SOURCE)
+        shutil.copy2(os.path.abspath(args.mksquashfs_source), source)
+        mksquashfs = os.path.join(work, _BUILT_MKSQUASHFS)
+        print(
+            "buckos-distro: building mksquashfs with pseudo-file xattr support",
+            file=sys.stderr,
+            flush=True,
+        )
+        run_isolated(
+            ["/bin/sh", "-c", _build_mksquashfs_script(source, work, mksquashfs)],
+            isolation, work, work, sysroot, env=env,
+        )
+
     staged = stage_rootfs(rootfs, work)
 
     print("buckos-distro: unpacking the image to compress it",
@@ -445,7 +506,9 @@ def _build(args, isolation, rootfs, work, out):
     )
     try:
         run_isolated(
-            ["/bin/sh", "-c", _mksquashfs_script(args, root, image, pseudo)],
+            ["/bin/sh", "-c", _mksquashfs_script(
+                args, root, image, pseudo, mksquashfs
+            )],
             isolation, work, work, sysroot, env=env,
         )
     finally:

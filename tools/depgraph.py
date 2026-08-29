@@ -811,10 +811,15 @@ def runtime_closure(roots, requires, provides, overrides=None, extra=None,
         branch that is absent.  Reporting it would both mislead and pile up
         one duplicate per fixed-point iteration.
         """
-        try:
-            return resolve_capability(cap, provides, who, overrides) in seen
-        except (AmbiguousProvider, UnresolvedCapability):
-            return False
+        if cap in overrides:
+            return overrides[cap] in seen
+
+        # Presence is not a provider-selection question. If systemd and
+        # rsyslog both provide `syslog`, either installed package makes the
+        # condition in `(rpm-plugin-syslog if syslog)` true. Asking
+        # resolve_capability() here used to turn that factual answer into an
+        # ambiguity and silently skip the conditional dependency.
+        return bool(set(provides.get(cap, ())) & seen)
 
     def satisfied(node, who):
         """Is this expression already true of the closure so far?

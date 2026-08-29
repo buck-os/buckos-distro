@@ -1,4 +1,5 @@
 load("//defs:flavor.bzl", "package")
+load("//defs:iso_tests.bzl", "all_live_iso_boot_tests")
 
 export_file(
     name = "hello-srpm",
@@ -41,6 +42,13 @@ package(
     defines = ["debug_package %{nil}"],
     visibility = ["PUBLIC"],
 )
+
+# Firmware-level tests use an instrumented copy of each production rootfs.
+# The package closure, kernel, initramfs, squashfs builder and ISO builder
+# are the production targets; the overlay only adds a one-shot systemd unit
+# that reports the release, architecture, PID 1, failed units and SELinux
+# state over the serial console before powering the guest off.
+all_live_iso_boot_tests()
 
 # The same source package with the `greeting` USE flag on.  Nothing here
 # names rpm: `use` is buckos vocabulary, and use_bcond maps it onto the

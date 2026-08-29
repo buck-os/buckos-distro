@@ -1,0 +1,63 @@
+"""Tests for the RPM rootfs transaction wrapper."""
+
+import types
+import unittest
+
+from rootfs_install import _transaction_script
+
+
+class TestTransactionScript(unittest.TestCase):
+    def args(self, *, keep_work=False, nodeps=False):
+        return types.SimpleNamespace(
+            keep_work=keep_work,
+            nodeps=nodeps,
+            source_date_epoch="1700000000",
+        )
+
+    def test_transaction_regenerates_the_excluded_udev_database(self):
+        script = _transaction_script(
+            self.args(),
+            "/work/rpms",
+            "/work/rootfs",
+            "/work/rootfs.tar",
+        )
+        self.assertIn("--nodigest", script)
+        self.assertIn("--excludepath /etc/udev/hwdb.bin", script)
+        self.assertIn("systemd-hwdb --root=/work/rootfs update", script)
+
+    def test_keep_work_preserves_rootfs(self):
+        script = _transaction_script(
+            self.args(keep_work=True),
+            "/work/rpms",
+            "/work/rootfs",
+            "/work/rootfs.tar",
+        )
+        self.assertNotIn("rm -rf /work/rootfs", script)
+
+    def test_host_transaction_uses_the_same_payload_exclusion(self):
+        script = _transaction_script(
+            self.args(nodeps=True),
+            "/work/rpms",
+            "/work/rootfs",
+            "/work/rootfs.tar",
+        )
+        self.assertNotIn("mount --bind /proc", script)
+        self.assertIn("--excludepath /etc/udev/hwdb.bin", script)
+        self.assertIn("--nodeps", script)
+
+    def test_installs_selinux_modules_before_archiving(self):
+        script = _transaction_script(
+            self.args(),
+            "/work/rpms",
+            "/work/rootfs",
+            "/work/rootfs.tar",
+            "/work/modules",
+        )
+        self.assertIn("semodule", script)
+        self.assertIn("/usr/share/selinux/packages/buckos", script)
+        self.assertIn("for module in /work/rootfs/usr/share/selinux", script)
+        self.assertLess(script.index("semodule"), script.index("tar --create"))
+
+
+if __name__ == "__main__":
+    unittest.main()

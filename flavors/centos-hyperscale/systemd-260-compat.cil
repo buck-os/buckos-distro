@@ -1,0 +1,8 @@
+; Hyperscale systemd uses BTF, Varlink registration, and hwdb paths that the
+; matching base policy does not fully cover. Keep the allowances narrow.
+(allow init_t sysfs_t (file (map)))
+(allow init_t var_run_t (lnk_file (create)))
+(allow systemd_ssh_generator_t systemd_hwdb_etc_t (file (getattr map open read)))
+(allow systemd_hostnamed_t systemd_hwdb_etc_t (file (getattr map open read)))
+(allow systemd_tpm2_generator_t efivarfs_t (dir (search)))
+(allow systemd_generic_generator_t efivarfs_t (dir (search)))

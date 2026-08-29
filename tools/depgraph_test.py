@@ -368,6 +368,24 @@ class TestRuntimeClosure(unittest.TestCase):
         self.assertIn("macros", closure)
         self.assertEqual(problems, [])
 
+    def test_conditional_fires_when_any_ambiguous_provider_is_present(self):
+        requires = {
+            "rpm-libs": ["(rpm-plugin-syslog if syslog)"],
+            "rpm-plugin-syslog": [],
+            "systemd": [],
+            "rsyslog": [],
+        }
+        provides = {
+            "rpm-libs": ["rpm-libs"],
+            "rpm-plugin-syslog": ["rpm-plugin-syslog"],
+            "syslog": ["systemd", "rsyslog"],
+        }
+        closure, problems = runtime_closure(
+            ["rpm-libs", "systemd"], requires, provides
+        )
+        self.assertIn("rpm-plugin-syslog", closure)
+        self.assertEqual(problems, [])
+
     def test_version_range_dep_is_followed(self):
         # Unconditional, unlike "(A if B)": nothing to wait for, so it
         # pulls its provider in on the spot.

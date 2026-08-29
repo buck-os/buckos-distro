@@ -2,7 +2,7 @@
 
 `buckos-distro` is a Buck2 repository for replaying upstream Linux package builds and assembling bootable distribution images.
 
-Fedora 43, Fedora 44, Fedora 45, CentOS Stream 9 with EPEL Next, CentOS Stream 10, and CentOS Hyperscale 9 and 10 have checked-in package graphs, binary-seeded buildroots, source RPM replay targets, root filesystem targets, and hybrid live ISO targets. Debian 13 and Ubuntu 26.04 have pinned Debian source-package replay paths and binary-seeded buildroots. BuckOS remains a declared flavor without a build frontend.
+Fedora 44 and 45, CentOS Stream 9 and 10, CentOS Hyperscale 9 and 10, Debian 13, and Ubuntu 26.04 have checked-in package graphs for both x86_64 and AArch64. Every one has binary-seeded buildroots, source replay targets, bootable root filesystems, and live ISO targets. BuckOS remains a declared flavor without a build frontend.
 
 ## Quick start
 
@@ -30,18 +30,17 @@ BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 
 | Flavor | Status | Primary outputs |
 |---|---|---|
-| Fedora | Implemented | RPMs, root filesystems, live ISOs |
-| [CentOS Stream](flavors/centos/README.md) | Implemented | RPMs, root filesystems, live ISO |
-| [CentOS Hyperscale](flavors/centos-hyperscale/README.md) | Implemented | RPMs, root filesystems, live ISO |
-| [Debian](flavors/debian/README.md) | Source replay | DEBs and install roots |
-| [Ubuntu](flavors/ubuntu/README.md) | Source replay | DEBs and install roots |
+| Fedora 44, 45 | Implemented | x86_64/AArch64 RPMs, root filesystems, live ISOs |
+| [CentOS Stream](flavors/centos/README.md) 9, 10 | Implemented | x86_64/AArch64 RPMs, root filesystems, live ISOs |
+| [CentOS Hyperscale](flavors/centos-hyperscale/README.md) 9, 10 | Implemented | x86_64/AArch64 RPMs, root filesystems, live ISOs |
+| [Debian](flavors/debian/README.md) 13 | Implemented | x86_64/AArch64 DEBs, root filesystems, live ISOs |
+| [Ubuntu](flavors/ubuntu/README.md) 26.04 | Implemented | x86_64/AArch64 DEBs, root filesystems, live ISOs |
 | [BuckOS](flavors/buckos/README.md) | Stub | None |
 
-Every Fedora release solves its live image from source, each with 0 unresolved capabilities:
+Each x86_64 Fedora release solves its live image from source with 0 unresolved capabilities:
 
 | Release | Source packages | Live image | Built from source | Staged targets | Probed |
 | ------- | --------------- | ---------- | ----------------- | -------------- | ------ |
-| 43      | 127             | 187        | 182               | 354            | 117    |
 | 44      | 127             | 186        | 181               | 357            | 114    |
 | 45      | 131             | 193        | 187               | 369            | 119    |
 
@@ -51,7 +50,7 @@ The last column is the one that says whether a release can actually build, and i
 
 Five of the packages in that gap are the same on every release, and they are a property of the *build host* rather than of the solve: `kernel`, its three subpackages, and `libxcrypt` call libkcapi's `sha512hmac` or `fipshmac` from `%install`, which needs a kernel built with `CONFIG_CRYPTO_USER`. On a host that has it, drop `prebuilt` from the flavor configuration and those five build too. See "Checking the host" below.
 
-Fedora 45 pins a sixth, and that one is a fact about the release. `tar` 1.35 declares its own three-argument `acl_get_file_at` immediately after including `<sys/acl.h>`, with no configure probe guarding it, and `acl` 2.4.0 declares that name with four arguments. Fedora never hits this because it does not rebuild `tar` in a released branch. Releases 43 and 44 resolve it with a version variant — `acl` is built twice and only `tar` is routed to the older copy — but 45 ships 2.4.0 in both its source and binary trees, so there is no older copy to route to. Until upstream `tar` carries the fix, 45 takes the pinned binary.
+Fedora 45 pins a sixth, and that one is a fact about the release. `tar` 1.35 declares its own three-argument `acl_get_file_at` immediately after including `<sys/acl.h>`, with no configure probe guarding it, and `acl` 2.4.0 declares that name with four arguments. Fedora never hits this because it does not rebuild `tar` in a released branch. Fedora 44 resolves it with a version variant: `acl` is built twice and only `tar` is routed to the older copy. Fedora 45 ships 2.4.0 in both its source and binary trees, so there is no older copy to route to. Until upstream `tar` carries the fix, 45 takes the pinned binary.
 
 CentOS Stream and CentOS Hyperscale live image package sets remain pinned upstream binary RPMs; for those flavors the source-replay pipeline and the image package set are still separate inputs.
 
@@ -72,7 +71,7 @@ The lockfile records exact package locations, SHA-256 digests, repository origin
 `tools/relock.py` refreshes an existing release from Fedora's release and update repositories. It reuses the build list, overrides, and image roots already recorded in the lockfile.
 
 ```sh
-buck2 run //tools:relock -- --release 43 --dry-run
+buck2 run //tools:relock -- --release 44 --arch x86_64 --dry-run
 ```
 
 Remove `--dry-run` to fetch metadata, solve the release, and regenerate `flavors/fedora/generated/`. Add `--probe` to run `%generate_buildrequires` before the final solve.
@@ -81,25 +80,25 @@ Remove `--dry-run` to fetch metadata, solve the release, and regenerate `flavors
 
 `[buckos.fedora] releases` defines every Fedora release loaded into the graph. The final entry is the default unless `[buckos.fedora] release` selects another listed release.
 
-Each release receives suffixed targets such as:
+Each release and architecture receives canonical targets such as:
 
 ```text
-//flavors/fedora:buildroot-binary-seed-43
-//flavors/fedora:rootfs-live-43
-//flavors/fedora:kernel-live-43
-//flavors/fedora:initramfs-live-43
-//flavors/fedora:squashfs-live-43
-//flavors/fedora:iso-live-43
+//flavors/fedora:buildroot-binary-seed-44-x86_64
+//flavors/fedora:rootfs-live-44-aarch64
+//flavors/fedora:kernel-live-44-aarch64
+//flavors/fedora:initramfs-live-44-aarch64
+//flavors/fedora:squashfs-live-44-aarch64
+//flavors/fedora:iso-live-44-aarch64
 ```
 
 Every bootable image set is built two ways from the same package list. The
-unsuffixed name is the source build — each package comes from the recipe
-that produces it wherever one exists — and a `-prebuilt` sibling takes the
+unsuffixed name is the source build: each package comes from the recipe
+that produces it wherever one exists. A `-prebuilt` sibling takes the
 whole set from pinned upstream binaries instead:
 
 ```text
-//flavors/fedora:iso-live-43             182 of 187 packages built here
-//flavors/fedora:iso-live-prebuilt-43    187 of 187 pinned upstream
+//flavors/fedora:iso-live-44-x86_64             181 of 186 packages built here
+//flavors/fedora:iso-live-prebuilt-44-x86_64    186 of 186 pinned upstream
 ```
 
 Both exist because they are most useful side by side: the same image built
@@ -110,11 +109,11 @@ variant consults no recipe at all, including for packages the host could
 build, so a half-source image cannot be mistaken for the pinned one it is
 being compared against.
 
-`rootfs-seed-<release>` is a third thing and not an image: it installs the
+`rootfs-seed-<release>-<architecture>` is a third thing and not an image: it installs the
 `@buildsys-build` closure, which is the environment packages are built in
 rather than a set anyone would ship.
 
-The default release also receives unsuffixed targets. Release-specific target platforms, such as `//platforms:fedora-43-x86_64`, carry the release as a constraint value.
+Release-only and unsuffixed compatibility targets remain x86_64. Release-and-architecture target platforms, such as `//platforms:fedora-44-aarch64`, carry the flavor, release, and CPU as constraints.
 
 Fedora 45 has branched from rawhide but has not reached GA, which changes where it is served from rather than how it is built. Upstream publishes a branched release under `development/<release>/` and gives it no `updates/` tree, because there have been no post-GA pushes. `tools/relock.py --branched 45` selects that layout:
 
@@ -126,7 +125,16 @@ The repo names it records are still `binary-releases` and `source-releases`. At 
 
 A pre-GA release is also the case `[buckos.fedora] release` exists for. The default otherwise follows the newest entry, which would point every unsuffixed target at a release whose packages still move daily, so the checked-in configuration lists 45 and pins the default to 44.
 
-CentOS Stream 9 with EPEL Next, CentOS Stream 10, and CentOS Hyperscale 9 and 10 provide the same release-suffixed rootfs, boot, and image targets as Fedora, plus their buildroot and hello targets. Debian 13 and Ubuntu 26.04 provide release-suffixed buildroot and hello targets. Each flavor also has unsuffixed aliases for its default release.
+All implemented flavors provide the same architecture-suffixed buildroot, package, rootfs, boot, and image targets. Each flavor also has release-only and unsuffixed x86_64 compatibility targets.
+
+On an AArch64 host, build an AArch64 target directly. On x86_64, register a persistent QEMU binfmt handler and opt the local execution platform into running ARM binaries:
+
+```sh
+buck2 build -c buckos.aarch64_emulation=true \
+  //flavors/fedora:iso-live-44-aarch64
+```
+
+The flag only declares a scheduler capability. Every action that executes target binaries also checks `/proc/sys/fs/binfmt_misc/qemu-aarch64` and fails before entering the buildroot if the handler is absent. Host-provenance cross builds are rejected.
 
 ## Buildroots
 
@@ -154,46 +162,72 @@ Arch-specificity therefore lives in the capability, not in a per-arch preference
 One source package can be built twice, at two versions, when the distro genuinely needs both:
 
 ```ini
---source-variant acl-compat=acl@2.3.2-4.fc43:tar
+--source-variant acl-compat=acl@2.3.2-6.fc44:tar
 ```
 
-Fedora 43 needs exactly that. `acl` 2.4.0 added a versioned symbol `rsync` requires, and `rsync` is a build dependency of the kernel; the same release's header change broke `tar` 1.35, whose source declares its own three-argument `acl_get_file_at` where 2.4.0 declares four. Fedora resolves this by not rebuilding `tar` — its shipped binary predates the header — which a repo that builds everything from source cannot do. So it builds both, and only `tar` is routed to the older one.
+Fedora 44 needs exactly that. `acl` 2.4.0 added a versioned symbol `rsync` requires, and `rsync` is a build dependency of the kernel; the same release's header change broke `tar` 1.35, whose source declares its own three-argument `acl_get_file_at` where 2.4.0 declares four. Fedora resolves this by not rebuilding `tar`; its shipped binary predates the header, which a repo that builds everything from source cannot do. So it builds both, and only `tar` is routed to the older one.
 
 This is modelled on the staging machinery rather than beside it. A stage is already "this source package, built more than once, with consumers routed to the right one"; a variant differs only in that the copies differ by version rather than by position in a cycle. A variant is an ordinary recipe with its own srpm, kept out of the binary-to-recipe map so it reroutes only the consumers that named it, and its routed edges are visible to the cycle planner — without that the planner stages nothing and Buck rejects the target graph at analysis over a cycle the solver said did not exist.
 
 ## Image pipeline
 
-The RPM-family image pipeline has separate targets for work with different invalidation costs:
+The image pipeline has separate targets for work with different invalidation costs:
 
-- `rootfs` runs an RPM transaction with a package database and scriptlets, then returns a tar archive.
+- `rootfs` runs the target package manager transaction with its database and maintainer scripts, then returns a tar archive.
 - `kernel_image` extracts the selected kernel and version from the rootfs archive.
-- `initramfs` runs the image's own dracut against the rootfs.
+- `initramfs` runs the image's own dracut, Debian live-boot, or Ubuntu casper generator against the rootfs.
 - `squashfs` compresses the rootfs and can write SELinux labels from the image's policy.
-- `iso_image` creates BIOS and UEFI boot layouts around the kernel, initramfs, and squashfs.
+- `iso_image` creates the RPM, Debian live, or Ubuntu casper media layout around the kernel, initramfs, and squashfs.
 
 The rootfs is a tar archive because package ownership and valid RPM filenames cannot always be represented safely as a Buck directory artifact. Image actions unpack it inside their isolated work areas.
 
-The live squashfs is used directly as the root filesystem. The ISO contains BIOS and UEFI boot entries, derives `root=live:CDLABEL=` from its volume label, and is not signed for Secure Boot.
+The live squashfs is used directly as the root filesystem. x86_64 ISOs contain BIOS and UEFI boot entries. AArch64 ISOs contain the removable-media `BOOTAA64.EFI` UEFI path. Images are not signed for Secure Boot.
 
 Build Fedora 44, CentOS Stream 9 with EPEL Next, CentOS Stream 10, or CentOS Hyperscale live media with:
 
 ```sh
-buck2 build //flavors/fedora:iso-live-44
-buck2 build //flavors/centos:iso-live-9
-buck2 build //flavors/centos:iso-live-10
-buck2 build //flavors/centos-hyperscale:iso-live-9
-buck2 build //flavors/centos-hyperscale:iso-live-10
+buck2 build //flavors/fedora:iso-live-44-x86_64
+buck2 build -c buckos.aarch64_emulation=true \
+  //flavors/fedora:iso-live-44-aarch64
+buck2 build //flavors/centos:iso-live-10-x86_64
+buck2 build //flavors/centos-hyperscale:iso-live-10-x86_64
+buck2 build //flavors/debian:iso-live-13-x86_64
+buck2 build //flavors/ubuntu:iso-live-26.04-x86_64
+```
+
+## Boot validation
+
+`//tests:boot-*` boots an instrumented image through QEMU firmware and validates the guest from its serial-console report. x86_64 is tested through both BIOS and UEFI; AArch64 is tested through UEFI. The report checks flavor, release, architecture, systemd as PID 1, zero failed units, zero SELinux AVC denials, and enforcing mode for RPM-family images.
+
+```sh
+buck2 test //tests:boot-fedora-44-x86_64-bios
+buck2 test //tests:boot-fedora-44-x86_64-uefi
+buck2 test -c buckos.aarch64_emulation=true \
+  //tests:boot-fedora-44-aarch64-uefi
+buck2 test -c buckos.aarch64_emulation=true \
+  //tests:boot-fedora-prebuilt-44-aarch64-uefi
+```
+
+QEMU and firmware are host test prerequisites. Defaults cover common distro paths. Override them when needed:
+
+```ini
+[buckos]
+  qemu_x86_64 = /usr/bin/qemu-system-x86_64
+  qemu_aarch64 = /usr/bin/qemu-system-aarch64
+  ovmf_code = /usr/share/OVMF/OVMF_CODE_4M.fd
+  ovmf_vars = /usr/share/OVMF/OVMF_VARS_4M.fd
+  aarch64_uefi = /usr/share/qemu-efi-aarch64/QEMU_EFI.fd
 ```
 
 ## Configuration
 
-The checked-in configuration builds Fedora releases 43 and 44 with the binary-seeded buildroot. Machine-specific overrides belong in `.buckconfig.local`, which is ignored by Git.
+The checked-in configuration builds Fedora releases 44 and 45 with the binary-seeded buildroot. Machine-specific overrides belong in `.buckconfig.local`, which is ignored by Git.
 
 Select a different configured release:
 
 ```ini
 [buckos.fedora]
-  release = 43
+  release = 44
 ```
 
 Use the host buildroot for local development:
@@ -292,15 +326,21 @@ A content-addressed read-through service can be configured with `blob_base`. The
 
 `package_url_template` cannot be combined with `mirror_base` or `blob_base`. These settings change where bytes are fetched but do not change the full SHA-256 digest enforced by Buck2.
 
+CentOS Stream 9 and CentOS Hyperscale 9 compile pinned squashfs-tools 4.6.1 source because their packaged versions cannot add the per-file SELinux xattrs required by an enforcing live image. The source archive is digest-verified like package downloads; an equivalent mirror can be selected with `[buckos] squashfs_tools_source_url`.
+
 Enable remote cache lookups or remote execution through the execution platform:
 
 ```ini
 [buckos]
   remote_cache = true
   remote_execution = true
+  remote_x86_64_properties = platform.OSFamily=linux,platform.arch=x86_64
+  remote_aarch64_properties = platform.OSFamily=linux,platform.arch=aarch64
+  remote_x86_64_use_case = buck2-default
+  remote_aarch64_use_case = buck2-default
 ```
 
-A remote backend still requires a matching `[buck2_re_client]` configuration. Remote workers need Linux user namespaces, an accepted isolation tool, subordinate IDs, RPM namespace helpers, and enough scratch space for unpacked package trees.
+A remote backend still requires a matching `[buck2_re_client]` configuration. The property keys and values are backend-defined; the repository contains no service-specific defaults. Remote workers need Linux user namespaces, an accepted isolation tool, subordinate IDs, package-manager namespace helpers, and enough scratch space for unpacked package trees. Architecture constraints select the matching x86_64 or AArch64 platform.
 
 ## Repository layout
 
@@ -515,7 +555,7 @@ Stated plainly, because each one is load-bearing:
 - **A rootfs needs subordinate id ranges, and its artifact is a tarball.**
   `rootfs` is the other half of the buildroot: it runs `rpm --install` for
   real, with a database and scriptlets, inside the target release's own rpm
-  (Fedora 43 keeps its rpmdb in sqlite; a host rpm 4.16 would write bdb and
+  (a current Fedora keeps its rpmdb in sqlite; an older host rpm can write bdb and
   the image could not read its own database). That transaction chowns files
   to `mail`, `tss`, `systemd-network` and others, and
   `unshare --map-root-user` maps exactly one id — `filesystem`'s

@@ -1,6 +1,6 @@
 """Distro releases as a first-class axis.
 
-A distro is not one thing: Fedora 43 and Fedora 44 are different build
+A distro is not one thing: Fedora 44 and Fedora 45 are different build
 universes with different compilers, different macros, and different
 pinned dependency sets.  Treating "which release" as a global mode the
 repo is switched into makes the common questions -- does this package
@@ -34,7 +34,7 @@ def flavor_releases(flavor, default = ""):
     if not releases:
         fail(
             "[buckos.{}] releases is empty. ".format(flavor) +
-            "List at least one release, e.g. releases = 43,44",
+            "List at least one release, e.g. releases = 44,45",
         )
     return releases
 
@@ -58,7 +58,7 @@ def default_release(flavor, releases):
     return release
 
 def release_suffix(release):
-    """Target-name suffix for a release: 43 -> '-43'."""
+    """Target-name suffix for a release: 44 -> '-44'."""
     return "-" + release
 
 def release_constraint(flavor, release):

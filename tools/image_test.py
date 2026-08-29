@@ -65,6 +65,13 @@ class TestFindKernels(ImageTarTest):
             [kver for kver, _ in find_kernels(path)], ["6.17.1"]
         )
 
+    def test_finds_a_debian_family_kernel_under_boot(self):
+        path = self.tar(["boot/vmlinuz-6.12.0-4-arm64"])
+        self.assertEqual(
+            find_kernels(path),
+            [("6.12.0-4-arm64", "./boot/vmlinuz-6.12.0-4-arm64")],
+        )
+
     def test_sorted_so_the_result_does_not_depend_on_tar_order(self):
         path = self.tar([
             "usr/lib/modules/6.19.0/vmlinuz",
@@ -75,7 +82,7 @@ class TestFindKernels(ImageTarTest):
         )
 
     def test_a_vmlinuz_elsewhere_is_not_a_kernel(self):
-        """Depth is checked, so /boot/vmlinuz and friends do not count.
+        """Depth is checked, so unversioned /boot/vmlinuz does not count.
 
         Otherwise a rescue image or a stray copy under a subdirectory of
         modules/ would be offered as a bootable kernel.

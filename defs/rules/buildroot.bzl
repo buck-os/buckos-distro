@@ -81,6 +81,7 @@ def _seeded_buildroot_impl(ctx: AnalysisContext) -> list[Provider]:
     # written by whatever rpm the host happens to have.  Kept in step with
     # defs/buildroot_helpers.bzl's _isolation_for() for a seeded root.
     cmd.add("--isolation", ctx.attrs.isolation)
+    cmd.add("--target-cpu", ctx.attrs.target_cpu)
     cmd.add("--source-date-epoch", ctx.attrs.source_date_epoch)
 
     ctx.actions.run(

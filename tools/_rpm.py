@@ -496,25 +496,30 @@ def stage_rpms(rpms, staging):
     per package rather than a copy of the payload.  Buck inputs are
     read-only and rpm only reads them, so sharing the inode is safe.
 
-    Names collide in principle (a locally built package can have the same
-    filename as the pinned one it replaces), so a collision gets a numeric
-    suffix rather than silently dropping one of the two.
+    Locally rebuilt subpackages arrive as short names such as gzip.rpm. RPM
+    6.1 can fail while reopening one of those names in a mixed transaction,
+    reporting an unrelated epoch/version fragment as the file it could not
+    open. Those are renamed from their headers to the conventional NEVRA
+    filename. Pinned inputs already have unique target-derived names; they
+    only need the .rpm suffix the transaction glob expects.
 
-    Every staged name is given a .rpm suffix if it lacks one.  That is not
-    cosmetic: the transaction is handed to rpm as the glob `*.rpm` rather
-    than as 292 explicit paths, because the argument list would otherwise
-    approach the kernel's 128 KB limit on a single argument string, and a
-    pinned package arrives from http_file named after its Buck target with
-    no extension.  Unsuffixed, it would simply not be in the transaction,
-    and rpm would report the resulting hole as a missing dependency
-    somewhere else entirely.
+    Names collide in principle (a locally built package can have the same
+    NEVRA as the pinned one it replaces), so a collision gets a numeric
+    suffix rather than silently dropping one of the two.
     """
     os.makedirs(staging, exist_ok=True)
     staged = []
     used = set()
     for source in rpms:
         name = os.path.basename(source)
-        if not name.endswith(".rpm"):
+        if name.endswith(".rpm"):
+            # Locally built subpackages have deliberately short output names
+            # such as gzip.rpm. Query only those; http_file inputs are named
+            # after their Buck targets and already carry enough uniqueness,
+            # while querying hundreds of them would add avoidable process
+            # startup cost to every buildroot action.
+            name = rpm_package_filename(source)
+        else:
             name += ".rpm"
         if name in used:
             stem, dot, ext = name.rpartition(".")
@@ -532,6 +537,30 @@ def stage_rpms(rpms, staging):
             shutil.copy2(source, dest)
         staged.append(dest)
     return staged
+
+
+def rpm_package_filename(path):
+    """Return the conventional NAME-VERSION-RELEASE.ARCH.rpm filename."""
+    result = run(
+        [
+            require_tool("rpm"),
+            "--query",
+            "--package",
+            "--nosignature",
+            "--nodigest",
+            "--queryformat",
+            "%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}.rpm",
+            path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    name = result.stdout.strip()
+    if not name or name in (".", "..") or os.path.basename(name) != name:
+        sys.exit("rpm returned an unsafe package filename for {}: {!r}".format(
+            path, name,
+        ))
+    return name
 
 
 def reproducible_env(env=None, source_date_epoch="1700000000"):

@@ -42,6 +42,7 @@ import unittest
 # and a glob would silently exempt anything named unexpectedly while
 # silently indicting tools that legitimately want a temp file.
 GUARDED = (
+    "deb_rootfs_install.py",
     "initramfs_build.py",
     "rootfs_install.py",
     "rpmbuild_replay.py",

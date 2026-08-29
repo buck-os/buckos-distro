@@ -400578,7 +400578,7 @@
       "text-www-browser=lynx",
       "wget=wget2-wget"
     ],
-    "probe": "fedora-45.probe.json",
+    "probe": "fedora-45-x86_64.probe.json",
     "seed_only": false,
     "seed_packages": [],
     "source_variants": [],

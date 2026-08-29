@@ -1,20 +1,33 @@
 # Ubuntu flavor
 
-Ubuntu 26.04 (`resolute`) has a source replay path backed by a pinned binary buildroot. The `//flavors/ubuntu:hello` target downloads the release's Debian source package, verifies the `.dsc` manifest, runs `dpkg-buildpackage -b`, and exposes the resulting `hello` package as an installroot.
+Ubuntu 26.04 (`resolute`) supports source replay and live ISO construction on x86_64 and AArch64. The live image uses Ubuntu's `casper` stack.
 
 ```sh
-buck2 build //flavors/ubuntu:hello -c buckos.flavor=ubuntu
+buck2 build //flavors/ubuntu:hello-26.04-x86_64
+buck2 build //flavors/ubuntu:iso-live-26.04-x86_64
+buck2 build -c buckos.aarch64_emulation=true \
+  //flavors/ubuntu:iso-live-26.04-aarch64
 ```
 
-`tools/deb_lock.py` asks APT to resolve the source build dependencies plus the essential base system against an empty status database. It records every selected source and binary artifact by URL and SHA-256. `tools/deb_generate.py` converts that lockfile into the pure Starlark data loaded by the flavor.
+Release-only and unsuffixed targets are x86_64 compatibility aliases. The default `binary-seed` buildroot is remotely executable and cacheable. Host provenance remains available for native local development.
 
-The `binary-seed` buildroot is the default and is eligible for remote execution. Set `[buckos.ubuntu] buildroot = host` for local development against the machine's installed Debian toolchain; host-provenance actions are local-only and never uploaded to a shared cache.
-
-Regenerate the lock inside a matching Ubuntu 26.04 rootfs with `deb-src` enabled:
+Regenerate the locks on a system with APT, the Ubuntu archive keyring, and working public repository access:
 
 ```sh
-PYTHONPATH=tools python3 tools/deb_lock.py --distro ubuntu --release 26.04 --codename resolute --source hello --output flavors/ubuntu/lock/ubuntu-26.04.lock.json
-python3 tools/deb_generate.py flavors/ubuntu/lock/ubuntu-26.04.lock.json
+PYTHONPATH=tools python3 tools/deb_lock.py \
+  --distro ubuntu --release 26.04 --codename resolute --architecture amd64 \
+  --source hello \
+  --image image-tools=xorriso,squashfs-tools,dosfstools,mtools,grub-pc-bin,grub-efi-amd64-bin,isolinux,syslinux-common \
+  --image live=linux-generic,systemd-sysv,casper,openssh-server,sudo,vim-tiny,iproute2,iputils-ping,ca-certificates \
+  --output flavors/ubuntu/lock/ubuntu-26.04-x86_64.lock.json
+PYTHONPATH=tools python3 tools/deb_lock.py \
+  --distro ubuntu --release 26.04 --codename resolute --architecture arm64 \
+  --source hello \
+  --image image-tools=xorriso,squashfs-tools,dosfstools,mtools,grub-efi-arm64-bin \
+  --image live=linux-generic,systemd-sysv,casper,openssh-server,sudo,vim-tiny,iproute2,iputils-ping,ca-certificates \
+  --output flavors/ubuntu/lock/ubuntu-26.04-aarch64.lock.json
+python3 tools/deb_generate.py flavors/ubuntu/lock/ubuntu-26.04-x86_64.lock.json
+python3 tools/deb_generate.py flavors/ubuntu/lock/ubuntu-26.04-aarch64.lock.json
 ```
 
-`[buckos.ubuntu] package_url_template` accepts the same `{sha256}`, `{sha256_12}`, `{filename}`, `{stem}`, `{ext}`, and `{release}` placeholders as Fedora.
+`[buckos.ubuntu] package_url_template` accepts `{sha256}`, `{sha256_12}`, `{filename}`, `{stem}`, `{ext}`, and `{release}`.

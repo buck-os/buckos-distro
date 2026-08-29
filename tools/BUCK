@@ -138,6 +138,16 @@ python_binary(
 )
 
 python_binary(
+    name = "deb_rootfs_install",
+    main = "deb_rootfs_install.py",
+    deps = [
+        ":_isolation",
+        ":_rpm",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
     name = "kernel_extract",
     main = "kernel_extract.py",
     deps = [":_image"],
@@ -169,6 +179,21 @@ python_binary(
     visibility = ["PUBLIC"],
 )
 
+# Enterprise Linux 9 predates the pseudo-file xattr support added in
+# squashfs-tools 4.6.  Its package buildroot compiles this pinned upstream
+# release when a labelled live image is requested; newer releases keep using
+# the mksquashfs shipped by their image-tools set.
+http_file(
+    name = "squashfs-tools-4.6.1-source",
+    urls = [read_config(
+        "buckos",
+        "squashfs_tools_source_url",
+        "https://deb.debian.org/debian/pool/main/s/squashfs-tools/squashfs-tools_4.6.1.orig.tar.gz",
+    )],
+    sha256 = "94201754b36121a9f022a190c75f718441df15402df32c2b520ca331a107511c",
+    visibility = ["PUBLIC"],
+)
+
 python_binary(
     name = "iso_build",
     main = "iso_build.py",
@@ -179,11 +204,47 @@ python_binary(
     visibility = ["PUBLIC"],
 )
 
+python_binary(
+    name = "rootfs_overlay",
+    main = "rootfs_overlay.py",
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "iso_boot_test",
+    main = "iso_boot_test.py",
+    visibility = ["PUBLIC"],
+)
+
 python_test(
     name = "image_test",
     srcs = ["image_test.py"],
     base_module = "",
     deps = [":_image"],
+)
+
+python_test(
+    name = "boot_tools_test",
+    srcs = [
+        "boot_tools_test.py",
+        "deb_rootfs_install.py",
+        "iso_build.py",
+        "iso_boot_test.py",
+        "rootfs_overlay.py",
+        "squashfs_build.py",
+    ],
+    base_module = "",
+    deps = [
+        ":_image",
+        ":_isolation",
+        ":_rpm",
+    ],
+)
+
+python_test(
+    name = "lock_matrix_test",
+    srcs = ["lock_matrix_test.py"],
+    base_module = "",
 )
 
 python_test(
@@ -207,6 +268,19 @@ python_test(
     srcs = ["isolation_test.py"],
     base_module = "",
     deps = [":_isolation"],
+)
+
+python_test(
+    name = "rootfs_install_test",
+    srcs = [
+        "rootfs_install.py",
+        "rootfs_install_test.py",
+    ],
+    base_module = "",
+    deps = [
+        ":_isolation",
+        ":_rpm",
+    ],
 )
 
 # ── Solver (runs out-of-band, not in the build graph) ────────────────
@@ -261,7 +335,7 @@ python_binary(
 
 # The update loop: fetch upstream repodata, re-solve, regenerate.
 #
-#     buck2 run //tools:relock -- --release 43
+#     buck2 run //tools:relock -- --release 44 --arch x86_64
 #
 # Runnable but not buildable-into-anything, for the same reason solve is:
 # it reaches the network and writes checked-in files, so it is a human's
@@ -291,9 +365,16 @@ python_binary(
     visibility = ["PUBLIC"],
 )
 
+python_binary(
+    name = "rpm_relock",
+    main = "rpm_relock.py",
+    deps = [":relock_lib"],
+    visibility = ["PUBLIC"],
+)
+
 # Discovering what %generate_buildrequires asks for, by running it.
 #
-#     buck2 run //tools:probe -- --release 43
+#     buck2 run //tools:probe -- --release 44 --arch x86_64
 #
 # Out of the build graph for a stronger reason than relock's: this one
 # *invokes buck2*.  It builds every //flavors/fedora:probe-<pkg> target and

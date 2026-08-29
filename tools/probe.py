@@ -14,7 +14,7 @@ that and reports what came out, which is what //flavors/fedora:probe-<pkg>
 wraps.  This drives one probe per source package and merges the results
 into a single file that solve.py can read.
 
-    buck2 run //tools:probe -- --release 43
+    buck2 run //tools:probe -- --release 44 --arch x86_64
 
 Why this is a separate step and not part of the build
 -----------------------------------------------------
@@ -59,7 +59,7 @@ import solve
 DEFAULT_CONFIG = ["--config-file", "tools/probe.buckconfig"]
 
 
-def probe_targets(lock, release):
+def probe_targets(lock, release, arch):
     """One target per source package on the build list.
 
     Named from the lockfile rather than discovered with `buck2 targets`,
@@ -68,7 +68,7 @@ def probe_targets(lock, release):
     missing target, which is the correct complaint.
     """
     return [
-        "//flavors/fedora:probe-{}-{}".format(src, release)
+        "//flavors/fedora:probe-{}-{}-{}".format(src, release, arch)
         for src in sorted(lock["solve"]["build"])
     ]
 
@@ -112,8 +112,8 @@ def run_probes(buck2, targets, config, cwd):
             break
 
     # Compared on the label after the cell, because the two sides spell it
-    # differently: this passes `//flavors/fedora:probe-acl-43` and buck2
-    # answers with `buckos//flavors/fedora:probe-acl-43`.  A plain `in`
+    # differently: this passes a cell-relative label and buck2 answers with
+    # a cell-qualified one. A plain `in`
     # never matches, which reported every probe as failed while happily
     # returning fifteen results.
     def _label(target):
@@ -177,6 +177,7 @@ def main(argv=None):
     ap.add_argument("--release", action="append", default=[], metavar="N",
                     help="release to probe (repeatable; default: every "
                          "release with a lockfile)")
+    ap.add_argument("--arch", default="x86_64", choices=("x86_64", "aarch64"))
     ap.add_argument("--lock-dir", default=None)
     ap.add_argument("--buck2", default=None,
                     help="buck2 to invoke (default: ./buck2 in the repo, or "
@@ -194,13 +195,13 @@ def main(argv=None):
     for flag in args.config:
         config += ["-c", flag]
 
-    releases = args.release or relock.lockfile_releases(lock_dir)
+    releases = args.release or relock.lockfile_releases(lock_dir, args.arch)
     for release in releases:
-        write_probe_file(release, lock_dir, root, config,
+        write_probe_file(release, args.arch, lock_dir, root, config,
                          buck2=resolve_buck2(root, args.buck2))
 
 
-def probe_path(lock_dir, release):
+def probe_path(lock_dir, release, arch):
     """Where a release's probe results live.
 
     Beside the lockfile and named for it, because it is the same kind of
@@ -209,17 +210,17 @@ def probe_path(lock_dir, release):
     different machinery -- repodata is fetched, this is executed -- and a
     reviewer reading a lockfile diff should be able to tell which.
     """
-    return os.path.join(lock_dir, "fedora-{}.probe.json".format(release))
+    return os.path.join(lock_dir, "fedora-{}-{}.probe.json".format(release, arch))
 
 
-def previous_packages(lock_dir, release):
+def previous_packages(lock_dir, release, arch):
     """What the last probe run recorded, or nothing if there was none.
 
     Tolerant of a file that does not parse or predates the schema: this is
     a cache of answers, and a corrupt one should cost a re-probe rather
     than the run.
     """
-    path = probe_path(lock_dir, release)
+    path = probe_path(lock_dir, release, arch)
     if not os.path.exists(path):
         return {}
     try:
@@ -238,8 +239,8 @@ def previous_packages(lock_dir, release):
     return recorded.get("packages", {})
 
 
-def write_probe_file(release, lock_dir, root, config=None, buck2=None):
-    lock_path = os.path.join(lock_dir, "fedora-{}.lock.json".format(release))
+def write_probe_file(release, arch, lock_dir, root, config=None, buck2=None):
+    lock_path = os.path.join(lock_dir, "fedora-{}-{}.lock.json".format(release, arch))
     if not os.path.exists(lock_path):
         sys.exit("no lockfile at {}".format(lock_path))
     with open(lock_path) as fh:
@@ -249,7 +250,7 @@ def write_probe_file(release, lock_dir, root, config=None, buck2=None):
     print("fedora {}: probing {} source package(s)".format(
         release, len(lock["solve"]["build"])), file=sys.stderr)
     outputs = run_probes(resolve_buck2(root, buck2),
-                         probe_targets(lock, release), config, root)
+                         probe_targets(lock, release, arch), config, root)
 
     # Layered over whatever is already recorded, not written in place of it.
     #
@@ -265,7 +266,7 @@ def write_probe_file(release, lock_dir, root, config=None, buck2=None):
     #
     # A fresh answer always wins, so re-probing still updates.  What this
     # prevents is a *missing* answer counting as a new one.
-    packages = dict(previous_packages(lock_dir, release))
+    packages = dict(previous_packages(lock_dir, release, arch))
     fresh = collect(outputs, root)
     kept = sorted(set(packages) - set(fresh))
     packages.update(fresh)
@@ -274,7 +275,7 @@ def write_probe_file(release, lock_dir, root, config=None, buck2=None):
               "probe this run: {}".format(len(kept), ", ".join(kept)),
               file=sys.stderr)
 
-    out = probe_path(lock_dir, release)
+    out = probe_path(lock_dir, release, arch)
     with open(out, "w") as fh:
         json.dump(
             {
