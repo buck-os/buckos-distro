@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import hashlib
+import json
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "infra/remote-execution/scripts/sdme-provision.sh"
 ROOTFS = ROOT / "infra/remote-execution/sdme/worker-rootfs.sdme"
 DROP_IN = ROOT / "infra/remote-execution/sdme/worker-preflight.conf"
+ADDRESS_SELECTOR = ROOT / "infra/remote-execution/scripts/sdme_select_address.py"
 
 
 def tree_digest(path: Path) -> str:
@@ -51,6 +53,7 @@ class ProvisionPlanTest(unittest.TestCase):
         shutil.copy2(SCRIPT, scripts / SCRIPT.name)
         shutil.copy2(ROOTFS, sdme / ROOTFS.name)
         shutil.copy2(DROP_IN, sdme / DROP_IN.name)
+        shutil.copy2(ADDRESS_SELECTOR, scripts / ADDRESS_SELECTOR.name)
         for name in ("control.json5", "worker-x86_64.json5", "worker-aarch64.json5"):
             (nativelink / name).write_text("{}\n", encoding="utf-8")
         (nativelink / "nativelink.service").write_text("[Service]\n", encoding="utf-8")
@@ -156,7 +159,7 @@ class ProvisionPlanTest(unittest.TestCase):
         self.assertNotIn("--port", result.stdout)
         self.assertIn("--network-zone buckos-re", result.stdout)
         self.assertNotIn("NATIVELINK_WORKER_BIND_ADDRESS=0.0.0.0", result.stdout)
-        self.assertIn("private-zone address", result.stdout)
+        self.assertIn("preferring RFC1918/ULA over link-local", result.stdout)
 
     def test_rejects_placeholder_control_address(self) -> None:
         arguments = self.worker_arguments()
@@ -239,6 +242,33 @@ class ProvisionPlanTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 2)
         self.assertIn("invalid CIDR", result.stderr)
+
+
+class AddressSelectionTest(unittest.TestCase):
+    def select(self, addresses: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(ADDRESS_SELECTOR)],
+            input=json.dumps({"addresses": addresses}),
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def test_prefers_rfc1918_over_link_local(self) -> None:
+        result = self.select(["169.254.42.8", "10.77.0.3"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "10.77.0.3")
+
+    def test_accepts_link_local_fallback(self) -> None:
+        result = self.select(["169.254.42.8"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "169.254.42.8")
+
+    def test_rejects_non_routable_candidates(self) -> None:
+        result = self.select(["127.0.0.1", "0.0.0.0", "224.0.0.1", "::", "ff02::1"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("no private or link-local non-wildcard", result.stderr)
 
 
 if __name__ == "__main__":

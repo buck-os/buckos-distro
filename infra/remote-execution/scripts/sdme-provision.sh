@@ -441,6 +441,7 @@ validate_assets() {
         "$asset_root/nativelink/worker-x86_64.json5"
         "$asset_root/nativelink/worker-aarch64.json5"
         "$asset_root/sdme/worker-rootfs.sdme"
+        "$asset_root/scripts/sdme_select_address.py"
         "$repo_root/tools/nativelink_config.py"
     )
     if [[ "$role" == worker ]]; then
@@ -615,7 +616,7 @@ plan_commands() {
     fi
     print_command sdme start "$container_name"
     if [[ "$role" == control ]]; then
-        printf '# Discover the running container private-zone address, write it as NATIVELINK_WORKER_BIND_ADDRESS, and recopy %s.\n' "$env_file"
+        printf '# Discover the running container zone address, preferring RFC1918/ULA over link-local, write it as NATIVELINK_WORKER_BIND_ADDRESS, and recopy %s.\n' "$env_file"
         print_command sdme cp "$env_file" "$container_name:/etc/nativelink/nativelink.env"
     fi
     if [[ "$role" == control ]]; then
@@ -931,38 +932,7 @@ discover_control_worker_bind_address() {
         ((result == 1)) && die "container disappeared: $container_name"
         die "could not inspect container: $container_name"
     fi
-    if address=$("$python_bin" - "$record" 2>&1 <<'PY'
-import ipaddress
-import json
-import sys
-
-try:
-    values = json.loads(sys.argv[1])["addresses"]
-except (json.JSONDecodeError, KeyError, TypeError) as error:
-    raise SystemExit("invalid SDME address inventory: {}".format(error))
-if not isinstance(values, list):
-    raise SystemExit("invalid SDME address inventory shape")
-candidates = []
-for value in values:
-    try:
-        address = ipaddress.ip_address(value)
-    except ValueError:
-        continue
-    if (
-        address.is_private
-        and not address.is_loopback
-        and not address.is_link_local
-        and not address.is_multicast
-        and not address.is_unspecified
-    ):
-        candidates.append(address)
-if not candidates:
-    raise SystemExit("no private non-loopback SDME zone address is available")
-candidates.sort(key=lambda item: (item.version != 4, int(item)))
-selected = candidates[0]
-print("[{}]".format(selected) if selected.version == 6 else selected)
-PY
-    ); then
+    if address=$(printf '%s' "$record" | "$python_bin" "$asset_root/scripts/sdme_select_address.py" 2>&1); then
         :
     else
         die "$address"
