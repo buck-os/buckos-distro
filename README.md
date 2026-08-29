@@ -356,6 +356,7 @@ flavors/ubuntu/          Ubuntu lockfile, generated package data, and replay tar
 flavors/buckos/          BuckOS implementation-status documentation
 platforms/               Target constraints and execution-platform registration
 REMOTE_EXECUTION.md       NativeLink reference deployment and acceptance plan
+infra/remote-execution/   NativeLink configuration, SDME provisioning, and validation tools
 tests/                   Checked-in source RPM replay fixtures
 toolchains/              Prelude toolchain registrations
 tools/                   Solver, generators, action drivers, and tests

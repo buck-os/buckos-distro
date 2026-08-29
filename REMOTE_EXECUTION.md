@@ -2,7 +2,7 @@
 
 This repository is ready to use a standard Remote Execution API backend for shared action caching and remote execution. NativeLink is the reference implementation for the first deployment, but Buck-facing configuration remains backend-neutral.
 
-The initial deployment should run on one trusted host with a private container network. It consists of one persistent scheduler/cache service, one native x86_64 worker, and one native AArch64 worker. A future multi-host deployment uses the same Buck platform properties and does not require graph changes.
+The initial deployment uses one trusted control host and private networking to native worker hosts. It consists of one persistent scheduler/cache service, one native x86_64 worker, and one native AArch64 worker. Adding hosts uses the same Buck platform properties and does not require graph changes.
 
 ## Goals
 
@@ -62,22 +62,29 @@ Deployment-owned configuration defines:
 
 Addresses, credentials, and certificate paths belong in ignored local files or the deployment secret store. They must not be committed.
 
-The implementation should add this layout:
+The implementation is organized as follows:
 
 ```text
 infra/remote-execution/
   README.md
-  compose.yaml
   nativelink/
-    coordinator.json
-    worker-x86_64.json
-    worker-aarch64.json
+    control.json5
+    deployment.json
+    nativelink.service
+    worker-x86_64.json5
+    worker-aarch64.json5
+  sdme/
+    README.md
+    worker-preflight.conf
+    worker-rootfs.sdme
   scripts/
+    check_deployment.py
     preflight-worker.sh
+    sdme-provision.sh
     smoke-test.sh
 ```
 
-The deployment templates should contain safe local defaults and environment placeholders, but no credentials. The worker configurations should differ only where architecture, resources, or worker identity require it.
+The deployment templates contain safe local defaults and environment placeholders, but no credentials. The worker configurations differ only where architecture, resources, or worker identity require it. See `infra/remote-execution/README.md` for the operator workflow.
 
 ## Worker contract
 
@@ -115,7 +122,7 @@ Start with cache lookup and upload while keeping execution local:
   engine_address = re.example.invalid:50051
   action_cache_address = re.example.invalid:50051
   cas_address = re.example.invalid:50051
-  instance_name = buckos
+  instance_name = main
   tls = false
 ```
 
@@ -127,7 +134,7 @@ After cross-client cache validation succeeds, set `buckos.remote_execution = tru
 - `binary-seed` actions are eligible for remote execution and cache upload. `host` buildroots remain local-only with uploads disabled.
 - Buildroot-independent actions follow the explicit contract enforced by `tools/re_contract_test.py`.
 - Worker concurrency must be limited by measured memory and scratch usage, not CPU count alone. Package builds frequently expand far beyond source archive size.
-- Configure bounded CAS garbage collection with explicit high and low watermarks. Size the initial volume from at least two complete source and prebuilt matrices plus headroom, then revise it from observed retention and hit rates.
+- Configure bounded CAS garbage collection with an explicit maximum size. Size the initial volume from at least two complete source and prebuilt matrices plus headroom, then revise it from observed retention and hit rates.
 - Export scheduler queue depth, active workers, action latency, CAS size, eviction count, cache hits/misses, failed actions, and worker disconnects.
 - Preserve action stdout/stderr and NativeLink service logs long enough to diagnose cache misses and worker-specific failures.
 
