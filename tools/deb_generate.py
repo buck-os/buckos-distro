@@ -6,6 +6,8 @@ import json
 import logging
 import os
 
+from source_policy import validate_source_policy
+
 
 LOG = logging.getLogger("deb-generate")
 ARCHITECTURES = ("x86_64", "aarch64")
@@ -43,6 +45,29 @@ def bzl_literal(value, indent=0):
     return json.dumps(value)
 
 
+def validate_lock(lock):
+    schema = lock.get("schema")
+    if schema not in (2, 3):
+        raise ValueError("unsupported Debian-family lock schema: {}".format(schema))
+    distro = lock.get("distro")
+    if distro not in ("debian", "ubuntu"):
+        raise ValueError("unsupported Debian-family distro: {}".format(distro))
+    cpu = lock.get("target_cpu") or target_cpu(lock.get("architecture"))
+    if cpu not in ARCHITECTURES:
+        raise ValueError("unsupported Debian-family target CPU: {}".format(cpu))
+    if schema == 3:
+        producers = {
+            "{}@{}".format(source["name"], source["version_full"])
+            for source in lock["sources"]
+        }
+        validate_source_policy(
+            lock.get("source_policy", {}),
+            lock.get("image_sets", {}),
+            producers,
+        )
+    return distro, cpu
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -56,14 +81,10 @@ def main():
 
     with open(args.lockfile, encoding="utf-8") as stream:
         lock = json.load(stream)
-    if lock.get("schema") != 2:
-        raise SystemExit("unsupported Debian-family lock schema: {}".format(lock.get("schema")))
-    distro = lock.get("distro")
-    if distro not in ("debian", "ubuntu"):
-        raise SystemExit("unsupported Debian-family distro: {}".format(distro))
-    cpu = lock.get("target_cpu") or target_cpu(lock.get("architecture"))
-    if cpu not in ARCHITECTURES:
-        raise SystemExit("unsupported Debian-family target CPU: {}".format(cpu))
+    try:
+        distro, cpu = validate_lock(lock)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
 
     output = args.output
     if output is None:
@@ -86,9 +107,12 @@ def main():
         "ARCHITECTURE = {}".format(bzl_literal(lock["architecture"])),
         "TARGET_CPU = {}".format(bzl_literal(cpu)),
         "",
-        "SEED_DEBS = {}".format(bzl_literal(lock["seed_debs"])),
+        "BASE_DEBS = {}".format(bzl_literal(lock.get("base_debs", lock.get("seed_debs", [])))),
+        "SEED_DEBS = BASE_DEBS",
         "",
         "IMAGE_SETS = {}".format(bzl_literal(lock.get("image_sets", {}))),
+        "",
+        "SOURCE_POLICY = {}".format(bzl_literal(lock.get("source_policy", {}))),
         "",
         "SOURCES = {}".format(bzl_literal(lock["sources"])),
         "",
@@ -124,11 +148,13 @@ def write_index(out_dir, distro):
             'load(\n'
             '    ":{filename}",\n'
             '    {a}_architecture = "ARCHITECTURE",\n'
+            '    {a}_base = "BASE_DEBS",\n'
             '    {a}_codename = "CODENAME",\n'
             '    {a}_distro = "DISTRO",\n'
             '    {a}_image_sets = "IMAGE_SETS",\n'
             '    {a}_release = "RELEASE",\n'
             '    {a}_seed = "SEED_DEBS",\n'
+            '    {a}_source_policy = "SOURCE_POLICY",\n'
             '    {a}_sources = "SOURCES",\n'
             '    {a}_target_cpu = "TARGET_CPU",\n'
             ')\n'.format(filename=filename, a=alias)
@@ -145,11 +171,13 @@ def write_index(out_dir, distro):
             lines.append(
                 '        "{cpu}": struct(\n'
                 '            ARCHITECTURE = {a}_architecture,\n'
+                '            BASE_DEBS = {a}_base,\n'
                 '            CODENAME = {a}_codename,\n'
                 '            DISTRO = {a}_distro,\n'
                 '            IMAGE_SETS = {a}_image_sets,\n'
                 '            RELEASE = {a}_release,\n'
                 '            SEED_DEBS = {a}_seed,\n'
+                '            SOURCE_POLICY = {a}_source_policy,\n'
                 '            SOURCES = {a}_sources,\n'
                 '            TARGET_CPU = {a}_target_cpu,\n'
                 '        ),\n'.format(cpu=cpu, a=alias)

@@ -8,7 +8,7 @@ import os
 import shutil
 import sys
 
-from _deb import deb_field, extract_deb, require_tool, run
+from _deb import deb_field, extract_deb, register_debs, require_tool, run
 from _isolation import require_target_execution, resolve_isolation, run_isolated
 from _rpm import make_dirs_writable, overlay_tree, reproducible_env, scratch_dir
 
@@ -96,6 +96,7 @@ def main():
     parser.add_argument("--out-manifest", required=True)
     parser.add_argument("--buildroot-tree", default=None)
     parser.add_argument("--dep-installroot", action="append", default=[])
+    parser.add_argument("--dep-deb", action="append", default=[])
     parser.add_argument("--isolation", choices=("auto", "bwrap", "unshare", "none"), default="auto")
     parser.add_argument("--dpkg-buildpackage", default="dpkg-buildpackage")
     parser.add_argument("--env", action="append", default=[])
@@ -110,6 +111,8 @@ def main():
     sysroot = os.path.join(work, "sysroot")
     copy_source(args.source, source)
     compose_buildroot(args.buildroot_tree, args.dep_installroot, sysroot)
+    if args.dep_deb:
+        register_debs(args.dep_deb, sysroot)
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
     for item in args.env:

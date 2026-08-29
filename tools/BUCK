@@ -252,7 +252,10 @@ python_test(
     name = "lock_matrix_test",
     srcs = ["lock_matrix_test.py"],
     base_module = "",
-    deps = [":solve_lib"],
+    deps = [
+        ":solve_lib",
+        ":source_policy",
+    ],
 )
 
 python_test(
@@ -273,6 +276,7 @@ python_test(
     srcs = [
         "deb_test.py",
         "deb_buildroot_assemble.py",
+        "deb_extract.py",
         "dsc_unpack.py",
         "deb_generate.py",
         "deb_lock.py",
@@ -281,6 +285,7 @@ python_test(
     deps = [
         ":_deb",
         ":_rpm",
+        ":source_policy",
     ],
 )
 
@@ -345,13 +350,17 @@ python_binary(
 python_binary(
     name = "deb_lock",
     main = "deb_lock.py",
-    deps = [":_deb"],
+    deps = [
+        ":_deb",
+        ":source_policy",
+    ],
     visibility = ["PUBLIC"],
 )
 
 python_binary(
     name = "deb_generate",
     main = "deb_generate.py",
+    deps = [":source_policy"],
     visibility = ["PUBLIC"],
 )
 

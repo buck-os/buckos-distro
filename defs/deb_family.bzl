@@ -1,6 +1,6 @@
-"""Shared Debian-family downloads, buildroots, and source replay targets."""
+"""Shared Debian-family downloads, buildroots, source replay, and images."""
 
-load("//defs:flavor.bzl", "package")
+load("//defs:flavor.bzl", "package", "subpackage_deb_target")
 load(
     "//defs:architectures.bzl",
     "ARCHITECTURES",
@@ -12,6 +12,7 @@ load(
 load("//defs:releases.bzl", "release_suffix")
 load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_deb_buildroot")
+load("//defs/rules/dsc.bzl", "prebuilt_deb")
 load("//defs/rules/image.bzl", "iso_image", "squashfs")
 load("//defs/rules/rootfs.bzl", "deb_rootfs")
 
@@ -19,6 +20,8 @@ _DISTRO_SUPPLIERS = {
     "debian": "Organization: Debian",
     "ubuntu": "Organization: Ubuntu",
 }
+
+_IMAGE_VARIANTS = ["", "-prebuilt"]
 
 _PATH_ESCAPES = {
     " ": "%20",
@@ -94,14 +97,22 @@ def _download(flavor, data, entry, suffix, defined, platform):
 def deb_downloads(flavor, data, suffix, platform):
     _validate_flavor(flavor)
     defined = {}
-    for entry in data.SEED_DEBS:
+    for entry in _base_debs(data):
         _download(flavor, data, entry, suffix, defined, platform)
     for name in sorted(data.IMAGE_SETS):
         for entry in data.IMAGE_SETS[name]:
             _download(flavor, data, entry, suffix, defined, platform)
     for source in data.SOURCES:
+        for entry in source.get("build_deps", []):
+            _download(flavor, data, entry, suffix, defined, platform)
         for entry in source["files"]:
             _download(flavor, data, entry, suffix, defined, platform)
+
+def _base_debs(data):
+    base = getattr(data, "BASE_DEBS", None)
+    if base != None:
+        return base
+    return data.SEED_DEBS
 
 def _target_cpu(flavor, architecture):
     if architecture == "amd64":
@@ -121,7 +132,7 @@ def deb_buildroots(flavor, data, suffix, platform, exec_constraints):
     )
     seeded_deb_buildroot(
         name = "buildroot-binary-seed" + suffix,
-        seed_debs = [":" + entry["target"] + suffix for entry in data.SEED_DEBS],
+        seed_debs = [":" + entry["target"] + suffix for entry in _base_debs(data)],
         target_cpu = target_cpu,
         default_target_platform = platform,
         visibility = ["PUBLIC"],
@@ -133,6 +144,30 @@ def deb_buildroot_target(flavor, suffix):
 
 def deb_packages(flavor, data, suffix, platform, exec_constraints):
     _validate_flavor(flavor)
+    base_targets = {entry["target"]: True for entry in _base_debs(data)}
+    build_deps = {}
+    for source in data.SOURCES:
+        for entry in source.get("build_deps", []):
+            if entry["target"] in base_targets:
+                continue
+            build_deps[entry["target"]] = entry
+
+    for target in sorted(build_deps):
+        entry = build_deps[target]
+        prebuilt_deb(
+            name = _seedroot_target(entry, suffix),
+            deb = ":" + entry["target"] + suffix,
+            package_name = entry["package"],
+            version = entry["version"],
+            architecture = entry["architecture"],
+            source_name = entry.get("source_name", entry["source"]),
+            source_version = entry.get("source_version", entry["version"]),
+            flavor = flavor,
+            supplier = _DISTRO_SUPPLIERS[flavor],
+            default_target_platform = platform,
+            visibility = ["PUBLIC"],
+        )
+
     for source in data.SOURCES:
         dsc = None
         source_files = []
@@ -150,6 +185,11 @@ def deb_packages(flavor, data, suffix, platform, exec_constraints):
         if source_blob == None:
             source_blob = source["files"][0]
 
+        binary_metadata = {
+            entry["package"]: entry
+            for entry in source.get("binary_metadata", [])
+        }
+        subpackages = sorted(binary_metadata) if binary_metadata else source["binaries"]
         package(
             name = source["name"] + suffix,
             flavor = flavor,
@@ -157,8 +197,15 @@ def deb_packages(flavor, data, suffix, platform, exec_constraints):
             source_files = source_files,
             source_name = source["name"],
             version = source["version"],
+            version_full = source.get("version_full", ""),
             release = source["release"],
-            subpackages = source["binaries"],
+            subpackages = subpackages,
+            binary_metadata = binary_metadata,
+            build_deps = [
+                ":" + _seedroot_target(entry, suffix)
+                for entry in source.get("build_deps", [])
+                if entry["target"] not in base_targets
+            ],
             buildroot = deb_buildroot_target(flavor, suffix),
             homepage = source["homepage"],
             supplier = _DISTRO_SUPPLIERS[flavor],
@@ -168,6 +215,9 @@ def deb_packages(flavor, data, suffix, platform, exec_constraints):
             exec_compatible_with = exec_constraints,
             visibility = ["PUBLIC"],
         )
+
+def _seedroot_target(entry, suffix):
+    return "seedroot-" + entry["target"] + suffix
 
 def deb_images(flavor, data, release, suffix, platform, exec_constraints):
     if "live" not in data.IMAGE_SETS or "image-tools" not in data.IMAGE_SETS:
@@ -181,54 +231,96 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
         default_target_platform = platform,
         visibility = ["PUBLIC"],
     )
-    deb_rootfs(
-        name = "rootfs-live" + suffix,
-        buildroot = buildroot,
-        debs = [":" + entry["target"] + suffix for entry in data.IMAGE_SETS["live"]],
-        default_target_platform = platform,
-        exec_compatible_with = exec_constraints,
-        visibility = ["PUBLIC"],
-    )
-    kernel_image(
-        name = "kernel-live" + suffix,
-        rootfs = ":rootfs-live" + suffix,
-        default_target_platform = platform,
-        visibility = ["PUBLIC"],
-    )
-    initramfs(
-        name = "initramfs-live" + suffix,
-        buildroot = buildroot,
-        rootfs = ":rootfs-live" + suffix,
-        generator = "casper" if flavor == "ubuntu" else "live-boot",
-        default_target_platform = platform,
-        exec_compatible_with = exec_constraints,
-        visibility = ["PUBLIC"],
-    )
-    squashfs(
-        name = "squashfs-live" + suffix,
-        buildroot = tools,
-        rootfs = ":rootfs-live" + suffix,
-        default_target_platform = platform,
-        exec_compatible_with = exec_constraints,
-        visibility = ["PUBLIC"],
-    )
-    iso_image(
-        name = "iso-live" + suffix,
-        buildroot = tools,
-        kernel = ":kernel-live" + suffix,
-        initramfs = ":initramfs-live" + suffix,
-        squashfs = ":squashfs-live" + suffix,
-        volume_label = "{}-{}-LIVE".format(flavor.upper(), release),
-        kernel_args = "console=tty0 {}".format(
-            "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
-        ),
-        boot_mode = "hybrid" if data.TARGET_CPU == "x86_64" else "uefi",
-        layout = flavor,
-        target_cpu = data.TARGET_CPU,
-        default_target_platform = platform,
-        exec_compatible_with = exec_constraints,
-        visibility = ["PUBLIC"],
-    )
+    built = {}
+    for source in data.SOURCES:
+        for entry in source.get("binary_metadata", []):
+            previous = built.get(entry["package"])
+            if previous != None:
+                fail("two source recipes produce {}: {} and {}".format(
+                    entry["package"], previous[0]["name"], source["name"],
+                ))
+            built[entry["package"]] = (source, entry)
+
+    policy = getattr(data, "SOURCE_POLICY", {})
+    policy_sets = {name: True for name in policy.get("image_sets", [])}
+    exceptions = {
+        entry["package"]: entry
+        for entry in policy.get("exceptions", [])
+    }
+
+    for variant in _IMAGE_VARIANTS:
+        debs = []
+        for entry in data.IMAGE_SETS["live"]:
+            local = built.get(entry["package"]) if variant == "" else None
+            if local != None:
+                source, binary = local
+                if binary.get("source_version") != entry.get("source_version"):
+                    fail("{} source recipe version does not match live package {}".format(
+                        source["name"], entry["package"],
+                    ))
+                debs.append(":" + subpackage_deb_target(
+                    source["name"] + suffix,
+                    source["name"],
+                    entry["package"],
+                ))
+            else:
+                if variant == "" and "live" in policy_sets and entry["package"] not in exceptions:
+                    fail("live package {} has no source recipe or approved exception".format(entry["package"]))
+                debs.append(":" + entry["target"] + suffix)
+
+        rootfs_target = ":rootfs-live" + variant + suffix
+        deb_rootfs(
+            name = "rootfs-live" + variant + suffix,
+            buildroot = buildroot,
+            debs = debs,
+            default_target_platform = platform,
+            exec_compatible_with = exec_constraints,
+            visibility = ["PUBLIC"],
+        )
+        kernel_image(
+            name = "kernel-live" + variant + suffix,
+            rootfs = rootfs_target,
+            default_target_platform = platform,
+            visibility = ["PUBLIC"],
+        )
+        initramfs(
+            name = "initramfs-live" + variant + suffix,
+            buildroot = buildroot,
+            rootfs = rootfs_target,
+            generator = "casper" if flavor == "ubuntu" else "live-boot",
+            default_target_platform = platform,
+            exec_compatible_with = exec_constraints,
+            visibility = ["PUBLIC"],
+        )
+        squashfs(
+            name = "squashfs-live" + variant + suffix,
+            buildroot = tools,
+            rootfs = rootfs_target,
+            default_target_platform = platform,
+            exec_compatible_with = exec_constraints,
+            visibility = ["PUBLIC"],
+        )
+        iso_image(
+            name = "iso-live" + variant + suffix,
+            buildroot = tools,
+            kernel = ":kernel-live" + variant + suffix,
+            initramfs = ":initramfs-live" + variant + suffix,
+            squashfs = ":squashfs-live" + variant + suffix,
+            volume_label = "{}-{}-LIVE{}".format(
+                flavor.upper(),
+                release,
+                "-PREBUILT" if variant else "",
+            ),
+            kernel_args = "console=tty0 {}".format(
+                "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
+            ),
+            boot_mode = "hybrid" if data.TARGET_CPU == "x86_64" else "uefi",
+            layout = flavor,
+            target_cpu = data.TARGET_CPU,
+            default_target_platform = platform,
+            exec_compatible_with = exec_constraints,
+            visibility = ["PUBLIC"],
+        )
 
 def _data_for(flavor, data_by_release_arch, release, architecture):
     by_arch = data_by_release_arch.get(release)

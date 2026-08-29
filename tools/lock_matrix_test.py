@@ -56,6 +56,25 @@ class TestLockMatrix(unittest.TestCase):
                                 self.assertIn("dpkg", {item["package"] for item in image})
                                 for item in image:
                                     self.assertIn(item["architecture"], (DEB_ARCH[architecture], "all"))
+                            if lock.get("schema") == 3:
+                                producers = {
+                                    "{}@{}".format(source["name"], source["version_full"])
+                                    for source in lock["sources"]
+                                }
+                                validate_source_policy(
+                                    lock["source_policy"],
+                                    lock["image_sets"],
+                                    producers,
+                                )
+                                for image_name in lock["source_policy"]["image_sets"]:
+                                    for item in lock["image_sets"][image_name]:
+                                        self.assertEqual(
+                                            item["source"],
+                                            "{}@{}".format(
+                                                item["source_name"],
+                                                item["source_version"],
+                                            ),
+                                        )
                         else:
                             for image in lock["image_sets"].values():
                                 for item in image:
