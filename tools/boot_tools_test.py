@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+import contextlib
+import hashlib
+import io
 import os
 import tarfile
 import tempfile
@@ -14,7 +17,19 @@ from deb_rootfs_install import (
     transaction_script,
 )
 from iso_build import _bios_script, _write_md5sums, _xorriso_script
-from iso_boot_test import parse_marker, qemu_command, validate
+from iso_boot_test import (
+    BootCapture,
+    BootFailure,
+    BootInterrupted,
+    capture_boot,
+    complete_marker_from_output,
+    main as iso_boot_main,
+    parse_marker,
+    qemu_command,
+    validate,
+    validate_production_capture,
+    validate_verification_capture,
+)
 from initramfs_build import _install_image_tool_script, stage_image_tool
 from rootfs_overlay import append_file, parse_file
 from squashfs_build import _build_mksquashfs_script, _mksquashfs_script, write_pseudo
@@ -296,6 +311,222 @@ class TestIsoBootMarker(unittest.TestCase):
                     validate(args, fields),
                 )
 
+    def test_waits_for_complete_marker_line(self):
+        marker = (
+            "BUCKOS_VERIFY flavor=debian version=13 arch=x86_64 "
+            "pid1=systemd failed=0 selinux=not-installed avc=0"
+        )
+        self.assertFalse(complete_marker_from_output(marker))
+        self.assertTrue(complete_marker_from_output(marker + "\n"))
+
+
+class TestPairedIsoBoot(unittest.TestCase):
+    @staticmethod
+    def args(timeout=1):
+        return type("Args", (), {
+            "qemu": "/bin/true",
+            "architecture": "x86_64",
+            "firmware": "bios",
+            "firmware_path": "",
+            "firmware_vars": "",
+            "timeout": timeout,
+        })()
+
+    def assert_process_gone(self, path):
+        with open(path, encoding="utf-8") as stream:
+            pid = int(stream.read())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
+    def test_main_boots_distinct_isos_and_reports_production_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            production = os.path.join(tmp, "production.iso")
+            verification = os.path.join(tmp, "verification.iso")
+            with open(production, "wb") as stream:
+                stream.write(b"exact production bytes")
+            with open(verification, "wb") as stream:
+                stream.write(b"different verification bytes")
+
+            captures = (
+                BootCapture("buckos login: ", False, -9),
+                BootCapture(
+                    "BUCKOS_VERIFY flavor=debian version=13 arch=x86_64 "
+                    "pid1=systemd failed=0 selinux=not-installed avc=0\n",
+                    False,
+                    -9,
+                ),
+            )
+            stdout = io.StringIO()
+            with mock.patch(
+                "iso_boot_test.capture_boot",
+                side_effect=captures,
+            ) as boot, contextlib.redirect_stdout(stdout):
+                iso_boot_main([
+                    "--production-iso", production,
+                    "--verification-iso", verification,
+                    "--arch", "x86_64",
+                    "--firmware", "bios",
+                    "--expected-flavor", "debian",
+                    "--expected-version", "13",
+                    "--qemu", "/bin/true",
+                ])
+
+            self.assertEqual(2, boot.call_count)
+            self.assertEqual(os.path.realpath(production), boot.call_args_list[0].args[1])
+            self.assertEqual("exact-media", boot.call_args_list[0].args[2])
+            self.assertEqual(os.path.realpath(verification), boot.call_args_list[1].args[1])
+            self.assertEqual("verification", boot.call_args_list[1].args[2])
+            production_digest = hashlib.sha256(b"exact production bytes").hexdigest()
+            verification_digest = hashlib.sha256(b"different verification bytes").hexdigest()
+            self.assertIn(
+                "BUCKOS_PRODUCTION_ISO sha256={}".format(production_digest),
+                stdout.getvalue(),
+            )
+            self.assertNotIn(verification_digest, stdout.getvalue())
+
+    def test_same_iso_is_rejected_as_exact_media_wiring(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            iso = os.path.join(tmp, "same.iso")
+            with open(iso, "wb") as stream:
+                stream.write(b"same")
+            with mock.patch("iso_boot_test.capture_boot") as boot:
+                with self.assertRaisesRegex(
+                    SystemExit,
+                    "exact-media phase: production and verification ISO inputs",
+                ):
+                    iso_boot_main([
+                        "--production-iso", iso,
+                        "--verification-iso", iso,
+                        "--arch", "x86_64",
+                        "--firmware", "bios",
+                        "--expected-flavor", "debian",
+                        "--expected-version", "13",
+                        "--qemu", "/bin/true",
+                    ])
+            boot.assert_not_called()
+
+    def test_exact_media_failures_are_phase_specific(self):
+        cases = (
+            (
+                BootCapture("Kernel panic - not syncing: fatal\n", False, -9),
+                "exact-media phase: guest kernel panic",
+            ),
+            (
+                BootCapture("still booting\n", True, -9),
+                "exact-media phase: guest did not reach serial milestone",
+            ),
+            (
+                BootCapture(
+                    "BUCKOS_VERIFY flavor=debian version=13 arch=x86_64\n",
+                    False,
+                    0,
+                ),
+                "exact-media phase: guest exited with status 0",
+            ),
+            (
+                BootCapture("stopped\n", False, 1),
+                "exact-media phase: guest exited with status 1",
+            ),
+        )
+        for capture, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(BootFailure, message):
+                    validate_production_capture(capture, "login:")
+
+    def test_verification_failure_keeps_phase_and_marker_diagnostic(self):
+        args = type("Args", (), {
+            "expected_flavor": "debian",
+            "expected_version": "13",
+            "architecture": "x86_64",
+            "expect_selinux": False,
+        })()
+        with self.assertRaisesRegex(
+            BootFailure,
+            "verification phase: guest did not emit BUCKOS_VERIFY before timeout",
+        ):
+            validate_verification_capture(args, BootCapture("booting\n", True, -9))
+
+    def test_capture_reads_non_newline_milestone_and_cleans_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_path = os.path.join(tmp, "pid")
+            observed = {}
+
+            def command(_args, _iso, temporary):
+                observed["temporary"] = temporary
+                return [
+                    "/bin/sh", "-c",
+                    'printf "%s" "$$" > "$1"; printf "buckos login: "; exec sleep 30',
+                    "sh", pid_path,
+                ]
+
+            with mock.patch("iso_boot_test.qemu_command", side_effect=command):
+                capture = capture_boot(
+                    self.args(),
+                    "/production.iso",
+                    "exact-media",
+                    lambda output: "login:" in output,
+                )
+
+            self.assertIn("login:", capture.output)
+            self.assertFalse(capture.timed_out)
+            self.assertFalse(os.path.exists(observed["temporary"]))
+            self.assert_process_gone(pid_path)
+
+    def test_capture_timeout_cleans_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_path = os.path.join(tmp, "pid")
+            observed = {}
+
+            def command(_args, _iso, temporary):
+                observed["temporary"] = temporary
+                return [
+                    "/bin/sh", "-c",
+                    'printf "%s" "$$" > "$1"; exec sleep 30',
+                    "sh", pid_path,
+                ]
+
+            with mock.patch("iso_boot_test.qemu_command", side_effect=command):
+                capture = capture_boot(
+                    self.args(timeout=0.2),
+                    "/production.iso",
+                    "exact-media",
+                    lambda _output: False,
+                )
+
+            self.assertTrue(capture.timed_out)
+            self.assertFalse(os.path.exists(observed["temporary"]))
+            self.assert_process_gone(pid_path)
+
+    def test_capture_interruption_cleans_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_path = os.path.join(tmp, "pid")
+            observed = {}
+
+            def command(_args, _iso, temporary):
+                observed["temporary"] = temporary
+                return [
+                    "/bin/sh", "-c",
+                    'printf "%s" "$$" > "$1"; printf ready; exec sleep 30',
+                    "sh", pid_path,
+                ]
+
+            def interrupt(output):
+                if "ready" in output:
+                    raise BootInterrupted("SIGTERM")
+                return False
+
+            with mock.patch("iso_boot_test.qemu_command", side_effect=command):
+                with self.assertRaises(BootInterrupted):
+                    capture_boot(
+                        self.args(),
+                        "/production.iso",
+                        "exact-media",
+                        interrupt,
+                    )
+
+            self.assertFalse(os.path.exists(observed["temporary"]))
+            self.assert_process_gone(pid_path)
+
 
 class TestIsoBootMatrix(unittest.TestCase):
     @classmethod
@@ -324,6 +555,8 @@ class TestIsoBootMatrix(unittest.TestCase):
         self.assertEqual(len(boot_rules), len(self.rules["iso_boot_test"]))
 
         production_isos = set()
+        production_edges = set()
+        verification_edges = set()
         expected_boot_names = set()
         for flavor, release, layout, expect_selinux in ISO_MATRIX:
             for architecture in ARCHITECTURES:
@@ -344,6 +577,10 @@ class TestIsoBootMatrix(unittest.TestCase):
                     squashfs_name = "squashfs-verify-" + test_suffix
                     iso_name = "iso-verify-" + test_suffix
                     production_rootfs = "//flavors/{}:rootfs-live{}".format(
+                        flavor,
+                        image_suffix,
+                    )
+                    production_iso = "//flavors/{}:iso-live{}".format(
                         flavor,
                         image_suffix,
                     )
@@ -375,9 +612,7 @@ class TestIsoBootMatrix(unittest.TestCase):
                         iso_rules[iso_name]["boot_mode"],
                     )
 
-                    production_isos.add(
-                        production_rootfs.replace(":rootfs-live", ":iso-live")
-                    )
+                    production_isos.add(production_iso)
                     firmwares = (
                         ("bios", "uefi")
                         if architecture == "x86_64"
@@ -387,7 +622,19 @@ class TestIsoBootMatrix(unittest.TestCase):
                         boot_name = "boot-{}-{}".format(test_suffix, firmware)
                         expected_boot_names.add(boot_name)
                         boot = boot_rules[boot_name]
-                        self.assertEqual(":" + iso_name, boot["iso"])
+                        self.assertEqual(
+                            production_iso,
+                            boot["production_iso"],
+                            "exact-media production ISO wiring for " + boot_name,
+                        )
+                        self.assertEqual(
+                            ":" + iso_name,
+                            boot["verification_iso"],
+                            "verification ISO wiring for " + boot_name,
+                        )
+                        self.assertEqual("login:", boot["production_milestone"])
+                        production_edges.add((boot_name, boot["production_iso"]))
+                        verification_edges.add((boot_name, boot["verification_iso"]))
                         self.assertEqual(architecture, boot["architecture"])
                         self.assertEqual(firmware, boot["firmware"])
                         self.assertEqual(flavor, boot["expected_flavor"])
@@ -408,6 +655,8 @@ class TestIsoBootMatrix(unittest.TestCase):
         self.assertEqual(32, len(expected_production_isos))
         self.assertEqual(expected_production_isos, production_isos)
         self.assertEqual(expected_boot_names, set(boot_rules))
+        self.assertEqual(48, len(production_edges))
+        self.assertEqual(48, len(verification_edges))
 
     def test_debian_prebuilt_boot_set_is_complete(self):
         self.assertEqual(

@@ -43,11 +43,10 @@ package(
     visibility = ["PUBLIC"],
 )
 
-# Firmware-level tests use an instrumented copy of each production rootfs.
-# The package closure, kernel, initramfs, squashfs builder and ISO builder
-# are the production targets; the overlay only adds a one-shot systemd unit
-# that reports the release, architecture, PID 1, failed units and SELinux
-# state over the serial console before powering the guest off.
+# Firmware-level tests first boot each exact production ISO to its serial login
+# prompt, then boot an instrumented copy of the production rootfs. The second
+# phase adds a one-shot systemd unit that reports the release, architecture,
+# PID 1, failed units and SELinux state before powering the guest off.
 all_live_iso_boot_tests()
 
 # The same source package with the `greeting` USE flag on.  Nothing here

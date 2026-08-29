@@ -197,7 +197,7 @@ buck2 build //flavors/ubuntu:iso-live-26.04-x86_64
 
 ## Boot validation
 
-`//tests:boot-*` boots an instrumented image through QEMU firmware and validates the guest from its serial-console report. x86_64 is tested through both BIOS and UEFI; AArch64 is tested through UEFI. The report checks flavor, release, architecture, systemd as PID 1, zero failed units, zero SELinux AVC denials, and enforcing mode for RPM-family images.
+Each `//tests:boot-*` target performs two QEMU boots. It first boots the exact architecture-qualified production ISO through the requested firmware, reports that artifact's SHA-256, and requires the serial getty's `login:` prompt. The prompt is the common late normal-boot milestone because every image selects a serial kernel console and carries systemd plus util-linux. It then boots the matching instrumented verification ISO and checks flavor, release, architecture, systemd as PID 1, zero failed units, zero SELinux AVC denials, and enforcing mode for RPM-family images. x86_64 is tested through both BIOS and UEFI; AArch64 is tested through UEFI.
 
 ```sh
 buck2 test //tests:boot-fedora-44-x86_64-bios

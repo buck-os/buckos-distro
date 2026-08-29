@@ -16,7 +16,7 @@ def live_iso_boot_tests(
         layout = "rpm",
         expect_selinux = False,
         image_variant = None):
-    """Define one instrumented ISO and each applicable firmware test."""
+    """Define one verification ISO and paired production/verification boots."""
     variant_suffix = "-" + image_variant if image_variant else ""
     suffix = "{}{}-{}-{}".format(
         flavor,
@@ -32,6 +32,7 @@ def live_iso_boot_tests(
     rootfs_name = "rootfs-verify-" + suffix
     squashfs_name = "squashfs-verify-" + suffix
     iso_name = "iso-verify-" + suffix
+    production_iso = flavor_package + "iso-live" + image_suffix
     old_squashfs = release == "9" and flavor in ("centos", "centos-hyperscale")
     squashfs_tools = (
         flavor_package + "buildroot-binary-seed" + release_arch_suffix
@@ -82,7 +83,9 @@ def live_iso_boot_tests(
     for firmware in firmwares:
         iso_boot_test(
             name = "boot-{}-{}".format(suffix, firmware),
-            iso = ":" + iso_name,
+            production_iso = production_iso,
+            production_milestone = "login:",
+            verification_iso = ":" + iso_name,
             architecture = architecture,
             firmware = firmware,
             expected_flavor = flavor,

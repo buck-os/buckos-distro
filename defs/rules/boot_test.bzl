@@ -42,11 +42,16 @@ rootfs_overlay = rule(
 
 
 def _iso_boot_test_impl(ctx: AnalysisContext) -> list[Provider]:
-    iso = ctx.attrs.iso[DefaultInfo].default_outputs[0]
+    production_iso = ctx.attrs.production_iso[DefaultInfo].default_outputs[0]
+    verification_iso = ctx.attrs.verification_iso[DefaultInfo].default_outputs[0]
     cmd = cmd_args(
         ctx.attrs._runner[RunInfo],
-        "--iso",
-        iso,
+        "--production-iso",
+        production_iso,
+        "--verification-iso",
+        verification_iso,
+        "--production-milestone",
+        ctx.attrs.production_milestone,
         "--arch",
         ctx.attrs.architecture,
         "--firmware",
@@ -86,11 +91,13 @@ _iso_boot_test = rule(
         "firmware": attrs.enum(["bios", "uefi"]),
         "firmware_path": attrs.string(default = ""),
         "firmware_vars": attrs.string(default = ""),
-        "iso": attrs.dep(),
         "labels": attrs.list(attrs.string(), default = []),
         "expect_selinux": attrs.bool(default = False),
+        "production_iso": attrs.dep(),
+        "production_milestone": attrs.string(default = "login:"),
         "qemu": attrs.string(),
         "timeout_secs": attrs.int(default = 600),
+        "verification_iso": attrs.dep(),
         "_runner": attrs.default_only(
             attrs.exec_dep(default = "//tools:iso_boot_test"),
         ),
