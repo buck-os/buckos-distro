@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import io
 import os
+import signal
 import tarfile
 import tempfile
 import unittest
@@ -20,7 +21,6 @@ from iso_build import _bios_script, _write_md5sums, _xorriso_script
 from iso_boot_test import (
     BootCapture,
     BootFailure,
-    BootInterrupted,
     capture_boot,
     complete_marker_from_output,
     main as iso_boot_main,
@@ -497,35 +497,70 @@ class TestPairedIsoBoot(unittest.TestCase):
             self.assertFalse(os.path.exists(observed["temporary"]))
             self.assert_process_gone(pid_path)
 
-    def test_capture_interruption_cleans_process(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            pid_path = os.path.join(tmp, "pid")
-            observed = {}
+    def test_interruptions_report_phase_and_clean_process(self):
+        for phase in ("exact-media", "verification"):
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                signal_name = signal.Signals(signum).name
+                with self.subTest(phase=phase, signal=signal_name), \
+                        tempfile.TemporaryDirectory() as tmp:
+                    production = os.path.join(tmp, "production.iso")
+                    verification = os.path.join(tmp, "verification.iso")
+                    with open(production, "wb") as stream:
+                        stream.write(b"exact production bytes")
+                    with open(verification, "wb") as stream:
+                        stream.write(b"different verification bytes")
+                    pid_path = os.path.join(tmp, "pid")
+                    observed = {}
 
-            def command(_args, _iso, temporary):
-                observed["temporary"] = temporary
-                return [
-                    "/bin/sh", "-c",
-                    'printf "%s" "$$" > "$1"; printf ready; exec sleep 30',
-                    "sh", pid_path,
-                ]
+                    def command(_args, _iso, temporary):
+                        observed["temporary"] = temporary
+                        return [
+                            "/bin/sh", "-c",
+                            'printf "%s" "$$" > "$1"; printf ready; exec sleep 30',
+                            "sh", pid_path,
+                        ]
 
-            def interrupt(output):
-                if "ready" in output:
-                    raise BootInterrupted("SIGTERM")
-                return False
+                    def boot(args, iso, active_phase, complete):
+                        if active_phase != phase:
+                            return BootCapture("buckos login: ", False, -9)
 
-            with mock.patch("iso_boot_test.qemu_command", side_effect=command):
-                with self.assertRaises(BootInterrupted):
-                    capture_boot(
-                        self.args(),
-                        "/production.iso",
-                        "exact-media",
-                        interrupt,
+                        def interrupt(output):
+                            if "ready" in output:
+                                os.kill(os.getpid(), signum)
+                            return complete(output)
+
+                        return capture_boot(args, iso, active_phase, interrupt)
+
+                    stdout = io.StringIO()
+                    stderr = io.StringIO()
+                    with mock.patch(
+                        "iso_boot_test.qemu_command",
+                        side_effect=command,
+                    ), mock.patch(
+                        "iso_boot_test.capture_boot",
+                        side_effect=boot,
+                    ), contextlib.redirect_stdout(stdout), \
+                            contextlib.redirect_stderr(stderr):
+                        with self.assertRaises(SystemExit) as raised:
+                            iso_boot_main([
+                                "--production-iso", production,
+                                "--verification-iso", verification,
+                                "--arch", "x86_64",
+                                "--firmware", "bios",
+                                "--expected-flavor", "debian",
+                                "--expected-version", "13",
+                                "--qemu", "/bin/true",
+                            ])
+
+                    self.assertEqual(
+                        "{} phase: boot validation interrupted by {}".format(
+                            phase,
+                            signal_name,
+                        ),
+                        str(raised.exception),
                     )
-
-            self.assertFalse(os.path.exists(observed["temporary"]))
-            self.assert_process_gone(pid_path)
+                    self.assertFalse(os.path.exists(observed["temporary"]))
+                    self.assert_process_gone(pid_path)
 
 
 class TestIsoBootMatrix(unittest.TestCase):

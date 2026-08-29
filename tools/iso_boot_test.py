@@ -216,27 +216,30 @@ def terminate_process(process):
 
 def capture_boot(args, iso, phase, complete):
     with tempfile.TemporaryDirectory(prefix="buckos-iso-boot-{}-".format(phase)) as temporary:
-        command = qemu_command(args, iso, temporary)
-        print(
-            "{} phase: + {}".format(phase, " ".join(command)),
-            file=sys.stderr,
-            flush=True,
-        )
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-        if process.stdout is None:
-            terminate_process(process)
-            raise BootFailure("{} phase: QEMU stdout pipe is unavailable".format(phase))
-
-        deadline = time.monotonic() + args.timeout
         chunks = []
         timed_out = False
-        selector = selectors.DefaultSelector()
+        process = None
+        selector = None
         try:
+            command = qemu_command(args, iso, temporary)
+            print(
+                "{} phase: + {}".format(phase, " ".join(command)),
+                file=sys.stderr,
+                flush=True,
+            )
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            if process.stdout is None:
+                raise BootFailure(
+                    "{} phase: QEMU stdout pipe is unavailable".format(phase)
+                )
+
+            deadline = time.monotonic() + args.timeout
+            selector = selectors.DefaultSelector()
             selector.register(process.stdout, selectors.EVENT_READ)
             while True:
                 remaining = deadline - time.monotonic()
@@ -253,10 +256,15 @@ def capture_boot(args, iso, phase, complete):
                 output = clean_console(b"".join(chunks))
                 if panic_from_output(output) or complete(output):
                     break
+        except BootInterrupted as error:
+            raise BootInterrupted("{} phase: {}".format(phase, error)) from error
         finally:
-            selector.close()
-            terminate_process(process)
-            process.stdout.close()
+            if selector is not None:
+                selector.close()
+            if process is not None:
+                terminate_process(process)
+                if process.stdout is not None:
+                    process.stdout.close()
 
     return BootCapture(
         output=clean_console(b"".join(chunks)),
@@ -320,7 +328,9 @@ def interrupt_guard():
     previous = {}
 
     def interrupted(signum, _frame):
-        raise BootInterrupted(signal.Signals(signum).name)
+        raise BootInterrupted(
+            "boot validation interrupted by {}".format(signal.Signals(signum).name)
+        )
 
     for signum in (signal.SIGINT, signal.SIGTERM):
         previous[signum] = signal.signal(signum, interrupted)
@@ -421,7 +431,7 @@ def main(argv=None):
         with interrupt_guard():
             run(args)
     except BootInterrupted as error:
-        sys.exit("boot validation interrupted by {}".format(error))
+        sys.exit(str(error))
     except BootFailure as error:
         sys.exit(str(error))
 
