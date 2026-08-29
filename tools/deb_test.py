@@ -31,6 +31,7 @@ from deb_lock import (
     apt_uri_lines,
     dependency_overlay,
     parse_source_exception,
+    source_files_from_metadata,
     source_record,
     source_requests,
 )
@@ -392,7 +393,7 @@ class TestAptMetadata(unittest.TestCase):
                     )
                 return (
                     "'http://archive.example/coreutils_9.7-3ubuntu2.dsc' "
-                    "coreutils_9.7-3ubuntu2.dsc 1 SHA256:{}\n".format(digest)
+                    "coreutils_9.7-3ubuntu2.dsc 1 SHA512:{}\n".format("b" * 128)
                 )
             return """Package: coreutils-from
 Version: 9.7-3ubuntu2
@@ -412,7 +413,106 @@ Checksums-Sha256:
 
         self.assertEqual("coreutils", record["name"])
         self.assertEqual("9.7-3ubuntu2", record["version_full"])
+        self.assertEqual(digest, record["files"][0]["sha256"])
         self.assertEqual("src:coreutils=9.7-3ubuntu2", commands[0][-1])
+
+    def test_source_uri_uses_metadata_sha256_when_apt_reports_sha512(self):
+        sha256 = "a" * 64
+        entries = apt_uri_lines(
+            "'http://archive.example/pkg_1.0%2borig.tar.xz' "
+            "pkg_1.0%2Borig.tar.xz 42 SHA512:{}\n".format("b" * 128)
+        )
+        files = source_files_from_metadata(entries, {
+            "Checksums-Sha256": "{} 42 pkg_1.0+orig.tar.xz".format(sha256),
+        })
+        self.assertEqual("pkg_1.0+orig.tar.xz", files[0]["filename"])
+        self.assertEqual(sha256, files[0]["sha256"])
+
+    def test_source_uri_without_digest_uses_metadata_sha256(self):
+        sha256 = "a" * 64
+        entries = apt_uri_lines(
+            "'http://archive.example/pkg_1.dsc' pkg_1.dsc 42\n"
+        )
+        files = source_files_from_metadata(entries, {
+            "Checksums-Sha256": "{} 42 pkg_1.dsc".format(sha256),
+        })
+        self.assertEqual(sha256, files[0]["sha256"])
+
+    def test_source_uri_rejects_missing_metadata_sha256(self):
+        entries = apt_uri_lines(
+            "'http://archive.example/pkg_1.dsc' pkg_1.dsc 42 SHA512:{}\n".format(
+                "b" * 128
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "no Checksums-Sha256"):
+            source_files_from_metadata(entries, {})
+
+    def test_source_uri_rejects_size_mismatch(self):
+        entries = apt_uri_lines(
+            "'http://archive.example/pkg_1.dsc' pkg_1.dsc 41 SHA512:{}\n".format(
+                "b" * 128
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "source size mismatch"):
+            source_files_from_metadata(entries, {
+                "Checksums-Sha256": "{} 42 pkg_1.dsc".format("a" * 64),
+            })
+
+    def test_source_uri_rejects_conflicting_sha256(self):
+        entries = apt_uri_lines(
+            "'http://archive.example/pkg_1.dsc' pkg_1.dsc 42 SHA256:{}\n".format(
+                "b" * 64
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "source SHA-256 mismatch"):
+            source_files_from_metadata(entries, {
+                "Checksums-Sha256": "{} 42 pkg_1.dsc".format("a" * 64),
+            })
+
+    def test_source_uri_rejects_filename_missing_from_metadata(self):
+        entries = apt_uri_lines(
+            "'http://archive.example/other_1.dsc' other_1.dsc 42 SHA512:{}\n".format(
+                "b" * 128
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "missing from source"):
+            source_files_from_metadata(entries, {
+                "Checksums-Sha256": "{} 42 pkg_1.dsc".format("a" * 64),
+            })
+
+    def test_source_uri_rejects_metadata_file_without_uri(self):
+        entries = apt_uri_lines(
+            "'http://archive.example/pkg_1.dsc' pkg_1.dsc 42 SHA512:{}\n".format(
+                "b" * 128
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "no URI.*pkg_1.orig.tar.xz"):
+            source_files_from_metadata(entries, {
+                "Checksums-Sha256": (
+                    "{} 42 pkg_1.dsc\n{} 99 pkg_1.orig.tar.xz".format(
+                        "a" * 64, "c" * 64,
+                    )
+                ),
+            })
+
+    def test_source_metadata_rejects_duplicate_and_invalid_sha256(self):
+        entries = apt_uri_lines(
+            "'http://archive.example/pkg_1.dsc' pkg_1.dsc 42 SHA512:{}\n".format(
+                "b" * 128
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate source filename"):
+            source_files_from_metadata(entries, {
+                "Checksums-Sha256": (
+                    "{} 42 pkg_1.dsc\n{} 42 pkg_1.dsc".format(
+                        "a" * 64, "c" * 64,
+                    )
+                ),
+            })
+        with self.assertRaisesRegex(ValueError, "invalid SHA-256"):
+            source_files_from_metadata(entries, {
+                "Checksums-Sha256": "not-a-digest 42 pkg_1.dsc",
+            })
 
     def test_groups_live_binaries_by_exact_source_identity(self):
         live = [

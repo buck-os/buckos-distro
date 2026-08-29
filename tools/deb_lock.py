@@ -12,7 +12,7 @@ import sys
 import tempfile
 import urllib.parse
 
-from _deb import parse_control_paragraphs, source_identity
+from _deb import dsc_files, parse_control_paragraphs, source_identity
 from source_policy import build_source_policy
 
 
@@ -181,12 +181,62 @@ def apt_build_dep_command(package, version):
     ]
 
 
+def source_files_from_metadata(uri_entries, fields):
+    """Bind APT source URIs to authoritative SHA-256 source metadata."""
+    try:
+        metadata = dsc_files(fields)
+    except ValueError as error:
+        raise ValueError(
+            "invalid source Checksums-Sha256 metadata: {}".format(error)
+        ) from error
+    files = []
+    seen = set()
+    for entry in uri_entries:
+        filename = os.path.basename(entry["filename"])
+        if filename in seen:
+            raise ValueError("duplicate source URI filename: {!r}".format(filename))
+        seen.add(filename)
+        if filename not in metadata:
+            raise ValueError(
+                "{} is missing from source Checksums-Sha256 metadata".format(filename)
+            )
+        sha256, size = metadata[filename]
+        if entry["size"] != size:
+            raise ValueError(
+                "{}: source size mismatch: URI reports {}, metadata reports {}".format(
+                    filename, entry["size"], size,
+                )
+            )
+        if entry["digest_kind"] == "sha256" and entry["digest"] != sha256:
+            raise ValueError(
+                "{}: source SHA-256 mismatch: URI reports {}, metadata reports {}".format(
+                    filename, entry["digest"], sha256,
+                )
+            )
+        files.append({
+            "filename": filename,
+            "sha256": sha256,
+            "size": size,
+            "target": target_name("source", filename),
+            "url": entry["url"],
+        })
+
+    missing = sorted(set(metadata) - seen)
+    if missing:
+        raise ValueError(
+            "APT produced no URI for source metadata file(s): {}".format(
+                ", ".join(missing)
+            )
+        )
+    return files
+
+
 def source_record(package, version=None):
     uri_entries = apt_uri_lines(apt_output(apt_source_command(package, version)))
     dsc_entries = [entry for entry in uri_entries if entry["filename"].endswith(".dsc")]
     if len(dsc_entries) != 1:
         raise ValueError("{}: expected one .dsc URI, got {}".format(package, len(dsc_entries)))
-    dsc_name = dsc_entries[0]["filename"]
+    dsc_name = os.path.basename(dsc_entries[0]["filename"])
 
     records = parse_control_paragraphs(apt_output(["apt-cache", "showsrc", package]))
     matches = []
@@ -225,17 +275,7 @@ def source_record(package, version=None):
     if not separator:
         upstream, revision = full_version, ""
 
-    files = []
-    for entry in uri_entries:
-        if entry["digest_kind"] != "sha256":
-            raise ValueError("{}: apt did not report SHA256".format(entry["filename"]))
-        files.append({
-            "filename": entry["filename"],
-            "sha256": entry["digest"],
-            "size": entry["size"],
-            "target": target_name("source", entry["filename"]),
-            "url": entry["url"],
-        })
+    files = source_files_from_metadata(uri_entries, fields)
 
     binaries = [item.strip() for item in fields.get("Binary", package).split(",")]
     build_dep_fields = (
