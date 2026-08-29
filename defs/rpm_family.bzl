@@ -471,8 +471,8 @@ def rpm_packages(flavor, data, suffix, platform, exec_constraints):
     skip = {name: True for name in prebuilt}
     if prebuilt:
         print(("buckos-distro: WARNING: {} come from upstream binaries, not " +
-               "from source -- [buckos.{}] prebuilt says this host cannot " +
-               "build them. `buck2 run //tools:hostcheck` says why. The " +
+               "from source -- [buckos.{}] prebuilt selected their pinned " +
+               "providers. The " +
                "image is still complete; its provenance is not.").format(
             ", ".join(prebuilt), flavor))
 
@@ -602,15 +602,12 @@ def prebuilt_sources(flavor):
     """Source packages to take from upstream instead of building.
 
         [buckos.fedora]
-          prebuilt = kernel, libxcrypt
+          prebuilt = bash
 
-    For a package this host cannot build at all.  `tools/hostcheck.py`
-    probes the capabilities a build reaches for outside the sandbox and
-    prints exactly this stanza; the case it exists for is a kernel without
-    CONFIG_CRYPTO_USER, where libkcapi's sha512hmac cannot look up an
-    algorithm and kernel.spec's FIPS signing step dies an hour into
-    %install.  Unlike a %bcond those specs offer no switch, so the choice
-    is a prebuilt binary or no image at all.
+    A local diagnostic or recovery override for a source recipe already
+    present in the generated graph.  It removes that source from the
+    provider map so consumers use the pinned RPM instead.  It cannot add a
+    recipe that the source policy excluded before generation.
 
     Configuration rather than a committed default, and local rather than
     solved.  The lockfile has to stay host-independent -- it is reviewed as
@@ -618,8 +615,8 @@ def prebuilt_sources(flavor):
     at the build layer, where it changes which target satisfies a
     dependency and nothing about what was pinned.
 
-    Not silent.  Every one of these is a package this repo is supposed to
-    build and did not, so rpm_packages says so on every evaluation.
+    Not silent.  Every selected package comes from upstream rather than the
+    available recipe, so rpm_packages says so on every evaluation.
     """
     raw = read_config("buckos." + flavor, "prebuilt", "")
     return sorted([name.strip() for name in raw.split(",") if name.strip()])

@@ -37,22 +37,22 @@ BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 | [Ubuntu](flavors/ubuntu/README.md) 26.04 | Implemented | x86_64/AArch64 DEBs, root filesystems, live ISOs |
 | [BuckOS](flavors/buckos/README.md) | Stub | None |
 
-Each x86_64 Fedora release solves its live image from source with 0 unresolved capabilities:
+Each x86_64 Fedora release has zero static solve problems and zero unprobed dynamic requirements, but each still has five dynamic-unmet records:
 
 | Release | Source packages | Live image | Built from source | Staged targets | Probed |
 | ------- | --------------- | ---------- | ----------------- | -------------- | ------ |
-| 44      | 127             | 186        | 181               | 357            | 114    |
-| 45      | 131             | 193        | 187               | 369            | 119    |
+| 44      | 127             | 186        | 181               | 339            | 114    |
+| 45      | 131             | 193        | 187               | 351            | 119    |
 
-Solving and building are separate milestones -- the solves are complete, and packages are still being built through them.
+Solving, probing, and building are separate milestones. The `Probed` column counts source packages with checked-in dynamic `BuildRequires` reports; it does not claim that every reported requirement was satisfied or that every package builds. A graph is converged only when static solve problems, unprobed dynamic requirements, and dynamic-unmet records are all zero. The current x86_64 locks have zero static problems and zero unprobed requirements, but five dynamic-unmet records each.
 
-The last column is the one that says whether a release can actually build, and it is easy to misread the others without it. A solve reads static `BuildRequires` out of repodata, and repodata does not carry everything the spec asks for: `tar`'s real list is eleven packages, of which repodata names one. The rest come from `tools/probe.py` running `rpmbuild -br` against the spec. A release with a clean solve and no probe data still fails at `%prep` with `Failed build dependencies`, so an unprobed release is not ready regardless of what its other columns say -- which is why the column is here rather than left implicit in the lockfile.
+A solve reads static `BuildRequires` out of repodata, and repodata does not carry everything the spec asks for: `tar`'s real list is eleven packages, of which repodata names one. The rest come from `tools/probe.py` running `rpmbuild -br` against the spec. A release with a clean static solve and no probe data can still fail at `%prep` with `Failed build dependencies`, while a fully probed release can still report unmet dynamic requirements.
 
-Five of the packages in that gap are the same on every release, and they are a property of the *build host* rather than of the solve: `kernel`, its three subpackages, and `libxcrypt` call libkcapi's `sha512hmac` or `fipshmac` from `%install`, which needs a kernel built with `CONFIG_CRYPTO_USER`. On a host that has it, drop `prebuilt` from the flavor configuration and those five build too. See "Checking the host" below.
+The Fedora source policies explicitly keep `kernel`, its three live subpackages, and `libxcrypt` pinned because their source builds require a build host with `CONFIG_CRYPTO_USER`. These source recipes are absent from the generated graph; local `prebuilt` configuration can only suppress an existing recipe and cannot add them back.
 
-Fedora 45 pins a sixth, and that one is a fact about the release. `tar` 1.35 declares its own three-argument `acl_get_file_at` immediately after including `<sys/acl.h>`, with no configure probe guarding it, and `acl` 2.4.0 declares that name with four arguments. Fedora never hits this because it does not rebuild `tar` in a released branch. Fedora 44 resolves it with a version variant: `acl` is built twice and only `tar` is routed to the older copy. Fedora 45 ships 2.4.0 in both its source and binary trees, so there is no older copy to route to. Until upstream `tar` carries the fix, 45 takes the pinned binary.
+Fedora 45 has one additional source-policy exception. `tar` 1.35 declares its own three-argument `acl_get_file_at` immediately after including `<sys/acl.h>`, with no configure probe guarding it, and `acl` 2.4.0 declares that name with four arguments. Fedora never hits this because it does not rebuild `tar` in a released branch. Fedora 44 resolves it with a version variant: `acl` is built twice and only `tar` is routed to the older copy. Fedora 45 ships 2.4.0 in both its source and binary trees, so there is no older copy to route to. Until upstream `tar` carries the fix, 45 takes the pinned binary.
 
-CentOS Stream and CentOS Hyperscale live image package sets remain pinned upstream binary RPMs; for those flavors the source-replay pipeline and the image package set are still separate inputs.
+CentOS Stream and CentOS Hyperscale use the same live routing as Fedora. Normal unsuffixed live targets consume locally built RPMs wherever the source policy has a producer and retain pinned upstream RPMs only for explicit source-policy exceptions. Their `-prebuilt` siblings consume pinned upstream binaries for the entire payload.
 
 ## Build model
 
@@ -247,7 +247,7 @@ A source build reaches outside the sandbox. The sandbox pins every byte of the *
 buck2 run //tools:hostcheck
 ```
 
-It probes each capability by doing the thing rather than by reading a version or `/proc/config.gz`, names the packages each one decides, and prints the `.buckconfig.local` stanza a host with gaps should carry:
+It probes each capability by doing the thing rather than by reading a version or `/proc/config.gz`, names the packages affected by each result, and prints valid `%bcond` overrides for host capability gaps:
 
 ```
 MISS netlink-crypto   kernel crypto user API (CONFIG_CRYPTO_USER)   errno 93 (Protocol not supported)
@@ -255,27 +255,25 @@ ok   af-alg           kernel crypto sockets                        available
 ok   user-namespaces  unprivileged user namespaces with a subid range  available
 
 netlink-crypto: libkcapi's sha512hmac and fipshmac open a NETLINK_CRYPTO socket
-to look up an algorithm. kernel.spec calls sha512hmac in %install to sign
-vmlinuz for FIPS, and libxcrypt calls fipshmac from %__spec_install_post;
-neither is guarded by a bcond. gmp and nettle guard theirs.
+to look up an algorithm. gmp and nettle guard their use with bconds.
   buildable with a feature disabled: gmp, nettle
-  not buildable here, use the pinned binary: kernel, libxcrypt
 
 [buckos.fedora]
   without = gmp:fips, nettle:fipshmac
-  prebuilt = kernel, libxcrypt
 ```
 
-The two fallbacks are not equivalent and the check distinguishes them. A `%bcond` keeps the package building from source and drops only the guarded feature. `prebuilt` gives up on building it at all and takes the pinned upstream binary, which is the last resort for a spec that offers no switch. Either way the image completes, and the loss is stated rather than discovered an hour into `%install`; `rpm_packages` repeats the warning on every evaluation.
+A `%bcond` keeps the package building from source and drops only the guarded feature. Hostcheck reports a missing capability as fatal when no such fallback exists.
 
-It exits non-zero only for a capability with no fallback -- user namespaces, say -- so it is usable as a CI gate without failing every host that merely needs a prebuilt.
+It exits non-zero only for a capability with no `%bcond` fallback, such as user namespaces, so it is usable as a CI gate without rejecting a host that can use an explicit feature override.
 
-Take the upstream binary for a package this host cannot build:
+Source-policy exceptions are already represented in the checked-in lock and generated graph. Hostcheck does not attempt to reverse them. The generic `prebuilt` setting remains available for diagnostics when a source recipe exists, but it only routes that existing recipe to its pinned upstream binary:
 
 ```ini
 [buckos.fedora]
-  prebuilt = kernel, libxcrypt
+  prebuilt = bash
 ```
+
+It cannot restore the Fedora `kernel` or `libxcrypt` recipes because those recipes are absent by source-policy exception.
 
 Turn off a spec's `%bcond` for one source package, when the build host cannot support it:
 
@@ -290,9 +288,9 @@ The case this exists for is a kernel built without `CONFIG_CRYPTO_USER`. libkcap
 Allocation of hmac(sha256) cipher failed (ret=-93)
 ```
 
-Nothing to do with the sandbox -- the same binary fails identically run straight on the host, and the `AF_ALG` socket it actually hashes with binds fine. A stock Fedora kernel enables `CONFIG_CRYPTO_USER` and needs none of this, which is why it is configuration rather than a default: the alternative would ship a distro without FIPS integrity hashes to work around one machine.
+Nothing to do with the sandbox: the same binary fails identically run straight on the host, and the `AF_ALG` socket it actually hashes with binds fine. A stock Fedora kernel enables `CONFIG_CRYPTO_USER`, so the guarded `gmp` and `nettle` features remain enabled by default.
 
-`libxcrypt` cannot be rescued this way. It calls `fipshmac` from `%__spec_install_post` with no `%bcond` guarding it -- the spec notes that a `%global` does not work there -- so on a host without `CONFIG_CRYPTO_USER` that package does not build.
+`kernel` and `libxcrypt` have no equivalent `%bcond`. Their pinned treatment is part of the Fedora source policy rather than hostcheck output.
 
 Rewrite Fedora's recorded repository prefix to a mirror with the same directory layout:
 

@@ -470,6 +470,16 @@ python_binary(
 )
 
 python_test(
+    name = "hostcheck_test",
+    srcs = [
+        "hostcheck.py",
+        "hostcheck_test.py",
+    ],
+    base_module = "",
+    deps = [":_isolation"],
+)
+
+python_test(
     name = "depgraph_test",
     srcs = ["depgraph_test.py"],
     base_module = "",
