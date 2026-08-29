@@ -35,6 +35,13 @@ python_library(
     visibility = ["PUBLIC"],
 )
 
+python_library(
+    name = "source_policy",
+    srcs = ["source_policy.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
 # ── Replay pipeline ──────────────────────────────────────────────────
 
 python_binary(
@@ -245,6 +252,13 @@ python_test(
     name = "lock_matrix_test",
     srcs = ["lock_matrix_test.py"],
     base_module = "",
+)
+
+python_test(
+    name = "source_policy_test",
+    srcs = ["source_policy_test.py"],
+    base_module = "",
+    deps = [":source_policy"],
 )
 
 python_test(
