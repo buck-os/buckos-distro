@@ -128,6 +128,16 @@ def _positive_integer(value):
     return result
 
 
+def _nonnegative_integer(value):
+    try:
+        result = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if result < 0:
+        raise argparse.ArgumentTypeError("must be nonnegative")
+    return result
+
+
 def _parser():
     default_tools = Path(__file__).resolve().parents[3] / "tools"
     parser = PreflightArgumentParser(description=__doc__)
@@ -163,8 +173,8 @@ def _parser():
     parser.add_argument(
         "--min-scratch-inodes",
         required=True,
-        type=_positive_integer,
-        help="minimum unprivileged inodes available on scratch",
+        type=_nonnegative_integer,
+        help="minimum unprivileged inodes, or 0 for a dynamic inode filesystem",
     )
     parser.add_argument(
         "--tools-dir",
@@ -467,6 +477,59 @@ def check_subordinate_ranges(isolation, reporter):
     return SubordinateRanges(uid_base, uid_count, gid_base, gid_count)
 
 
+def _check_scratch_operations(path, reporter):
+    probe = None
+    operations_ok = False
+    cleanup_ok = True
+    try:
+        probe = Path(tempfile.mkdtemp(prefix=".buckos-worker-preflight-", dir=path))
+        source = probe / "source"
+        hardlink = probe / "hardlink"
+        renamed = probe / "renamed"
+        payload = b"buckos worker preflight\n"
+        with source.open("xb") as stream:
+            if stream.write(payload) != len(payload):
+                raise CheckError("short write to scratch probe")
+            stream.flush()
+        os.link(source, hardlink)
+        os.rename(hardlink, renamed)
+        source_metadata = source.stat()
+        renamed_metadata = renamed.stat()
+        if (
+            source_metadata.st_dev != renamed_metadata.st_dev
+            or source_metadata.st_ino != renamed_metadata.st_ino
+            or source_metadata.st_nlink < 2
+        ):
+            raise CheckError("hardlink identity was not preserved after rename")
+        operations_ok = True
+        reporter.passed(
+            "scratch-operations",
+            "create write hardlink rename succeeded",
+        )
+    except (CheckError, OSError) as exc:
+        reporter.failed("scratch-operations", exc)
+    finally:
+        if probe is not None:
+            try:
+                shutil.rmtree(probe)
+            except OSError as exc:
+                cleanup_ok = False
+                reporter.failed("scratch-cleanup", exc)
+            else:
+                if probe.exists():
+                    cleanup_ok = False
+                    reporter.failed(
+                        "scratch-cleanup",
+                        "operation probe tree remains at {}".format(probe),
+                    )
+                else:
+                    reporter.passed(
+                        "scratch-cleanup",
+                        "operation probe tree removed",
+                    )
+    return operations_ok and cleanup_ok
+
+
 def check_scratch(path, minimum_bytes, minimum_inodes, reporter):
     try:
         resolved = path.resolve(strict=True)
@@ -503,6 +566,7 @@ def check_scratch(path, minimum_bytes, minimum_inodes, reporter):
         return None
 
     available_bytes = filesystem.f_bavail * filesystem.f_frsize
+    total_inodes = filesystem.f_files
     available_inodes = filesystem.f_favail
     if available_bytes < minimum_bytes:
         reporter.failed(
@@ -515,16 +579,45 @@ def check_scratch(path, minimum_bytes, minimum_inodes, reporter):
         "available={} required={}".format(available_bytes, minimum_bytes),
     )
 
-    if available_inodes <= 0 or available_inodes < minimum_inodes:
+    if total_inodes == 0:
+        if minimum_inodes != 0:
+            reporter.failed(
+                "scratch-inodes",
+                "model=dynamic required={} expected=0".format(minimum_inodes),
+            )
+            return None
+        reporter.passed("scratch-inodes", "model=dynamic required=0")
+    elif minimum_inodes == 0:
         reporter.failed(
             "scratch-inodes",
-            "available={} required={}".format(available_inodes, minimum_inodes),
+            "model=fixed total={} available={} required=0 expected=positive".format(
+                total_inodes,
+                available_inodes,
+            ),
         )
         return None
-    reporter.passed(
-        "scratch-inodes",
-        "available={} required={}".format(available_inodes, minimum_inodes),
-    )
+    elif available_inodes < minimum_inodes:
+        reporter.failed(
+            "scratch-inodes",
+            "model=fixed total={} available={} required={}".format(
+                total_inodes,
+                available_inodes,
+                minimum_inodes,
+            ),
+        )
+        return None
+    else:
+        reporter.passed(
+            "scratch-inodes",
+            "model=fixed total={} available={} required={}".format(
+                total_inodes,
+                available_inodes,
+                minimum_inodes,
+            ),
+        )
+
+    if not _check_scratch_operations(resolved, reporter):
+        return None
     return resolved
 
 

@@ -41,6 +41,18 @@ class ReporterTest(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertTrue(output.getvalue().startswith("FAIL arguments "))
 
+    def test_accepts_zero_minimum_for_dynamic_inode_filesystems(self):
+        args = preflight_worker._parser().parse_args([
+            "--worker-user", "worker",
+            "--arch", "x86_64",
+            "--scratch-root", "/scratch",
+            "--probe-sysroot", "/probe",
+            "--min-scratch-bytes", "1",
+            "--min-scratch-inodes", "0",
+        ])
+
+        self.assertEqual(args.min_scratch_inodes, 0)
+
 
 class ExitStatusTest(unittest.TestCase):
     def _args(self):
@@ -252,18 +264,38 @@ class ProbeSysrootTest(unittest.TestCase):
 
 
 class ScratchTest(unittest.TestCase):
-    def test_enforces_available_bytes_and_inodes(self):
-        filesystem = SimpleNamespace(
+    def _filesystem(self, *, total_inodes=1000, available_inodes=200):
+        return SimpleNamespace(
             f_flag=0,
             f_bavail=100,
             f_frsize=4096,
-            f_favail=200,
+            f_files=total_inodes,
+            f_favail=available_inodes,
         )
+
+    def _check(self, temporary, filesystem, minimum_inodes):
+        reporter = preflight_worker.Reporter()
+        output = io.StringIO()
+        with (
+            patch("preflight_worker.os.statvfs", return_value=filesystem),
+            redirect_stdout(output),
+        ):
+            scratch = preflight_worker.check_scratch(
+                Path(temporary),
+                1,
+                minimum_inodes,
+                reporter,
+            )
+        return scratch, reporter, output.getvalue()
+
+    def test_enforces_available_bytes_and_inodes(self):
+        filesystem = self._filesystem()
         with tempfile.TemporaryDirectory() as temporary:
             reporter = preflight_worker.Reporter()
+            output = io.StringIO()
             with (
                 patch("preflight_worker.os.statvfs", return_value=filesystem),
-                redirect_stdout(io.StringIO()),
+                redirect_stdout(output),
             ):
                 scratch = preflight_worker.check_scratch(
                     Path(temporary),
@@ -271,32 +303,117 @@ class ScratchTest(unittest.TestCase):
                     200,
                     reporter,
                 )
+            leftovers = list(Path(temporary).iterdir())
 
         self.assertIsNotNone(scratch)
         self.assertEqual(reporter.failures, 0)
+        self.assertEqual(leftovers, [])
+        self.assertIn("PASS scratch-operations", output.getvalue())
+        self.assertIn("PASS scratch-cleanup", output.getvalue())
 
     def test_rejects_insufficient_inode_capacity(self):
-        filesystem = SimpleNamespace(
-            f_flag=0,
-            f_bavail=100,
-            f_frsize=4096,
-            f_favail=199,
-        )
+        filesystem = self._filesystem(available_inodes=199)
         with tempfile.TemporaryDirectory() as temporary:
-            reporter = preflight_worker.Reporter()
-            with (
-                patch("preflight_worker.os.statvfs", return_value=filesystem),
-                redirect_stdout(io.StringIO()),
-            ):
-                scratch = preflight_worker.check_scratch(
-                    Path(temporary),
-                    1,
-                    200,
-                    reporter,
-                )
+            scratch, reporter, _output = self._check(temporary, filesystem, 200)
 
         self.assertIsNone(scratch)
         self.assertEqual(reporter.failures, 1)
+
+    def test_accepts_dynamic_inode_filesystem_with_zero_minimum(self):
+        filesystem = self._filesystem(total_inodes=0, available_inodes=0)
+        with tempfile.TemporaryDirectory() as temporary:
+            scratch, reporter, output = self._check(temporary, filesystem, 0)
+
+        self.assertIsNotNone(scratch)
+        self.assertEqual(reporter.failures, 0)
+        self.assertIn("PASS scratch-inodes model=dynamic required=0", output)
+
+    def test_rejects_nonzero_minimum_for_dynamic_inode_filesystem(self):
+        filesystem = self._filesystem(total_inodes=0, available_inodes=0)
+        with tempfile.TemporaryDirectory() as temporary:
+            scratch, reporter, output = self._check(temporary, filesystem, 1)
+
+        self.assertIsNone(scratch)
+        self.assertEqual(reporter.failures, 1)
+        self.assertIn("FAIL scratch-inodes model=dynamic required=1", output)
+
+    def test_rejects_zero_minimum_for_fixed_inode_filesystem(self):
+        filesystem = self._filesystem()
+        with tempfile.TemporaryDirectory() as temporary:
+            scratch, reporter, output = self._check(temporary, filesystem, 0)
+
+        self.assertIsNone(scratch)
+        self.assertEqual(reporter.failures, 1)
+        self.assertIn("FAIL scratch-inodes model=fixed", output)
+
+    def test_rejects_scratch_probe_create_failure(self):
+        filesystem = self._filesystem()
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch(
+                "preflight_worker.tempfile.mkdtemp",
+                side_effect=OSError("create failed"),
+            ):
+                scratch, reporter, output = self._check(temporary, filesystem, 1)
+
+        self.assertIsNone(scratch)
+        self.assertEqual(reporter.failures, 1)
+        self.assertIn("FAIL scratch-operations create failed", output)
+
+    def test_rejects_scratch_probe_write_failure(self):
+        filesystem = self._filesystem()
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(
+                Path,
+                "open",
+                side_effect=OSError("write failed"),
+            ):
+                scratch, reporter, output = self._check(temporary, filesystem, 1)
+
+        self.assertIsNone(scratch)
+        self.assertEqual(reporter.failures, 1)
+        self.assertIn("FAIL scratch-operations write failed", output)
+        self.assertIn("PASS scratch-cleanup", output)
+
+    def test_rejects_scratch_probe_hardlink_failure(self):
+        filesystem = self._filesystem()
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch(
+                "preflight_worker.os.link",
+                side_effect=OSError("hardlink failed"),
+            ):
+                scratch, reporter, output = self._check(temporary, filesystem, 1)
+
+        self.assertIsNone(scratch)
+        self.assertEqual(reporter.failures, 1)
+        self.assertIn("FAIL scratch-operations hardlink failed", output)
+        self.assertIn("PASS scratch-cleanup", output)
+
+    def test_rejects_scratch_probe_rename_failure(self):
+        filesystem = self._filesystem()
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch(
+                "preflight_worker.os.rename",
+                side_effect=OSError("rename failed"),
+            ):
+                scratch, reporter, output = self._check(temporary, filesystem, 1)
+
+        self.assertIsNone(scratch)
+        self.assertEqual(reporter.failures, 1)
+        self.assertIn("FAIL scratch-operations rename failed", output)
+        self.assertIn("PASS scratch-cleanup", output)
+
+    def test_rejects_scratch_probe_cleanup_failure(self):
+        filesystem = self._filesystem()
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch(
+                "preflight_worker.shutil.rmtree",
+                side_effect=OSError("cleanup failed"),
+            ):
+                scratch, reporter, output = self._check(temporary, filesystem, 1)
+
+        self.assertIsNone(scratch)
+        self.assertEqual(reporter.failures, 1)
+        self.assertIn("FAIL scratch-cleanup cleanup failed", output)
 
 
 class SubordinateRangeTest(unittest.TestCase):
