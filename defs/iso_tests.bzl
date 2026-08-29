@@ -109,6 +109,13 @@ def all_live_iso_boot_tests():
         for release in ("9", "10"):
             for architecture in ("x86_64", "aarch64"):
                 live_iso_boot_tests(flavor, release, architecture, expect_selinux = True)
+                live_iso_boot_tests(
+                    flavor,
+                    release,
+                    architecture,
+                    expect_selinux = True,
+                    image_variant = "prebuilt",
+                )
 
     for architecture in ("x86_64", "aarch64"):
         live_iso_boot_tests("debian", "13", architecture, layout = "debian")
