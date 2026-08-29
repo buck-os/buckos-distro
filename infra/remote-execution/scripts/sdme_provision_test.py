@@ -44,6 +44,8 @@ ADDRESS_SELECTOR = test_resource(
     "infra/remote-execution/scripts/sdme_select_address.py",
 )
 RUNTIME_FS = "buckos-re-runtime-5c2e6eca51c6"
+FAKE_SERVICE_UID = 42000
+FAKE_SERVICE_GID = 42001
 ARCHIVE_TOOL = test_resource(
     "oci_archive.py", "infra/remote-execution/scripts/oci_archive.py"
 )
@@ -326,6 +328,125 @@ class ProvisionPlanTest(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
 
+    @staticmethod
+    def process_group_exists(process_group: int) -> bool:
+        try:
+            os.killpg(process_group, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    @staticmethod
+    def process_exists(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    @staticmethod
+    def process_session_groups(session: int) -> set[int]:
+        groups = set()
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdecimal():
+                continue
+            try:
+                record = (entry / "stat").read_text(encoding="utf-8")
+                fields = record[record.rfind(")") + 2 :].split()
+                process_group = int(fields[2])
+                process_session = int(fields[3])
+            except (FileNotFoundError, IndexError, OSError, ValueError):
+                continue
+            if process_session == session:
+                groups.add(process_group)
+        return groups
+
+    def terminate_and_reap_process_group(
+        self,
+        process: subprocess.Popen[str],
+        markers: tuple[Path, ...] = (),
+        timeout: float = 3.0,
+    ) -> None:
+        deadline = time.monotonic() + timeout
+
+        def signal_session(selected_signal: signal.Signals) -> None:
+            groups = self.process_session_groups(process.pid)
+            groups.add(process.pid)
+            for process_group in groups:
+                try:
+                    os.killpg(process_group, selected_signal)
+                except ProcessLookupError:
+                    pass
+
+        try:
+            signal_session(signal.SIGTERM)
+            graceful_deadline = min(deadline, time.monotonic() + 1.0)
+            try:
+                process.wait(timeout=max(0.01, graceful_deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                pass
+            while (
+                self.process_session_groups(process.pid)
+                and time.monotonic() < graceful_deadline
+            ):
+                time.sleep(0.01)
+
+            if process.poll() is None or self.process_session_groups(process.pid):
+                signal_session(signal.SIGKILL)
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=max(0.01, deadline - time.monotonic()))
+            for stream in (process.stdout, process.stderr):
+                if stream is not None and not stream.closed:
+                    stream.close()
+            while self.process_session_groups(process.pid):
+                if time.monotonic() >= deadline:
+                    raise AssertionError("test process session did not terminate")
+                time.sleep(0.01)
+            if process.poll() is None:
+                raise AssertionError("test process was not reaped")
+        finally:
+            for marker in markers:
+                marker.unlink(missing_ok=True)
+
+    def wait_for_process_marker(
+        self,
+        process: subprocess.Popen[str],
+        marker: Path,
+        timeout: float,
+    ) -> int:
+        marker_deadline = time.monotonic() + timeout
+        while not marker.exists() and time.monotonic() < marker_deadline:
+            if process.poll() is not None:
+                break
+            time.sleep(0.01)
+        if not marker.exists():
+            raise AssertionError("test process did not reach its marker")
+        try:
+            pid = int(marker.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError) as error:
+            raise AssertionError("test process marker is invalid") from error
+        if pid <= 0:
+            raise AssertionError("test process marker PID is invalid")
+        return pid
+
+    def communicate_after_marker(
+        self,
+        process: subprocess.Popen[str],
+        marker: Path,
+        *,
+        marker_timeout: float = 10.0,
+        communicate_timeout: float = 3.0,
+    ) -> tuple[str, str, float]:
+        try:
+            self.wait_for_process_marker(process, marker, marker_timeout)
+
+            started = time.monotonic()
+            stdout, stderr = process.communicate(timeout=communicate_timeout)
+            return stdout, stderr, time.monotonic() - started
+        finally:
+            self.terminate_and_reap_process_group(process, (marker,))
+
     def safe_runtime_data_root(self) -> Path:
         temporary = tempfile.TemporaryDirectory(
             prefix="buckos-sdme-test-", dir="/var/lib"
@@ -343,6 +464,7 @@ class ProvisionPlanTest(unittest.TestCase):
         fail_runtime_build: bool = False,
         fail_after_runtime_provenance: bool = False,
         leak_after_runtime_provenance: bool = False,
+        fail_container_copy: bool = False,
     ) -> Path:
         fake_bin = self.external / "fake-bin"
         fake_bin.mkdir(mode=0o755)
@@ -351,6 +473,7 @@ class ProvisionPlanTest(unittest.TestCase):
         state.mkdir(mode=0o700)
         quoted_log = shlex.quote(str(log))
         quoted_state = shlex.quote(str(state))
+        managed_paths = state / "managed-paths.tsv"
         quoted_ubuntu = shlex.quote(str(self.archives["ubuntu"][architecture]))
         quoted_nativelink = shlex.quote(str(self.archives["nativelink"][architecture]))
         quoted_image_failure = shlex.quote(str(self.external / "image-provenance-failed"))
@@ -358,6 +481,9 @@ class ProvisionPlanTest(unittest.TestCase):
         quoted_build_failure = shlex.quote(str(self.external / "runtime-build-failed"))
         quoted_post_provenance_failure = shlex.quote(
             str(self.external / "post-runtime-provenance-failed")
+        )
+        quoted_container_copy_failure = shlex.quote(
+            str(self.external / "container-copy-failed")
         )
         (fake_bin / "sdme").write_text(
             """#!/bin/sh
@@ -377,7 +503,12 @@ if [ "$1" = ps ] && [ "$2" = --json ]; then
   if [ -e "$counter" ]; then count=$(cat "$counter"); fi
   count=$((count + 1))
   printf '%s\n' "$count" > "$counter"
-  if [ "${{FAKE_SDME_PS_HANG_AT:-0}}" -eq "$count" ]; then /bin/sleep 10; fi
+  if [ "${{FAKE_SDME_PS_HANG_AT:-0}}" -eq "$count" ]; then
+    if [ -n "${{FAKE_SDME_PS_HANG_READY:-}}" ]; then
+      printf '%s\n' "$$" > "$FAKE_SDME_PS_HANG_READY"
+    fi
+    exec /bin/sleep 10
+  fi
   if [ "${{FAKE_SDME_PS_FAIL_AT:-0}}" -eq "$count" ]; then exit 1; fi
   if [ "${{FAKE_SDME_PS_INVALID_JSON_AT:-0}}" -eq "$count" ]; then
     printf '{{\n'
@@ -523,6 +654,10 @@ PY
     'ubuntu_image={ubuntu_reference}' \\
     'nativelink_image={nativelink_reference}' \\
     'architecture={architecture}' > {state}/"$name".runtime-images
+  printf '%s\\n' \\
+    'nativelink:x:{service_uid}:{service_gid}:NativeLink:/var/lib/nativelink:/usr/sbin/nologin' \\
+    > {state}/"$name".passwd
+  printf '%s\\n' 'nativelink:x:{service_gid}:' > {state}/"$name".group
 elif [ "$1" = create ]; then
   python3 - {state}/container.json "$@" <<'PY'
 import json
@@ -546,7 +681,10 @@ def value(option):
 
 record = dict(
     addresses=[],
-    binds=[item + ":rw" for item in values("--bind")],
+    binds=[
+        item if item.rsplit(":", 1)[-1] in ("ro", "rw") else item + ":rw"
+        for item in values("--bind")
+    ],
     enabled="--enable" in arguments,
     limits=dict(cpus=value("--cpus"), memory=value("--memory")),
     name=value("--name"),
@@ -564,6 +702,72 @@ record = dict(
 )
 with open(path, "w", encoding="utf-8") as stream:
     json.dump(record, stream, sort_keys=True)
+PY
+elif [ "$1" = exec ]; then
+  python3 - {state}/container.json {state}/managed-paths.tsv {state} "$@" <<'PY'
+import json
+import pathlib
+import sys
+
+container_path, ownership_path, state_path, *arguments = sys.argv[1:]
+try:
+    separator = arguments.index("--")
+except ValueError:
+    raise SystemExit(0)
+command = arguments[separator + 1 :]
+storage_prefix = [
+    "install",
+    "-d",
+    "-m",
+    "0750",
+    "-o",
+    "nativelink",
+    "-g",
+    "nativelink",
+]
+if command[:8] != storage_prefix:
+    raise SystemExit(0)
+targets = set(command[8:])
+
+with open(container_path, encoding="utf-8") as stream:
+    container = json.load(stream)
+runtime = container["rootfs"]
+passwd = pathlib.Path(state_path, runtime + ".passwd").read_text(encoding="utf-8")
+group = pathlib.Path(state_path, runtime + ".group").read_text(encoding="utf-8")
+user_record = next(line for line in passwd.splitlines() if line.startswith("nativelink:"))
+group_record = next(line for line in group.splitlines() if line.startswith("nativelink:"))
+uid = int(user_record.split(":")[2])
+gid = int(group_record.split(":")[2])
+try:
+    with open(ownership_path, encoding="utf-8") as stream:
+        ownership = {{
+            fields[0]: {{"uid": int(fields[1]), "gid": int(fields[2]), "mode": fields[3]}}
+            for line in stream
+            if len(fields := line.rstrip("\\n").split("\\t")) == 4
+        }}
+except FileNotFoundError:
+    ownership = {{}}
+binds = [bind.rsplit(":", 2) for bind in container["binds"]]
+for target in targets:
+    candidates = [
+        (source, mount)
+        for source, mount, access in binds
+        if access == "rw" and (target == mount or target.startswith(mount + "/"))
+    ]
+    if not candidates:
+        continue
+    source, mount = max(candidates, key=lambda item: len(item[1]))
+    managed_path = pathlib.Path(source)
+    if target != mount:
+        managed_path /= target[len(mount) + 1 :]
+    managed_path.mkdir(parents=True, exist_ok=True)
+    managed_path.chmod(0o750)
+    ownership[str(managed_path)] = {{"gid": gid, "mode": "750", "uid": uid}}
+with open(ownership_path, "w", encoding="utf-8") as stream:
+    for source, record in sorted(ownership.items()):
+        stream.write("{{}}\\t{{}}\\t{{}}\\t{{}}\\n".format(
+            source, record["uid"], record["gid"], record["mode"]
+        ))
 PY
 elif [ "$1" = cp ]; then
   source=$2
@@ -608,7 +812,12 @@ elif [ "$1" = cp ]; then
             exit 1
           fi
           ;;
-        *) : ;;
+        *)
+          if [ {fail_container_copy} -eq 1 ] && [ ! -e {container_copy_failure} ]; then
+            : > {container_copy_failure}
+            exit 1
+          fi
+          ;;
       esac
       ;;
   esac
@@ -617,6 +826,8 @@ fi
                 log=quoted_log,
                 state=quoted_state,
                 architecture=architecture,
+                service_uid=FAKE_SERVICE_UID,
+                service_gid=FAKE_SERVICE_GID,
                 ubuntu_reference=self.ubuntu_reference,
                 nativelink_reference=self.nativelink_reference,
                 fail_image_provenance=int(fail_image_provenance),
@@ -628,6 +839,8 @@ fi
                 fail_after_runtime_provenance=int(fail_after_runtime_provenance),
                 leak_after_runtime_provenance=int(leak_after_runtime_provenance),
                 post_provenance_failure=quoted_post_provenance_failure,
+                fail_container_copy=int(fail_container_copy),
+                container_copy_failure=quoted_container_copy_failure,
             ),
             encoding="utf-8",
         )
@@ -675,6 +888,44 @@ printf 'sleep %s\\n' "$*" >> {log}
 if [ "${{FAKE_FAST_SLEEP:-0}}" -eq 1 ]; then exit 0; fi
 exec /bin/sleep "$@"
 """.format(log=quoted_log),
+            encoding="utf-8",
+        )
+        (fake_bin / "stat").write_text(
+            """#!/bin/sh
+set -eu
+path=
+format=
+next_is_format=0
+for argument in "$@"; do
+  path=$argument
+  if [ "$next_is_format" -eq 1 ]; then
+    format=$argument
+    next_is_format=0
+    continue
+  fi
+  case "$argument" in
+    -c|--format|-?*c*) next_is_format=1 ;;
+    --format=*) format=${{argument#*=}} ;;
+  esac
+done
+record=
+if [ -f {ownership_path} ]; then
+  record=$(/usr/bin/awk -F '\\t' -v path="$path" '$1 == path {{ print; exit }}' {ownership_path})
+fi
+[ -n "$record" ] || exec /usr/bin/stat "$@"
+tab=$(printf '\\t')
+IFS="$tab" read -r recorded_path uid gid mode <<EOF
+$record
+EOF
+[ "$recorded_path" = "$path" ] || exit 2
+case "$format" in
+  %u) printf '%s\\n' "$uid" ;;
+  %g) printf '%s\\n' "$gid" ;;
+  %a) printf '%s\\n' "$mode" ;;
+  %u:%g:%a) printf '%s:%s:%s\\n' "$uid" "$gid" "$mode" ;;
+  *) exec /usr/bin/stat "$@" ;;
+esac
+""".format(ownership_path=shlex.quote(str(managed_paths))),
             encoding="utf-8",
         )
         if fail_archive_publish:
@@ -764,9 +1015,63 @@ exec /bin/mv -- "$@"
             str(self.archives["nativelink"][architecture]),
         ]
 
-    def prepare_control_runtime(self) -> tuple[str, Path, Path]:
+    def worker_apply_arguments(self, data_root: Path, architecture: str) -> list[str]:
+        arguments = self.worker_arguments()
+        arguments[0] = "apply"
+        arguments[arguments.index("x86_64")] = architecture
+        arguments[arguments.index(str(self.external / "data"))] = str(data_root)
+        arguments.extend(
+            [
+                "--ubuntu-oci-archive",
+                str(self.archives["ubuntu"][architecture]),
+                "--nativelink-oci-archive",
+                str(self.archives["nativelink"][architecture]),
+            ]
+        )
+        return arguments
+
+    def set_fake_managed_path(
+        self,
+        path: Path,
+        *,
+        uid: int = FAKE_SERVICE_UID,
+        gid: int = FAKE_SERVICE_GID,
+        mode: str = "750",
+    ) -> None:
+        ownership_path = self.external / "fake-sdme-state/managed-paths.tsv"
+        ownership = {}
+        if ownership_path.is_file():
+            for line in ownership_path.read_text(encoding="utf-8").splitlines():
+                source, uid_text, gid_text, stored_mode = line.split("\t")
+                ownership[source] = {
+                    "gid": int(gid_text),
+                    "mode": stored_mode,
+                    "uid": int(uid_text),
+                }
+        ownership[str(path)] = {"gid": gid, "mode": mode, "uid": uid}
+        ownership_path.write_text(
+            "".join(
+                "{}\t{}\t{}\t{}\n".format(
+                    source, record["uid"], record["gid"], record["mode"]
+                )
+                for source, record in sorted(ownership.items())
+            ),
+            encoding="utf-8",
+        )
+
+    def fake_managed_path(self, path: Path) -> dict[str, object]:
+        ownership_path = self.external / "fake-sdme-state/managed-paths.tsv"
+        if not ownership_path.is_file():
+            raise KeyError(path)
+        for line in ownership_path.read_text(encoding="utf-8").splitlines():
+            source, uid_text, gid_text, mode = line.split("\t")
+            if source == str(path):
+                return {"gid": int(gid_text), "mode": mode, "uid": int(uid_text)}
+        raise KeyError(path)
+
+    def prepare_control_runtime(self, **fake_options: bool) -> tuple[str, Path, Path]:
         architecture = self.native_architecture()
-        log = self.install_fake_runtime_tools(architecture)
+        log = self.install_fake_runtime_tools(architecture, **fake_options)
         data_root = self.safe_runtime_data_root()
         prepared = self.run_script(*self.runtime_arguments(data_root, architecture))
         self.assertEqual(prepared.returncode, 0, prepared.stderr)
@@ -774,6 +1079,9 @@ exec /bin/mv -- "$@"
 
     def seed_matching_control(self, data_root: Path) -> None:
         state = self.external / "fake-sdme-state"
+        control = data_root / "control"
+        control.mkdir(mode=0o750)
+        self.set_fake_managed_path(control)
         (state / "container.json").write_text(
             json.dumps(
                 {
@@ -806,6 +1114,18 @@ exec /bin/mv -- "$@"
         self.seed_matching_control(data_root)
         return architecture, data_root, log
 
+    def prepare_completed_control(self) -> tuple[str, Path, Path]:
+        architecture, data_root, log = self.prepare_control_runtime()
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return architecture, data_root, log
+
+    def prepare_completed_worker(self) -> tuple[str, Path, Path]:
+        architecture, data_root, log = self.prepare_control_runtime()
+        result = self.run_script(*self.worker_apply_arguments(data_root, architecture))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return architecture, data_root, log
+
     def set_test_control_address_wait_seconds(self, seconds: int) -> None:
         source = self.script.read_text(encoding="utf-8")
         updated = source.replace(
@@ -825,6 +1145,11 @@ exec /bin/mv -- "$@"
         self.assertIn("BUCKOS_RE_MIN_SCRATCH_BYTES=1000000", result.stdout)
         self.assertIn("BUCKOS_RE_MIN_SCRATCH_INODES=0", result.stdout)
         self.assertNotIn("--hardened", result.stdout)
+        self.assertIn(
+            "install -d -m 0750 -o nativelink -g nativelink "
+            "/var/lib/nativelink/worker-x86_64 /var/tmp",
+            result.stdout,
+        )
         self.assertIn(self.ubuntu_reference, result.stdout)
         self.assertIn(self.nativelink_reference, result.stdout)
         self.assertIn("prepare-runtime worker", result.stdout)
@@ -1991,6 +2316,280 @@ exec /bin/mv -- "$@"
             "NATIVELINK_WORKER_BIND_ADDRESS=169.254.42.8",
             environment.read_text(encoding="utf-8"),
         )
+        self.assertEqual(
+            self.fake_managed_path(data_root / "control"),
+            {"gid": FAKE_SERVICE_GID, "mode": "750", "uid": FAKE_SERVICE_UID},
+        )
+
+    def test_completed_control_apply_accepts_service_managed_state(self) -> None:
+        architecture, data_root, log = self.prepare_completed_control()
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn("sdme create", commands)
+        self.assertNotIn("sdme start", commands)
+        self.assertEqual(commands.count("systemctl restart nativelink.service"), 1)
+
+    def test_control_retry_accepts_root_owned_pre_storage_state(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime(
+            fail_container_copy=True
+        )
+        arguments = self.control_arguments(data_root, architecture)
+
+        first = self.run_script(*arguments)
+
+        self.assertNotEqual(first.returncode, 0)
+        control = data_root / "control"
+        self.assertEqual((control.stat().st_uid, control.stat().st_gid), (0, 0))
+        with self.assertRaises(KeyError):
+            self.fake_managed_path(control)
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(
+            self.fake_managed_path(control),
+            {"gid": FAKE_SERVICE_GID, "mode": "750", "uid": FAKE_SERVICE_UID},
+        )
+        commands = log.read_text(encoding="utf-8")
+        self.assertEqual(commands.count("sdme create"), 1)
+        self.assertEqual(commands.count("systemctl restart nativelink.service"), 1)
+
+    def test_worker_retry_accepts_root_owned_pre_storage_paths(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime(
+            fail_container_copy=True
+        )
+        arguments = self.worker_apply_arguments(data_root, architecture)
+
+        first = self.run_script(*arguments)
+
+        self.assertNotEqual(first.returncode, 0)
+        state = data_root / "worker-{}/state".format(architecture)
+        worker_state = state / "worker-{}".format(architecture)
+        scratch = data_root / "worker-{}/scratch".format(architecture)
+        for path in (state, scratch):
+            self.assertEqual((path.stat().st_uid, path.stat().st_gid), (0, 0))
+            with self.assertRaises(KeyError):
+                self.fake_managed_path(path)
+        self.assertFalse(worker_state.exists())
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual((state.stat().st_uid, state.stat().st_gid), (0, 0))
+        with self.assertRaises(KeyError):
+            self.fake_managed_path(state)
+        for path in (worker_state, scratch):
+            self.assertEqual(
+                self.fake_managed_path(path),
+                {
+                    "gid": FAKE_SERVICE_GID,
+                    "mode": "750",
+                    "uid": FAKE_SERVICE_UID,
+                },
+            )
+        self.set_fake_managed_path(worker_state, uid=0, gid=0)
+
+        third = self.run_script(*arguments)
+
+        self.assertEqual(third.returncode, 0, third.stderr)
+        self.assertEqual(
+            self.fake_managed_path(worker_state),
+            {"gid": FAKE_SERVICE_GID, "mode": "750", "uid": FAKE_SERVICE_UID},
+        )
+        commands = log.read_text(encoding="utf-8")
+        self.assertEqual(commands.count("sdme create"), 1)
+        self.assertEqual(commands.count("systemctl restart nativelink.service"), 2)
+
+    def test_fresh_control_apply_requires_root_owned_state(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        control = data_root / "control"
+        control.mkdir(mode=0o750)
+        self.set_fake_managed_path(control)
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("managed state path is not root-owned", result.stderr)
+        self.assertNotIn("sdme create", log.read_text(encoding="utf-8"))
+
+    def test_container_topology_is_validated_before_service_ownership(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        control = data_root / "control"
+        self.set_fake_managed_path(control, uid=FAKE_SERVICE_UID + 1)
+        container_path = self.external / "fake-sdme-state/container.json"
+        container = json.loads(container_path.read_text(encoding="utf-8"))
+        container["binds"] = []
+        container_path.write_text(json.dumps(container), encoding="utf-8")
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("existing container does not match requested topology", result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn("/etc/passwd", commands)
+        self.assertNotIn("systemctl restart nativelink.service", commands)
+
+    def test_worker_retry_accepts_service_managed_state_and_scratch(self) -> None:
+        architecture, data_root, log = self.prepare_completed_worker()
+        state = data_root / "worker-{}/state".format(architecture)
+        worker_state = state / "worker-{}".format(architecture)
+        scratch = data_root / "worker-{}/scratch".format(architecture)
+        commands = log.read_text(encoding="utf-8")
+        self.assertIn(
+            "install -d -m 0750 -o nativelink -g nativelink "
+            "/var/lib/nativelink/worker-{} /var/tmp".format(
+                architecture
+            ),
+            commands,
+        )
+        self.assertEqual(state.stat().st_uid, 0)
+        self.assertEqual(state.stat().st_gid, 0)
+        with self.assertRaises(KeyError):
+            self.fake_managed_path(state)
+        for path in (worker_state, scratch):
+            self.assertEqual(
+                self.fake_managed_path(path),
+                {
+                    "gid": FAKE_SERVICE_GID,
+                    "mode": "750",
+                    "uid": FAKE_SERVICE_UID,
+                },
+            )
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.worker_apply_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn("sdme create", commands)
+        self.assertNotIn("sdme start", commands)
+        self.assertEqual(commands.count("systemctl restart nativelink.service"), 1)
+
+    def test_existing_control_rejects_wrong_service_managed_metadata(self) -> None:
+        architecture, data_root, log = self.prepare_completed_control()
+        control = data_root / "control"
+        cases = (
+            ({"uid": FAKE_SERVICE_UID + 1}, "ownership is neither root nor"),
+            ({"gid": FAKE_SERVICE_GID + 1}, "ownership is neither root nor"),
+            ({"mode": "770"}, "group/world-writable"),
+        )
+
+        for changes, expected_error in cases:
+            with self.subTest(changes=changes):
+                self.set_fake_managed_path(control, **changes)
+                log.write_text("", encoding="utf-8")
+                result = self.run_script(
+                    *self.control_arguments(data_root, architecture)
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected_error, result.stderr)
+                self.assertNotIn(
+                    "systemctl restart nativelink.service",
+                    log.read_text(encoding="utf-8"),
+                )
+                self.set_fake_managed_path(control)
+
+    def test_existing_worker_rejects_wrong_managed_path_owners(self) -> None:
+        architecture, data_root, log = self.prepare_completed_worker()
+        state = data_root / "worker-{}/state".format(architecture)
+        worker_state = state / "worker-{}".format(architecture)
+        scratch = data_root / "worker-{}/scratch".format(architecture)
+        cases = (
+            (
+                state,
+                {"uid": FAKE_SERVICE_UID, "gid": FAKE_SERVICE_GID},
+                "managed state path is not root-owned",
+            ),
+            (
+                worker_state,
+                {"uid": FAKE_SERVICE_UID + 1},
+                "managed worker state path ownership is neither root nor",
+            ),
+            (
+                scratch,
+                {"gid": FAKE_SERVICE_GID + 1},
+                "managed scratch path ownership is neither root nor",
+            ),
+        )
+
+        for path, changes, expected_error in cases:
+            with self.subTest(path=path):
+                self.set_fake_managed_path(path, **changes)
+                log.write_text("", encoding="utf-8")
+                result = self.run_script(
+                    *self.worker_apply_arguments(data_root, architecture)
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected_error, result.stderr)
+                self.assertNotIn(
+                    "systemctl restart nativelink.service",
+                    log.read_text(encoding="utf-8"),
+                )
+                if path == state:
+                    self.set_fake_managed_path(path, uid=0, gid=0)
+                else:
+                    self.set_fake_managed_path(path)
+
+    def test_existing_control_rejects_symlinked_state(self) -> None:
+        architecture, data_root, log = self.prepare_completed_control()
+        control = data_root / "control"
+        replacement = data_root / "replacement"
+        replacement.mkdir(mode=0o750)
+        control.rmdir()
+        control.symlink_to(replacement, target_is_directory=True)
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("managed state path is not a real directory", result.stderr)
+        self.assertNotIn(
+            "systemctl restart nativelink.service",
+            log.read_text(encoding="utf-8"),
+        )
+
+    def test_worker_retry_rejects_unsafe_service_managed_ancestry(self) -> None:
+        architecture, data_root, log = self.prepare_completed_worker()
+        worker_root = data_root / "worker-{}".format(architecture)
+        worker_root.chmod(0o770)
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.worker_apply_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "managed data path ancestor is group/world-writable", result.stderr
+        )
+        self.assertNotIn(
+            "systemctl restart nativelink.service",
+            log.read_text(encoding="utf-8"),
+        )
+
+    def test_existing_control_rejects_unexpected_service_identity(self) -> None:
+        architecture, data_root, log = self.prepare_completed_control()
+        passwd = self.external / "fake-sdme-state/{}.passwd".format(RUNTIME_FS)
+        passwd.write_text(
+            "nativelink:x:0:{}:NativeLink:/var/lib/nativelink:/usr/sbin/nologin\n".format(
+                FAKE_SERVICE_GID
+            ),
+            encoding="utf-8",
+        )
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("runtime service account must not use root identity", result.stderr)
+        self.assertNotIn(
+            "systemctl restart nativelink.service",
+            log.read_text(encoding="utf-8"),
+        )
 
     def test_control_address_wait_has_a_fixed_timeout(self) -> None:
         architecture, data_root, log = self.prepare_matching_control()
@@ -2014,19 +2613,29 @@ exec /bin/mv -- "$@"
     def test_control_address_wait_bounds_a_stalled_inventory_query(self) -> None:
         architecture, data_root, log = self.prepare_matching_control()
         self.set_test_control_address_wait_seconds(1)
+        ready = self.external / "sdme-ps-hang-ready"
 
-        started = time.monotonic()
-        result = self.run_script(
-            *self.control_arguments(data_root, architecture),
-            environment={"FAKE_SDME_PS_HANG_AT": "3"},
+        process = subprocess.Popen(
+            [str(self.script), *self.control_arguments(data_root, architecture)],
+            env=self.script_environment(
+                {
+                    "FAKE_SDME_PS_HANG_AT": "3",
+                    "FAKE_SDME_PS_HANG_READY": str(ready),
+                }
+            ),
+            start_new_session=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-        elapsed = time.monotonic() - started
+        self.addCleanup(self.terminate_and_reap_process_group, process, (ready,))
+        _, stderr, elapsed = self.communicate_after_marker(process, ready)
 
-        self.assertEqual(result.returncode, 2)
+        self.assertEqual(process.returncode, 2)
         self.assertIn(
             "timed out after 1s waiting for control container "
             "buckos-re-control SDME zone address",
-            result.stderr,
+            stderr,
         )
         self.assertGreater(elapsed, 0.5)
         self.assertLess(elapsed, 3.0)
@@ -2034,6 +2643,81 @@ exec /bin/mv -- "$@"
         self.assertEqual(commands.count("sdme ps --json"), 3)
         self.assertNotIn("sleep ", commands)
         self.assertNotIn("systemctl restart nativelink.service", commands)
+
+    def assert_process_and_group_gone(
+        self, process: subprocess.Popen[str], blocking_pid: int
+    ) -> None:
+        self.assertIsNotNone(process.returncode)
+        self.assertFalse(self.process_exists(process.pid))
+        self.assertFalse(self.process_exists(blocking_pid))
+        self.assertFalse(self.process_group_exists(process.pid))
+        with self.assertRaises(ChildProcessError):
+            os.waitpid(process.pid, os.WNOHANG)
+
+    def test_missing_marker_cleanup_kills_and_reaps_the_provisioner_group(
+        self,
+    ) -> None:
+        architecture, data_root, _ = self.prepare_matching_control()
+        self.set_test_control_address_wait_seconds(1)
+        actual_marker = self.external / "sdme-ps-actual.ready"
+        missing_marker = self.external / "sdme-ps-missing.ready"
+        markers = (actual_marker, missing_marker)
+        process = subprocess.Popen(
+            [str(self.script), *self.control_arguments(data_root, architecture)],
+            env=self.script_environment(
+                {
+                    "FAKE_SDME_PS_HANG_AT": "3",
+                    "FAKE_SDME_PS_HANG_READY": str(actual_marker),
+                }
+            ),
+            start_new_session=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.addCleanup(self.terminate_and_reap_process_group, process, markers)
+        blocking_pid = self.wait_for_process_marker(process, actual_marker, 10)
+
+        try:
+            with self.assertRaises(AssertionError):
+                self.wait_for_process_marker(process, missing_marker, 0.05)
+        finally:
+            self.terminate_and_reap_process_group(process, markers)
+
+        self.assert_process_and_group_gone(process, blocking_pid)
+        for marker in markers:
+            self.assertFalse(marker.exists())
+
+    def test_communicate_timeout_cleanup_kills_and_reaps_the_provisioner_group(
+        self,
+    ) -> None:
+        architecture, data_root, _ = self.prepare_matching_control()
+        self.set_test_control_address_wait_seconds(1)
+        marker = self.external / "sdme-ps-timeout.ready"
+        process = subprocess.Popen(
+            [str(self.script), *self.control_arguments(data_root, architecture)],
+            env=self.script_environment(
+                {
+                    "FAKE_SDME_PS_HANG_AT": "3",
+                    "FAKE_SDME_PS_HANG_READY": str(marker),
+                }
+            ),
+            start_new_session=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.addCleanup(self.terminate_and_reap_process_group, process, (marker,))
+        blocking_pid = self.wait_for_process_marker(process, marker, 10)
+
+        try:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                process.communicate(timeout=0.05)
+        finally:
+            self.terminate_and_reap_process_group(process, (marker,))
+
+        self.assert_process_and_group_gone(process, blocking_pid)
+        self.assertFalse(marker.exists())
 
     def test_control_address_wait_fails_immediately_on_inventory_errors(self) -> None:
         architecture, data_root, log = self.prepare_matching_control()

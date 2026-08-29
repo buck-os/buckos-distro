@@ -1331,6 +1331,136 @@ validate_managed_directories() {
     done
 }
 
+validate_managed_ancestry() {
+    local directory="$1"
+    local current mode owner
+    current=$(dirname -- "$directory")
+    while :; do
+        path_is_beneath "$current" "$data_root" || \
+            die "managed data path escapes --data-root: $directory"
+        if [[ -e "$current" || -L "$current" ]]; then
+            [[ -d "$current" && ! -L "$current" ]] || \
+                die "managed data path ancestor is not a real directory: $current"
+            owner=$(stat -c '%u' -- "$current")
+            mode=$(stat -c '%a' -- "$current")
+            [[ "$owner" == 0 ]] || \
+                die "managed data path ancestor is not root-owned: $current"
+            (( (8#$mode & 8#022) == 0 )) || \
+                die "managed data path ancestor is group/world-writable: $current"
+        fi
+        [[ "$current" == "$data_root" ]] && break
+        current=$(dirname -- "$current")
+    done
+}
+
+runtime_service_identity() {
+    local temporary identity
+    temporary=$(mktemp -d "$provision_dir/service-identity.XXXXXX")
+    cleanup_paths+=("$temporary")
+    if ! query_sdme cp "fs:$RUNTIME_FS:/etc/passwd" "$temporary" >/dev/null 2>&1 || \
+       ! query_sdme cp "fs:$RUNTIME_FS:/etc/group" "$temporary" >/dev/null 2>&1; then
+        rm -rf -- "$temporary"
+        die "runtime rootfs lacks service account metadata: $RUNTIME_FS"
+    fi
+    if identity=$("$python_bin" - "$temporary/passwd" "$temporary/group" "$SERVICE_USER" 2>&1 <<'PY'
+import sys
+
+passwd_path, group_path, name = sys.argv[1:]
+
+
+def matching_record(path, expected_fields):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            matches = [
+                line.rstrip("\n").split(":")
+                for line in stream
+                if line.split(":", 1)[0] == name
+            ]
+    except OSError as error:
+        raise SystemExit("cannot read runtime service account metadata: {}".format(error))
+    if len(matches) != 1 or len(matches[0]) != expected_fields:
+        raise SystemExit("runtime service account metadata is missing or ambiguous")
+    return matches[0]
+
+
+user = matching_record(passwd_path, 7)
+group = matching_record(group_path, 4)
+uid_text, user_gid_text, group_gid_text = user[2], user[3], group[2]
+if not all(value.isdecimal() for value in (uid_text, user_gid_text, group_gid_text)):
+    raise SystemExit("runtime service account identity is not numeric")
+uid, user_gid, group_gid = map(int, (uid_text, user_gid_text, group_gid_text))
+if uid == 0 or user_gid == 0 or group_gid == 0:
+    raise SystemExit("runtime service account must not use root identity")
+if user_gid != group_gid:
+    raise SystemExit("runtime service account primary group does not match")
+print("{}:{}".format(uid, user_gid))
+PY
+    ); then
+        :
+    else
+        rm -rf -- "$temporary"
+        [[ -n "$identity" ]] || identity='could not inspect runtime service identity'
+        die "$identity"
+    fi
+    rm -rf -- "$temporary"
+    printf '%s\n' "$identity"
+}
+
+managed_directory_identity() {
+    local label="$1"
+    local directory="$2"
+    local identity mode owner group
+    validate_managed_ancestry "$directory"
+    [[ -d "$directory" && ! -L "$directory" ]] || \
+        die "$label is not a real directory: $directory"
+    identity=$(stat -c '%u:%g:%a' -- "$directory")
+    [[ "$identity" =~ ^[0-9]+:[0-9]+:[0-7]+$ ]] || \
+        die "could not inspect $label ownership: $directory"
+    IFS=: read -r owner group mode <<<"$identity"
+    (( (8#$mode & 8#022) == 0 )) || \
+        die "$label is group/world-writable: $directory"
+    printf '%s:%s\n' "$owner" "$group"
+}
+
+validate_root_owned_bind_directory() {
+    local label="$1"
+    local directory="$2"
+    local identity
+    identity=$(managed_directory_identity "$label" "$directory")
+    [[ "$identity" == 0:0 ]] || die "$label is not root-owned: $directory"
+}
+
+validate_transition_bind_directory() {
+    local label="$1"
+    local directory="$2"
+    local expected_identity="$3"
+    local identity
+    identity=$(managed_directory_identity "$label" "$directory")
+    [[ "$identity" == 0:0 || "$identity" == "$expected_identity" ]] || \
+        die "$label ownership is neither root nor the runtime service account: $directory"
+}
+
+validate_service_bind_directory() {
+    local label="$1"
+    local directory="$2"
+    local expected_identity="$3"
+    local identity
+    identity=$(managed_directory_identity "$label" "$directory")
+    [[ "$identity" == "$expected_identity" ]] || \
+        die "$label ownership does not match the runtime service account: $directory"
+}
+
+validate_optional_transition_bind_directory() {
+    local label="$1"
+    local directory="$2"
+    local expected_identity="$3"
+    if [[ ! -e "$directory" && ! -L "$directory" ]]; then
+        validate_managed_ancestry "$directory"
+        return
+    fi
+    validate_transition_bind_directory "$label" "$directory" "$expected_identity"
+}
+
 validate_private_managed_file() {
     local label="$1"
     local path="$2"
@@ -2035,11 +2165,9 @@ discover_control_worker_bind_address() {
 }
 
 apply_deployment() {
-    local directories=("$images_dir" "$state_dir")
-    if [[ "$role" == worker ]]; then directories+=("$scratch_dir"); fi
     prepare_mutation_root
-    run_command install -d -m 0750 "${directories[@]}"
-    validate_managed_directories "${directories[@]}"
+    run_command install -d -m 0750 "$images_dir"
+    validate_managed_directories "$images_dir"
 
     if ((publish)); then
         run_command "$firewall_check" \
@@ -2052,19 +2180,56 @@ apply_deployment() {
     ensure_runtime_fs
     write_environment_file
 
-    local record result
+    local record result service_identity='' worker_state_dir
+    worker_state_dir="$state_dir/worker-$arch"
     if record=$(container_record "$container_name"); then
         validate_existing_container "$record"
+        service_identity=$(runtime_service_identity)
+        if [[ "$role" == control ]]; then
+            validate_transition_bind_directory \
+                'managed state path' "$state_dir" "$service_identity"
+        else
+            validate_root_owned_bind_directory 'managed state path' "$state_dir"
+            validate_optional_transition_bind_directory \
+                'managed worker state path' "$worker_state_dir" "$service_identity"
+            validate_transition_bind_directory \
+                'managed scratch path' "$scratch_dir" "$service_identity"
+        fi
         debug "reusing container $container_name"
     else
         result=$?
         ((result == 1)) || die "could not inspect container: $container_name"
+        [[ ! -L "$state_dir" ]] || die "managed state path is a symlink: $state_dir"
+        validate_managed_ancestry "$state_dir"
+        run_command install -d -m 0750 "$state_dir"
+        validate_managed_ancestry "$state_dir"
+        validate_root_owned_bind_directory 'managed state path' "$state_dir"
+        if [[ "$role" == worker ]]; then
+            [[ ! -L "$scratch_dir" ]] || die "managed scratch path is a symlink: $scratch_dir"
+            validate_managed_ancestry "$scratch_dir"
+            run_command install -d -m 0750 "$scratch_dir"
+            validate_managed_ancestry "$scratch_dir"
+            validate_root_owned_bind_directory 'managed scratch path' "$scratch_dir"
+        fi
         create_container
     fi
 
     copy_assets
     ensure_started
     prepare_container_storage
+    if [[ -z "$service_identity" ]]; then
+        service_identity=$(runtime_service_identity)
+    fi
+    if [[ "$role" == control ]]; then
+        validate_service_bind_directory \
+            'managed state path' "$state_dir" "$service_identity"
+    else
+        validate_root_owned_bind_directory 'managed state path' "$state_dir"
+        validate_service_bind_directory \
+            'managed worker state path' "$worker_state_dir" "$service_identity"
+        validate_service_bind_directory \
+            'managed scratch path' "$scratch_dir" "$service_identity"
+    fi
     if [[ "$role" == control ]]; then
         discover_control_worker_bind_address
         write_environment_file
