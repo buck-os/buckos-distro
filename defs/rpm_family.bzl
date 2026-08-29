@@ -401,6 +401,21 @@ def rpm_buildroot_target(flavor, suffix):
     provenance = read_config("buckos." + flavor, "buildroot", "host")
     return ":buildroot-{}{}".format(provenance, suffix)
 
+def _binary_providers(recipes, skip):
+    """Map binary names to their normal source recipes.
+
+    Version variants are build-dependency-only alternatives. They remain
+    addressable through dep_variants, but must never replace the normal
+    producer selected for an ordinary build dependency or live image.
+    """
+    provider = {}
+    for recipe in recipes:
+        if recipe.get("variant_of") or recipe["name"] in skip:
+            continue
+        for subpackage in recipe["subpackages"]:
+            provider[subpackage] = recipe
+    return provider
+
 def rpm_packages(flavor, data, suffix, platform, exec_constraints):
     """One package() per recipe, staged where the lockfile says to stage.
 
@@ -461,16 +476,11 @@ def rpm_packages(flavor, data, suffix, platform, exec_constraints):
                "image is still complete; its provenance is not.").format(
             ", ".join(prebuilt), flavor))
 
-    provider = {}
+    provider = _binary_providers(data.RECIPES, skip)
     variant_recipe = {}
     for recipe in data.RECIPES:
         if recipe.get("variant_of"):
             variant_recipe[recipe["name"]] = recipe
-            continue
-        if recipe["name"] in skip:
-            continue
-        for sub in recipe["subpackages"]:
-            provider[sub] = recipe
 
     # source -> the variant that ships; and (source, stage) -> its target.
     # Looked up rather than formatted, so the naming stays the solver's to
@@ -980,15 +990,10 @@ def rpm_image_rootfs(flavor, data, suffix, platform, exec_constraints):
     # different compile.
     skip = {name: True for name in prebuilt_sources(flavor)}
     built = {}
-    for recipe in data.RECIPES:
-        if recipe["name"] in skip:
-            # Falls through to the pinned rpm below, which is the whole
-            # mechanism -- see prebuilt_sources.
-            continue
-        for sub in recipe["subpackages"]:
-            built[sub] = subpackage_rpm_target(
-                recipe["name"] + suffix, recipe["source_name"], sub,
-            )
+    for subpackage, recipe in _binary_providers(data.RECIPES, skip).items():
+        built[subpackage] = subpackage_rpm_target(
+            recipe["name"] + suffix, recipe["source_name"], subpackage,
+        )
 
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:

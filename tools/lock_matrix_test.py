@@ -131,6 +131,81 @@ class TestLockMatrix(unittest.TestCase):
                 [repo["name"] for repo in locks["aarch64"]["repos"]],
             )
 
+    def test_rpm_live_variants_keep_normal_producers(self):
+        root = repo_root()
+        rpm_matrix = {
+            "fedora": ("44", "45"),
+            "centos": ("9", "10"),
+            "centos-hyperscale": ("9", "10"),
+        }
+        overlaps = []
+        for flavor, releases in rpm_matrix.items():
+            for release in releases:
+                for architecture in ARCHITECTURES:
+                    path = os.path.join(
+                        root,
+                        "flavors",
+                        flavor,
+                        "lock",
+                        "{}-{}-{}.lock.json".format(
+                            flavor, release, architecture
+                        ),
+                    )
+                    with open(path, encoding="utf-8") as stream:
+                        lock = json.load(stream)
+                    normal = {}
+                    variants = {}
+                    for recipe_name, recipe in lock["packages"].items():
+                        target = variants if recipe.get("variant_of") else normal
+                        for binary in recipe["subpackages"]:
+                            target[binary] = recipe_name
+                    for entry in lock["image_sets"]["live"]:
+                        binary = entry["name"]
+                        variant = variants.get(binary)
+                        if variant is None:
+                            continue
+                        self.assertIn(binary, normal)
+                        self.assertEqual(entry["source"], normal[binary])
+                        overlaps.append(
+                            (flavor, release, architecture, binary, variant)
+                        )
+        self.assertEqual(
+            overlaps,
+            [
+                ("fedora", "44", "x86_64", "libacl", "acl-compat"),
+                ("fedora", "44", "aarch64", "libacl", "acl-compat"),
+            ],
+        )
+
+    def test_fedora_44_tar_keeps_acl_compat_build_dependencies(self):
+        root = repo_root()
+        for architecture in ARCHITECTURES:
+            with self.subTest(architecture=architecture):
+                path = os.path.join(
+                    root,
+                    "flavors",
+                    "fedora",
+                    "lock",
+                    "fedora-44-{}.lock.json".format(architecture),
+                )
+                with open(path, encoding="utf-8") as stream:
+                    lock = json.load(stream)
+                live_libacl = next(
+                    entry
+                    for entry in lock["image_sets"]["live"]
+                    if entry["name"] == "libacl"
+                )
+                self.assertEqual(live_libacl["source"], "acl")
+                self.assertEqual(live_libacl["evr"], "2.4.0-1.fc44")
+                self.assertEqual(lock["packages"]["acl-compat"]["variant_of"], "acl")
+                tar_deps = {
+                    entry["name"]: entry
+                    for entry in lock["packages"]["tar"]["deps_built"]
+                }
+                for binary in ("libacl", "libacl-devel"):
+                    self.assertEqual(tar_deps[binary]["variant"], "acl-compat")
+                    self.assertEqual(tar_deps[binary]["evr"], "2.3.2-6.fc44")
+
 
 if __name__ == "__main__":
     unittest.main()
