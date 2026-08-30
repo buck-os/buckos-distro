@@ -232,6 +232,34 @@ class TestBuildrootSkeleton(unittest.TestCase):
 
             self.assertEqual("debian", os.readlink(os.path.join(origins, "default")))
 
+    def test_links_the_versioned_imagemagick_convert(self):
+        with tempfile.TemporaryDirectory() as root:
+            bindir = os.path.join(root, "usr", "bin")
+            os.makedirs(bindir)
+            open(os.path.join(bindir, "convert-im7.q16"), "wb").close()
+
+            ensure_base_files(root)
+
+            self.assertEqual(
+                "convert-im7.q16",
+                os.readlink(os.path.join(bindir, "convert")),
+            )
+
+    def test_refuses_to_choose_between_two_convert_candidates(self):
+        with tempfile.TemporaryDirectory() as root:
+            bindir = os.path.join(root, "usr", "bin")
+            os.makedirs(bindir)
+            open(os.path.join(bindir, "convert-im6.q16"), "wb").close()
+            open(os.path.join(bindir, "convert-im7.q16"), "wb").close()
+
+            ensure_base_files(root)
+
+            # A real negative: the glob matched two candidates, so the scan
+            # had something to find and declined rather than found nothing.
+            self.assertTrue(os.path.exists(os.path.join(bindir, "convert-im6.q16")))
+            self.assertTrue(os.path.exists(os.path.join(bindir, "convert-im7.q16")))
+            self.assertFalse(os.path.lexists(os.path.join(bindir, "convert")))
+
     def test_restores_package_alternative_links_after_overlay(self):
         with tempfile.TemporaryDirectory() as root:
             bindir = os.path.join(root, "usr", "bin")

@@ -261,7 +261,12 @@ def ensure_base_files(root: str) -> None:
 
     bindir = os.path.join(root, "usr", "bin")
     os.makedirs(bindir, exist_ok=True)
-    for name in ("aclocal", "automake", "openjade"):
+    # ImageMagick installs convert-im7.q16 and registers the plain name
+    # through update-alternatives, so the glob rather than a fixed target:
+    # the suffix carries a major version and a quantum depth, and pinning
+    # either would break on the next release.  debian's Makefile calls
+    # plain convert and stops at exit 127 without it.
+    for name in ("aclocal", "automake", "convert", "openjade"):
         link = os.path.join(bindir, name)
         candidates = sorted(glob.glob(link + "-*"))
         if not os.path.lexists(link) and len(candidates) == 1:
