@@ -725,6 +725,31 @@ Stated plainly, because each one is load-bearing:
   state, and clearing `buck-out/v2/cache/{materializer_state,incremental_state}`
   after a `buck2 kill` does make it go away -- until the next build
   re-poisons it.
+- **A configure probe with a wall-clock timeout makes build output depend
+  on machine load.** gnulib decides whether the system `getcwd` copes with
+  paths past `PATH_MAX` by compiling a test that walks a deep directory
+  chain, and gives it `alarm(5)`. Under emulation on a busy host it does not
+  finish. Every failing run measured here died on `SIGALRM`, exit 142, six of
+  six, and none reached a verdict at all. `configure` records `no` for a probe
+  it killed, gnulib's replacement is compiled in, and `find` gains 1536 bytes
+  and swaps `getcwd` for `lstat`, `readlink` and `rewinddir`.
+
+  So a loaded build farm ships different code from an idle one, silently, with
+  nothing failing anywhere. `tools/dpkgbuild_replay.py` pins that one cache
+  variable, and the pinned value is the probe's own answer rather than a
+  chosen one: the archive's `find` calls the system `getcwd` on both amd64 and
+  arm64, so leaving it unpinned is the deviation.
+
+  **The class is wider than the fix.** Ten packages in the Debian-family set
+  carry alarm-guarded probes, roughly fourteen cache variables, with budgets
+  down to one and two seconds. Only the one above is pinned, because a pin is
+  only justified where the probe is known not to have completed *and* the true
+  answer is known independently. The rest are latent.
+
+  They are also hard to observe. `config.log` is last-writer-wins, so scanning
+  it after the fact cannot see a verdict that flapped between runs; detecting
+  that needs the verdicts captured per build rather than read afterwards.
+
 - **`--isolation none` is best-effort.** Under host provenance the
   dependency sysroot is exported via `PATH`, `PKG_CONFIG_PATH`, and
   friends; a spec that hardcodes `/usr/lib64` still reads the host's copy.
