@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import re
 import subprocess
 import unittest
 from unittest.mock import MagicMock, call, patch
@@ -33,6 +34,104 @@ class TestProcMount(unittest.TestCase):
         argv = run.call_args.args[0]
         index = argv.index("--ro-bind")
         self.assertEqual(argv[index:index + 3], ["--ro-bind", "/proc", "/proc"])
+
+
+def _bwrap_argv(run):
+    """The argv run_isolated handed to bwrap, from a patched run()."""
+    return run.call_args.args[0]
+
+
+def _bwrap_kernel_mounts(argv):
+    """Host paths bwrap exposes inside the sandbox, keyed by target."""
+    mounts = {}
+    index = 0
+    while index < len(argv):
+        flag = argv[index]
+        if flag in ("--bind", "--ro-bind"):
+            mounts[argv[index + 2]] = flag
+            index += 3
+        elif flag == "--dev":
+            mounts[argv[index + 1]] = flag
+            index += 2
+        elif flag == "--tmpfs":
+            mounts[argv[index + 1]] = flag
+            index += 2
+        else:
+            index += 1
+    return mounts
+
+
+def _unshare_kernel_mounts(script):
+    """The same, read out of the chroot script the unshare path runs."""
+    mounts = {}
+    for match in re.finditer(r'mount --rbind (\S+) "\$ROOT([^"]+)"', script):
+        mounts[match.group(2)] = match.group(1)
+    for match in re.finditer(r'mount -t (\S+) \S+ "\$ROOT([^"]+)"', script):
+        mounts[match.group(2)] = match.group(1)
+    return mounts
+
+
+# The filesystems a build reaches for that only the running kernel can
+# answer for.  Anything a spec reads here is invisible to the buildroot's
+# own fabricated skeleton.
+KERNEL_FILESYSTEMS = frozenset(("/proc", "/sys", "/dev", "/tmp"))
+
+
+class TestKernelFilesystems(unittest.TestCase):
+    """Both sandboxes must show a build the same kernel filesystems.
+
+    SPEC.md and README.md both state the two isolation modes are
+    equivalent in hermeticity.  A mount present in one and absent from
+    the other makes that false in the way that is hardest to notice: the
+    build succeeds under one mode and fails inside %build under the
+    other, naming a path rather than a sandbox.
+    """
+
+    @patch("_isolation.run")
+    @patch("_isolation._mapped_user_namespace")
+    @patch("_isolation.require_tool", return_value="/usr/bin/bwrap")
+    def test_bwrap_exposes_sysfs_read_only(
+        self,
+        _require_tool,
+        mapped_user_namespace,
+        run,
+    ):
+        mapped_user_namespace.return_value.__enter__.return_value = 19
+        _isolation.run_isolated(["true"], "bwrap", "/work", "/work", "/root")
+
+        argv = _bwrap_argv(run)
+        self.assertIn(["--ro-bind", "/sys", "/sys"], [
+            argv[i:i + 3] for i in range(len(argv))
+        ])
+
+    def test_unshare_exposes_sysfs(self):
+        script = _isolation._chroot_script("/work", "/work", "/root")
+        self.assertIn('mount --rbind /sys "$ROOT/sys"', script)
+
+    @patch("_isolation.run")
+    @patch("_isolation._mapped_user_namespace")
+    @patch("_isolation.require_tool", return_value="/usr/bin/bwrap")
+    def test_both_modes_expose_the_same_kernel_filesystems(
+        self,
+        _require_tool,
+        mapped_user_namespace,
+        run,
+    ):
+        mapped_user_namespace.return_value.__enter__.return_value = 19
+        _isolation.run_isolated(["true"], "bwrap", "/work", "/work", "/root")
+
+        bwrap = set(_bwrap_kernel_mounts(_bwrap_argv(run)))
+        unshare = set(_unshare_kernel_mounts(
+            _isolation._chroot_script("/work", "/work", "/root")))
+
+        # Compared against each other rather than against a literal, so
+        # dropping a mount from either mode fails here instead of quietly
+        # redefining what both are expected to carry.
+        self.assertEqual(
+            bwrap & KERNEL_FILESYSTEMS,
+            unshare & KERNEL_FILESYSTEMS,
+        )
+        self.assertEqual(bwrap & KERNEL_FILESYSTEMS, KERNEL_FILESYSTEMS)
 
 
 class TestSubordinateMapping(unittest.TestCase):
@@ -143,6 +242,7 @@ class TestBubblewrapUserNamespace(unittest.TestCase):
                 "--bind", "/root", "/",
                 "--bind", "/work", "/work",
                 "--ro-bind", "/proc", "/proc",
+                "--ro-bind", "/sys", "/sys",
                 "--dev", "/dev",
                 "--tmpfs", "/tmp",
                 "--setenv", "HOME", "/builddir",

@@ -535,6 +535,14 @@ def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
                 # A fresh procfs mount can be rejected inside a container when
                 # its existing procfs hides sensitive entries.
                 "--ro-bind", "/proc", "/proc",
+                # A spec can ask the running kernel a question only the
+                # running kernel can answer: libcap-ng's %build reads BTF
+                # from /sys/kernel/btf/vmlinux, and the buildroot's own /sys
+                # is a fabricated empty directory.  Read-only because reading
+                # is all any of them do, and because the unshare path already
+                # rebinds it -- a mount one mode provides and the other hides
+                # makes the two stop agreeing about what a build can see.
+                "--ro-bind", "/sys", "/sys",
                 "--dev", "/dev",
                 "--tmpfs", "/tmp",
                 "--setenv", "HOME", "/builddir",
