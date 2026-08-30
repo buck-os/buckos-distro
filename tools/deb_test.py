@@ -232,6 +232,27 @@ class TestBuildrootSkeleton(unittest.TestCase):
 
             self.assertEqual("debian", os.readlink(os.path.join(origins, "default")))
 
+    def test_links_the_mingw_compiler_alternative(self):
+        with tempfile.TemporaryDirectory() as root:
+            bindir = os.path.join(root, "usr", "bin")
+            os.makedirs(bindir)
+            open(os.path.join(bindir, "i686-w64-mingw32-gcc-win32"), "wb").close()
+            open(os.path.join(bindir, "x86_64-w64-mingw32-gcc-win32"), "wb").close()
+            # Present and not an alternative: binutils ships the plain name.
+            open(os.path.join(bindir, "i686-w64-mingw32-ar"), "wb").close()
+
+            ensure_base_files(root)
+
+            self.assertEqual(
+                "i686-w64-mingw32-gcc-win32",
+                os.readlink(os.path.join(bindir, "i686-w64-mingw32-gcc")),
+            )
+            self.assertEqual(
+                "x86_64-w64-mingw32-gcc-win32",
+                os.readlink(os.path.join(bindir, "x86_64-w64-mingw32-gcc")),
+            )
+            self.assertFalse(os.path.islink(os.path.join(bindir, "i686-w64-mingw32-ar")))
+
     def test_links_the_blas_and_lapack_alternatives(self):
         with tempfile.TemporaryDirectory() as root:
             triplet = os.path.join(root, "usr", "lib", "x86_64-linux-gnu")

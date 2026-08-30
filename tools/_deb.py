@@ -294,6 +294,13 @@ def ensure_base_files(root: str) -> None:
         ("spent", "ospent"),
         ("yacc", "bison.yacc"),
         ("which", "which.debianutils"),
+        # The mingw compilers exist twice, once per threading model, so
+        # the plain name is an alternative rather than a file. Only the
+        # win32 flavor is in this graph. samba probes for the plain name
+        # to decide whether it can build winexe, finds nothing, and drops
+        # a binary its own packaging then requires.
+        ("i686-w64-mingw32-gcc", "i686-w64-mingw32-gcc-win32"),
+        ("x86_64-w64-mingw32-gcc", "x86_64-w64-mingw32-gcc-win32"),
     ):
         link = os.path.join(bindir, name)
         if not os.path.lexists(link) and os.path.isfile(os.path.join(bindir, target)):
