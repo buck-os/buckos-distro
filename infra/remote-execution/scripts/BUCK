@@ -43,6 +43,7 @@ python_test(
 python_test(
     name = "reapi_readiness_test",
     srcs = [
+        "_skiploader.py",
         "reapi_readiness.py",
         "reapi_readiness_test.py",
     ],
@@ -71,6 +72,7 @@ python_test(
 python_test(
     name = "sdme_provision_test",
     srcs = [
+        "_skiploader.py",
         "oci_archive.py",
         "sdme_provision_test.py",
     ],
@@ -82,15 +84,18 @@ python_test(
         "worker-preflight.conf": "//infra/remote-execution/sdme:worker-preflight",
         "worker-rootfs.sdme": "//infra/remote-execution/sdme:worker-rootfs",
     },
+    deps = ["//tools:_skips"],
 )
 
 python_test(
     name = "sdme_tls_test",
     srcs = [
+        "_skiploader.py",
         "sdme_tls.py",
         "sdme_tls_test.py",
     ],
     base_module = "",
+    deps = ["//tools:_skips"],
 )
 
 export_file(

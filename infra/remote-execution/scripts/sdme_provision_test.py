@@ -14,6 +14,10 @@ import tarfile
 import tempfile
 import time
 import unittest
+
+from _skiploader import load_skips
+
+environmental_skip = load_skips().environmental_skip
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -368,10 +372,10 @@ class ProvisionPlanTest(unittest.TestCase):
         if self._pki is not None:
             return self._pki
         if os.geteuid() != 0:
-            self.skipTest("mTLS provisioner tests require root")
+            environmental_skip("mTLS provisioner tests require root")
         openssl = shutil.which("openssl")
         if openssl is None:
-            self.skipTest("openssl is unavailable")
+            environmental_skip("openssl is unavailable")
         temporary = tempfile.TemporaryDirectory(
             prefix="buckos-sdme-provision-pki-", dir="/var/lib"
         )

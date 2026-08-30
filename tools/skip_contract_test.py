@@ -112,6 +112,20 @@ CLASSIFICATIONS = frozenset(("environmental", "opt-in", "platform"))
 # deliberate update here rather than a silent drift.
 REGISTERED = (
     (
+        "infra/remote-execution/scripts/sdme_tls_test.py",
+        "SdmeTlsTest.setUp",
+        "call:environmental_skip",
+        "environmental",
+        "openssl is unavailable",
+    ),
+    (
+        "infra/remote-execution/scripts/sdme_provision_test.py",
+        "ProvisionPlanTest.pki_material",
+        "call:environmental_skip",
+        "environmental",
+        "openssl is unavailable",
+    ),
+    (
         "infra/remote-execution/scripts/reapi_readiness_test.py",
         "TlsHandshakeTest",
         "decorator:environmental_skip_unless",

@@ -6,46 +6,23 @@ from __future__ import annotations
 import ast
 from concurrent import futures
 import contextlib
-import importlib.util
 import io
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+import importlib.util
 import unittest
+
+from _skiploader import load_skips
 from unittest import mock
 
 
-def _load_skips():
-    """tools/_skips.py, whether run under buck2 or straight from this directory.
-
-    buck2 supplies it through the //tools:_skips dep, so the plain import
-    works there.  A direct `python3 -m unittest` from this directory has no
-    tools/ on sys.path, and falling back to a local no-op would disarm
-    BUCKOS_REQUIRE_FULL_COVERAGE exactly where someone is running by hand,
-    so locate the real file instead and fail if it is not there.
-    """
-    try:
-        import _skips
-
-        return _skips
-    except ImportError:
-        pass
-    for start in (Path.cwd(), Path(__file__).resolve().parent):
-        for candidate in [start, *start.parents]:
-            path = candidate / "tools" / "_skips.py"
-            if path.is_file():
-                spec = importlib.util.spec_from_file_location("_skips", path)
-                assert spec is not None and spec.loader is not None
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[spec.name] = module
-                spec.loader.exec_module(module)
-                return module
-    raise ImportError("cannot locate tools/_skips.py")
 
 
-_skips = _load_skips()
+
+_skips = load_skips()
 environmental_skip = _skips.environmental_skip
 environmental_skip_unless = _skips.environmental_skip_unless
 

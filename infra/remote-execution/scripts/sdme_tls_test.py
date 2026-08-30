@@ -9,8 +9,12 @@ import subprocess
 import tempfile
 import time
 import unittest
+
+from _skiploader import load_skips
 from pathlib import Path
 from typing import Dict, List, Optional
+
+environmental_skip = load_skips().environmental_skip
 
 
 TEST_ROOT = Path(__file__).resolve().parent
@@ -20,10 +24,10 @@ HELPER = TEST_ROOT / "sdme_tls.py"
 class SdmeTlsTest(unittest.TestCase):
     def setUp(self) -> None:
         if os.geteuid() != 0:
-            self.skipTest("credential ownership tests require root")
+            environmental_skip("credential ownership tests require root")
         openssl = shutil.which("openssl")
         if openssl is None:
-            self.skipTest("openssl is unavailable")
+            environmental_skip("openssl is unavailable")
         self.openssl = Path(openssl).resolve()
         self.temporary = tempfile.TemporaryDirectory(
             prefix="buckos-sdme-tls-test-", dir="/var/lib"
