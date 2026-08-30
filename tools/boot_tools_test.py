@@ -19,7 +19,14 @@ from deb_rootfs_install import (
     normalize_merged_usr_script,
     transaction_script,
 )
-from iso_build import _bios_script, _pin_tree_times, _write_md5sums, _xorriso_script
+from iso_build import (
+    _bios_script,
+    _efi_script,
+    _fat_volume_id,
+    _pin_tree_times,
+    _write_md5sums,
+    _xorriso_script,
+)
 from iso_boot_test import (
     BootCapture,
     BootFailure,
@@ -972,6 +979,62 @@ class TestIsoBuildBootloaderPaths(unittest.TestCase):
         script = _xorriso_script(args, "/iso", "/out.iso", "2020010100000000")
         self.assertIn("/usr/share/syslinux/isohdpfx.bin", script)
         self.assertIn("/usr/lib/ISOLINUX/isohdpfx.bin", script)
+
+
+class TestEfiImageIsAFunctionOfItsInputs(unittest.TestCase):
+    """The FAT image was the last thing in an RPM ISO that still moved.
+
+    Two builds of identical inputs differed in eight bytes, all inside
+    images/efiboot.img: the volume serial, and the creation and write times
+    of the volume label's directory entry.  Both came from mkfs.vfat
+    reading the clock.  See the comment in _efi_script for why the label is
+    applied separately rather than with the option that exists for it.
+    """
+
+    def script(self, epoch="1700000000"):
+        return _efi_script("/iso", "x86_64", epoch)
+
+    def test_volume_id_is_derived_from_the_epoch(self):
+        self.assertEqual("6553F100", _fat_volume_id("1700000000"))
+        self.assertEqual(
+            _fat_volume_id("1700000000"), _fat_volume_id(1700000000),
+            "a string and an int epoch are the same declared input",
+        )
+        self.assertNotEqual(
+            _fat_volume_id("1700000000"), _fat_volume_id("1700000001"),
+            "a deliberately changed epoch should move the serial",
+        )
+
+    def test_volume_id_is_a_whole_eight_digit_field(self):
+        # Short of eight digits mkfs.vfat still accepts it, and the image
+        # then differs from one built with the padded form.
+        for epoch in ("0", "1", "1700000000", "4294967295"):
+            with self.subTest(epoch=epoch):
+                value = _fat_volume_id(epoch)
+                self.assertRegex(value, r"\A[0-9A-F]{8}\Z")
+
+    def test_mkfs_pins_the_serial(self):
+        self.assertIn("-i {}".format(_fat_volume_id("1700000000")), self.script())
+
+    def test_mkfs_does_not_write_the_label_entry(self):
+        """The regression guard, because folding -n back in looks like a tidy-up.
+
+        mkfs.vfat -n writes a volume label directory entry stamped from the
+        clock, and no mkfs.vfat option pins those two timestamps.
+        """
+        mkfs = [
+            line for line in self.script().splitlines()
+            if line.startswith("mkfs.vfat ")
+        ]
+        self.assertEqual(1, len(mkfs), mkfs)
+        self.assertNotIn(" -n ", mkfs[0])
+
+    def test_the_label_is_applied_with_mtools_afterwards(self):
+        lines = self.script().splitlines()
+        mkfs = next(i for i, l in enumerate(lines) if l.startswith("mkfs.vfat "))
+        mlabel = next(i for i, l in enumerate(lines) if l.startswith("mlabel "))
+        self.assertGreater(mlabel, mkfs)
+        self.assertIn("::EFIBOOT", lines[mlabel])
 
 
 if __name__ == "__main__":

@@ -211,7 +211,17 @@ def _write_md5sums(iso_root):
     )
 
 
-def _efi_script(iso_root, target_cpu):
+def _fat_volume_id(source_date_epoch):
+    """The FAT volume serial, as a function of the build's declared epoch.
+
+    mkfs.vfat's own default is the current time, which is the last thing in
+    an image that still moves between two builds of the same inputs.  Eight
+    hex digits is the whole field.
+    """
+    return "{:08X}".format(int(source_date_epoch) & 0xFFFFFFFF)
+
+
+def _efi_script(iso_root, target_cpu, source_date_epoch):
     """Build the removable-media EFI loader and its El Torito FAT image."""
     efi_dir = os.path.join(iso_root, "EFI", "BOOT")
     images = os.path.join(iso_root, "images")
@@ -264,15 +274,29 @@ def _efi_script(iso_root, target_cpu):
         'if [ "$SIZE" -lt 8192 ]; then SIZE=8192; fi',
         'rm -f "$EFIBOOT"',
         'dd if=/dev/zero of="$EFIBOOT" bs=1024 count="$SIZE" status=none',
-        'mkfs.vfat -F 16 -s 1 -n {} "$EFIBOOT" >/dev/null'.format(
-            # FAT labels are 11 characters, uppercase, and mkfs.vfat warns
-            # and truncates rather than failing.  Fixed rather than
-            # derived from the volume id for that reason: nothing reads
-            # this label, so a stable one is better than a mangled one.
-            shlex.quote("EFIBOOT")
+        # -i, and no -n, and the label applied afterwards instead.  Both
+        # halves are about the clock, and they are split because the two
+        # tools disagree about SOURCE_DATE_EPOCH.
+        #
+        # dosfstools here ignores it and derives the volume serial from the
+        # current time, so -i pins the serial explicitly.  It has no option
+        # for the other half: `-n` writes a volume label *directory entry*,
+        # and that record carries a creation time and a write time taken
+        # from the clock, which nothing on the mkfs.vfat command line
+        # controls.  mtools does honour SOURCE_DATE_EPOCH, so mlabel writes
+        # the same record with pinned timestamps.
+        #
+        # Do not fold the label back into -n.  It reads like the obvious
+        # simplification and it silently reintroduces two moving bytes.
+        'mkfs.vfat -F 16 -s 1 -i {} "$EFIBOOT" >/dev/null'.format(
+            shlex.quote(_fat_volume_id(source_date_epoch))
         ),
         'mmd -i "$EFIBOOT" ::/EFI ::/EFI/BOOT',
         'mcopy -i "$EFIBOOT" -s "$EFIDIR"/* ::/EFI/BOOT/',
+        # FAT labels are 11 characters, uppercase, and mtools truncates
+        # rather than failing.  Fixed rather than derived from anything, so
+        # a stable one is better than a mangled one; nothing reads it.
+        'mlabel -i "$EFIBOOT" ::{}'.format(shlex.quote("EFIBOOT")),
         'test -s "$EFIBOOT"',
     ])
 
@@ -510,7 +534,8 @@ def _build(args, isolation, label, work, out):
         run_isolated(["/bin/sh", "-c", _bios_script(iso_root)],
                      isolation, work, work, sysroot, env=env)
     if args.boot_mode in ("hybrid", "uefi"):
-        run_isolated(["/bin/sh", "-c", _efi_script(iso_root, args.target_cpu)],
+        run_isolated(["/bin/sh", "-c", _efi_script(iso_root, args.target_cpu,
+                                                   args.source_date_epoch)],
                      isolation, work, work, sysroot, env=env)
 
     if args.layout == "ubuntu":
