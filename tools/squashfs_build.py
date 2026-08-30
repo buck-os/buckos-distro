@@ -57,7 +57,12 @@ from _isolation import (
     resolve_isolation,
     run_isolated,
 )
-from _rpm import make_dirs_writable, reproducible_env, scratch_dir
+from _rpm import (
+    make_dirs_writable,
+    reproducible_env,
+    resolve_in_buildroot,
+    scratch_dir,
+)
 
 # Names inside the work area.  All three are referenced from shell, so
 # they are names rather than expressions built twice.
@@ -107,27 +112,9 @@ def _unpack_script(rootfs, root):
 
 
 # Fedora 42 merged /usr/sbin into /usr/bin, so where mksquashfs lives
-# depends on which release's buildroot this is -- and PATH cannot settle
-# it, because run() replaces the environment wholesale and the PATH that
-# survives is the host's, not the sysroot's.  Resolved in the script, so
-# the answer comes from the tree actually mounted at /.
+# depends on which release's buildroot this is.  resolve_in_buildroot
+# explains why PATH cannot settle it.
 _MKSQUASHFS_CANDIDATES = ("/usr/sbin/mksquashfs", "/usr/bin/mksquashfs")
-
-
-def _resolve(var, candidates):
-    """Shell that sets `var` to the first candidate present, or fails."""
-    return "\n".join([
-        "{}=".format(var),
-        'for _c in {}; do'.format(" ".join(shlex.quote(c) for c in candidates)),
-        '  if [ -x "$_c" ]; then {}="$_c"; break; fi'.format(var),
-        "done",
-        'if [ -z "${}" ]; then'.format(var),
-        '  echo "buckos-distro: none of {} in the buildroot" >&2'.format(
-            " ".join(candidates)
-        ),
-        "  exit 1",
-        "fi",
-    ])
 
 
 # ── SELinux labelling ────────────────────────────────────────────────
@@ -214,7 +201,7 @@ def _matchpathcon_script(work):
     out = os.path.join(work, _CONTEXTS)
     return "\n".join([
         "set -e",
-        _resolve("MATCHPATHCON", _MATCHPATHCON_CANDIDATES),
+        resolve_in_buildroot("MATCHPATHCON", _MATCHPATHCON_CANDIDATES),
         # -d '\n' so a filename containing a space is one argument.  The
         # image has none today, but a path list is exactly the place where
         # assuming that quietly mislabels a file instead of failing.
@@ -325,7 +312,7 @@ def _mksquashfs_script(args, root, image, pseudo=None, mksquashfs=None):
     resolve = (
         "MKSQUASHFS={}\ntest -x \"$MKSQUASHFS\"".format(shlex.quote(mksquashfs))
         if mksquashfs
-        else _resolve("MKSQUASHFS", _MKSQUASHFS_CANDIDATES)
+        else resolve_in_buildroot("MKSQUASHFS", _MKSQUASHFS_CANDIDATES)
     )
     return "\n".join([
         "set -e",

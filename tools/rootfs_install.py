@@ -68,11 +68,15 @@ from _isolation import (
 from _rpm import (
     make_dirs_writable,
     reproducible_env,
+    resolve_in_buildroot,
     scratch_dir,
     stage_rpms,
 )
 
 _SELINUX_MODULES = "selinux-modules"
+# semodule was already resolved against both locations here; chroot was not,
+# and EL10 keeps it in /usr/sbin, which the buildroot's PATH does not carry.
+_CHROOT_CANDIDATES = ("/usr/sbin/chroot", "/usr/bin/chroot")
 
 
 def collect_rpms(paths):
@@ -387,8 +391,9 @@ def _transaction_script(args, staging, target, tarball, modules=None):
                 quoted_target,
                 quoted_target,
             ),
+            resolve_in_buildroot("CHROOT", _CHROOT_CANDIDATES),
             "for module in {}/*.cil; do"
-            " chroot {} \"$SEMODULE\" -N -i"
+            " \"$CHROOT\" {} \"$SEMODULE\" -N -i"
             " \"/usr/share/selinux/packages/buckos/$(basename \"$module\")\";"
             " done".format(installed_modules, quoted_target),
         ]

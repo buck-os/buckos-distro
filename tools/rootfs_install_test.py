@@ -72,6 +72,24 @@ class TestTransactionScript(unittest.TestCase):
         self.assertIn("--excludepath /etc/udev/hwdb.bin", script)
         self.assertIn("--nodeps", script)
 
+    def test_chroot_is_resolved_inside_the_buildroot(self):
+        # semodule was resolved against both /usr/sbin and /usr/bin here and
+        # chroot was not.  run() replaces the environment wholesale, so the
+        # PATH inside the sandbox is the host's; EL10 keeps chroot in
+        # /usr/sbin, which that PATH does not carry, and the step died with a
+        # bare 127 before semodule ran.  Fedora 42 merged the two directories,
+        # so only the EL buildroots hit it.
+        script = _transaction_script(
+            self.args(),
+            "/work/rpms",
+            "/work/rootfs",
+            "/work/rootfs.tar",
+            modules="/work/selinux-modules",
+        )
+        self.assertIn("/usr/sbin/chroot", script)
+        self.assertIn('"$CHROOT" /work/rootfs "$SEMODULE"', script)
+        self.assertNotIn(" chroot /work/rootfs", script)
+
     def test_installs_selinux_modules_before_archiving(self):
         script = _transaction_script(
             self.args(),

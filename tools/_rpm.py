@@ -6,6 +6,7 @@ reimplement rpm semantics -- see SPEC.md section 1.
 
 import hashlib
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -596,3 +597,27 @@ def reproducible_env(env=None, source_date_epoch="1700000000"):
     # rpm bakes the build host into package metadata; pin it.
     out.setdefault("RPM_BUILD_HOST", "buckos-distro")
     return out
+
+
+def resolve_in_buildroot(var, candidates):
+    """Shell that sets `var` to the first candidate present, or fails.
+
+    Which of /usr/sbin and /usr/bin a tool lives in depends on the release:
+    Fedora 42 merged them and the EL releases have not.  PATH cannot settle
+    it, because `run()` replaces the environment wholesale and the PATH that
+    survives is the host's rather than the buildroot's, so a bare command
+    name resolves against the wrong tree or not at all.  Resolving in the
+    script means the answer comes from the tree actually mounted at `/`.
+    """
+    return "\n".join([
+        "{}=".format(var),
+        'for _c in {}; do'.format(" ".join(shlex.quote(c) for c in candidates)),
+        '  if [ -x "$_c" ]; then {}="$_c"; break; fi'.format(var),
+        "done",
+        'if [ -z "${}" ]; then'.format(var),
+        '  echo "buckos-distro: none of {} in the buildroot" >&2'.format(
+            " ".join(candidates)
+        ),
+        "  exit 1",
+        "fi",
+    ])
