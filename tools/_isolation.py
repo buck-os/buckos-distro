@@ -495,6 +495,45 @@ def remove_tree(path):
     return child.wait() == 0
 
 
+def _with_action_tmpdir(env, work):
+    """Point temporary files at the work area, which is on real disk.
+
+    `/tmp` inside the sandbox is a tmpfs in both modes -- `--tmpfs /tmp`
+    under Bubblewrap, `mount -t tmpfs` under unshare -- so a tool that
+    falls back to it charges its intermediates to memory.  On a machine
+    with a terabyte of RAM that tmpfs is half of it, and a build with
+    hundreds of concurrent compilers writing there is memory pressure
+    whose failure mode looks like anything except a configuration choice.
+
+    The work area is the only writable disk the sandbox has: it lives
+    under the scratch root, which everything already assumes is a real
+    filesystem, and it is bound at the same absolute path inside and out.
+
+    Set here rather than in reproducible_env because this is the only
+    layer that knows the work area.  The pinned variables there are
+    constants; this one is a function of the action.
+
+    setdefault rather than assignment, which is the opposite of what
+    reproducible_env does, and the difference is exactly why it is safe.
+    That function was refusing *inherited* values, which no caller chose.
+    Here every value in the dict was put there deliberately by a driver:
+    rpmbuild_replay points at its own topdir tmp so it agrees with rpm's
+    %_tmppath define, and dpkgbuild_replay chooses /tmp on purpose.  A
+    caller that has said something more specific should keep it.
+    """
+    if env is None:
+        return None
+    out = dict(env)
+    action_tmp = os.path.join(os.path.abspath(work), "tmp")
+    os.makedirs(action_tmp, exist_ok=True)
+    # TMP and TEMP alongside TMPDIR because rpmbuild_replay already found
+    # it needed all three; a tool honouring only one of the others would
+    # otherwise still reach the tmpfs.
+    for name in ("TMPDIR", "TMP", "TEMP"):
+        out.setdefault(name, action_tmp)
+    return out
+
+
 def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
     """Run a command inside the sandbox the resolved mode implies.
 
@@ -504,6 +543,8 @@ def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
     `work` is the scratch area to make visible inside; `chdir` is where to
     start.
     """
+    env = _with_action_tmpdir(env, work)
+
     if isolation == "none":
         # `chdir` is the sandbox's starting directory in the other modes,
         # where the chroot script cds to it.  With no sandbox it is just

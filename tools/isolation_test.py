@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
+import os
 import re
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import MagicMock, call, patch
 
@@ -251,7 +253,20 @@ class TestBubblewrapUserNamespace(unittest.TestCase):
             ],
         )
         self.assertEqual(events[2][2]["pass_fds"], (14,))
-        self.assertEqual(events[2][2]["env"], {"PATH": "/usr/bin"})
+        # TMPDIR and friends are added by run_isolated, not by the caller:
+        # /tmp in here is the tmpfs two lines above, so a tool falling back
+        # to it would charge its intermediates to memory.  Asserted exactly
+        # rather than loosened, because this is the assertion that noticed
+        # the environment had changed at all.
+        self.assertEqual(
+            events[2][2]["env"],
+            {
+                "PATH": "/usr/bin",
+                "TMPDIR": "/work/tmp",
+                "TMP": "/work/tmp",
+                "TEMP": "/work/tmp",
+            },
+        )
         self.assertEqual(
             close.call_args_list,
             [call(11), call(12), call(10), call(14), call(13)],
@@ -409,6 +424,50 @@ class TestBubblewrapUserNamespace(unittest.TestCase):
         child.terminate.assert_called_once_with()
         child.kill.assert_called_once_with()
         self.assertEqual(child.wait.call_args_list, [call(timeout=5), call()])
+
+
+class TestActionTemporariesLandOnDisk(unittest.TestCase):
+    """/tmp in the sandbox is a tmpfs, so a fallback there costs memory.
+
+    Both modes mount it: --tmpfs /tmp under Bubblewrap, mount -t tmpfs
+    under unshare.  Nothing in the tree was writing large temporaries
+    there -- rpmbuild_replay had already pointed rpm at its own topdir and
+    a full 86-recipe Debian ISO runs on tmpfs intermediates in 18 minutes
+    -- but the drivers that set nothing were one large %install away from
+    charging a build to RAM.
+    """
+
+    def test_temporary_variables_point_into_the_work_area(self):
+        env = _isolation._with_action_tmpdir({"PATH": "/usr/bin"}, "/work")
+        for name in ("TMPDIR", "TMP", "TEMP"):
+            with self.subTest(variable=name):
+                self.assertEqual("/work/tmp", env[name])
+
+    def test_a_deliberate_caller_value_is_not_overridden(self):
+        """rpmbuild_replay pairs its own with rpm's %_tmppath define.
+
+        Overriding it would leave the two disagreeing, which is worse than
+        either choice alone.  Safe to defer to the caller here precisely
+        because nothing in this dict is inherited any more.
+        """
+        env = _isolation._with_action_tmpdir({"TMPDIR": "/work/topdir/tmp"}, "/work")
+        self.assertEqual("/work/topdir/tmp", env["TMPDIR"])
+
+    def test_the_caller_dict_is_not_mutated(self):
+        original = {"PATH": "/usr/bin"}
+        _isolation._with_action_tmpdir(original, "/work")
+        self.assertEqual({"PATH": "/usr/bin"}, original)
+
+    def test_no_environment_stays_no_environment(self):
+        """A caller passing none inherits the process env; leave that alone."""
+        self.assertIsNone(_isolation._with_action_tmpdir(None, "/work"))
+
+    def test_the_directory_is_created_before_the_sandbox_is_entered(self):
+        """Nothing inside creates it, and a TMPDIR naming nothing is the
+        state this replaces."""
+        with tempfile.TemporaryDirectory() as work:
+            _isolation._with_action_tmpdir({}, work)
+            self.assertTrue(os.path.isdir(os.path.join(work, "tmp")))
 
 
 if __name__ == "__main__":
