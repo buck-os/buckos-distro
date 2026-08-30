@@ -91,6 +91,20 @@ Fedora, CentOS Stream, CentOS Hyperscale, Debian, and Ubuntu define a buildroot 
 
 Tree artifacts are passed as complete hidden inputs when a command also references projected paths. This ensures remote workers materialize the libraries and data required by tools inside the tree.
 
+## Sandbox environment
+
+A sandboxed action's environment is declared in full rather than inherited from the process that started the Buck daemon. `reproducible_env` builds a dictionary from nothing; it does not derive from `os.environ`. A build therefore does not depend on who launched the daemon or from which shell.
+
+Seven variables are guaranteed: `PATH`, `HOME`, `SOURCE_DATE_EPOCH`, `LC_ALL`, `LANG`, `TZ`, and `RPM_BUILD_HOST`. They are assigned rather than defaulted. A caller may add variables and may not replace these, because a pin the caller can override is a property of the call site rather than of the build.
+
+`PATH` is `/usr/sbin:/usr/bin:/sbin:/bin`. `/usr/sbin` comes first because Enterprise Linux buildroots keep it a real directory holding binaries that appear nowhere else, while Fedora has merged it into `bin`, where the entry is a harmless duplicate. Order is otherwise immaterial: the only names present in both directories on a measured EL buildroot are `udevadm`, byte-identical, and `pidof`, a symlink.
+
+`HOME` is `/builddir`. It is declared here rather than left to the sandbox because only the Bubblewrap path set it, while the unshare path inherited the launcher's, which is a build that differs by which user started it.
+
+`TMPDIR`, `TMP` and `TEMP` are set by the isolation layer, not by `reproducible_env`, because they name a path under the action's own work area and only that layer knows it. The sandbox `/tmp` is a tmpfs, so a tool falling back to it charges its temporaries to memory; the work area is the sandbox's only writable disk. These three are defaulted rather than assigned, which is the opposite of the rule above and safe for the opposite reason: `reproducible_env` refuses inherited values that no caller chose, while here any value already present was placed deliberately by a driver. `rpmbuild_replay` points at its own `topdir` so the variable agrees with rpm's `%_tmppath`.
+
+The `host` provenance is the exception. Its composed `PATH` reads `os.environ` deliberately, because reaching host tools is the only thing that mode exists for and the declared sandbox `PATH` is too narrow for it. That dependency is stated at the call site rather than arrived at by inheritance.
+
 ## Fedora release graph
 
 `[buckos.fedora] releases` is a comma-separated list. Each release receives suffixed download, buildroot, package, rootfs, boot, and image targets. The selected default release also receives unsuffixed copies.
