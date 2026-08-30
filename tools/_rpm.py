@@ -564,14 +564,47 @@ def rpm_package_filename(path):
     return name
 
 
+# The sandbox's PATH, and the whole of it.  See reproducible_env.
+SANDBOX_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
+SANDBOX_HOME = "/builddir"
+
+# Variables this module guarantees.  A caller may add others; it may not
+# move these, or the guarantee becomes a function of the call site.
+PINNED_ENV = frozenset(
+    ("PATH", "HOME", "SOURCE_DATE_EPOCH", "LC_ALL", "LANG", "TZ",
+     "RPM_BUILD_HOST")
+)
+
+
 def reproducible_env(env=None, source_date_epoch="1700000000"):
     """Return an env dict with the usual reproducibility knobs pinned.
+
+    The environment is built here in full rather than inherited from the
+    process.  Everything a sandboxed action sees is on this list, so a
+    build does not depend on who started the Buck daemon or from which
+    shell.  A survey of every os.environ read in the action drivers found
+    nothing inside a sandbox needs an inherited variable: each knob
+    already arrives as an explicit argument.
 
     SOURCE_DATE_EPOCH is honoured by rpm >= 4.14 for file mtimes and by
     most build systems.  Without it, replayed builds are not cacheable
     across machines in any meaningful way.
     """
-    out = dict(env or os.environ)
+    out = {
+        # Declared, not inherited.  /usr/sbin first because EL keeps it a
+        # real directory -- 136 binaries on the release 10 image-tools
+        # buildroot live there and nowhere else -- while Fedora has merged
+        # it into bin, where the entry is a harmless duplicate.  Order is
+        # immaterial in both: the only two names present in both
+        # directories on EL are udevadm, byte-identical, and pidof, a
+        # symlink to the copy in bin.
+        "PATH": SANDBOX_PATH,
+        # Declared here rather than left to the sandbox, because only the
+        # Bubblewrap path set it (--setenv HOME /builddir) and the unshare
+        # path inherited the launcher's.  One of those is a build that
+        # differs by which user started it.
+        "HOME": SANDBOX_HOME,
+    }
     # Assigned rather than setdefault, and the difference is the whole
     # point of the function.  With setdefault an inherited value won, so a
     # daemon started from a shell exporting TZ produced different output
@@ -602,6 +635,17 @@ def reproducible_env(env=None, source_date_epoch="1700000000"):
     out["TZ"] = "UTC"
     # rpm bakes the build host into package metadata; pin it.
     out["RPM_BUILD_HOST"] = "buckos-distro"
+    # A caller may add a variable the action needs -- HOME, a fakeroot
+    # switch -- but may not move a pin, because then the guarantee depends
+    # on the call site again and there is no single answer to what the
+    # sandbox environment is.
+    for name, value in (env or {}).items():
+        if name in PINNED_ENV:
+            raise ValueError(
+                "{} is pinned by reproducible_env and cannot be "
+                "overridden by a caller".format(name)
+            )
+        out[name] = value
     return out
 
 

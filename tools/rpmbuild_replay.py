@@ -707,11 +707,11 @@ def main():
     if sysroot and args.isolation == "none":
         env.update(sysroot_env(sysroot, env))
     elif args.isolation != "none":
-        # Inside the chroot the normal paths already resolve to the
-        # buildroot, and an inherited PATH would name host directories
-        # that either do not exist there or, worse, do.
-        env["PATH"] = "/usr/bin:/usr/sbin:/bin:/sbin"
-        env["HOME"] = "/builddir"
+        # PATH and HOME are declared by reproducible_env for every
+        # sandboxed action.  This call site worked out why first -- an
+        # inherited PATH names host directories that either do not exist
+        # in the buildroot or, worse, do -- and stated it locally; the
+        # reasoning now lives with the declaration.
 
         # We are uid 0 in this namespace, and gnulib's configure objects:
         #

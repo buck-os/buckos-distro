@@ -287,13 +287,11 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
             work=work,
             chdir=work,
             sysroot=out,
-            env=reproducible_env(
-                {
-                    "PATH": "/usr/bin:/usr/sbin:/bin:/sbin",
-                    "HOME": "/builddir",
-                },
-                source_date_epoch=source_date_epoch,
-            ),
+            # No PATH or HOME here any more.  This call site had the
+            # right idea first and stated both locally; reproducible_env
+            # now declares them for every sandboxed action, so stating
+            # them twice would be two answers to one question.
+            env=reproducible_env(source_date_epoch=source_date_epoch),
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)
