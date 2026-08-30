@@ -64,3 +64,23 @@ def release_suffix(release):
 def release_constraint(flavor, release):
     """The constraint value naming a (flavor, release) pair."""
     return "//platforms:{}-{}".format(flavor, release)
+
+# ISO9660 caps the volume identifier at 32 characters and xorriso refuses a
+# longer one outright, so an over-long label is a build failure rather than a
+# cosmetic problem.  Only CENTOS-HYPERSCALE reaches it, at 33 and 34 for its
+# two prebuilt labels, and it took until the first Hyperscale image build for
+# anyone to find out.
+#
+# Trimming the tail keeps every label that already fits untouched, which
+# matters because the label is also the live-root kernel argument and the
+# boot tests assert it.  It also keeps a trimmed prebuilt label distinct from
+# its source sibling, since the source variant contributes no suffix at all.
+# `tools/iso_label_test.py` enforces that across the whole configured matrix
+# rather than leaving it to inspection.
+_ISO_VOLUME_LABEL_MAX = 32
+
+def iso_volume_label(text):
+    """The ISO9660 volume identifier for a live image, within spec length."""
+    if not text:
+        fail("an ISO volume label cannot be empty")
+    return text[:_ISO_VOLUME_LABEL_MAX]

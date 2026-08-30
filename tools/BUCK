@@ -248,6 +248,12 @@ python_test(
 )
 
 python_test(
+    name = "iso_label_test",
+    srcs = ["iso_label_test.py"],
+    base_module = "",
+)
+
+python_test(
     name = "boot_tools_test",
     srcs = [
         "boot_tools_test.py",

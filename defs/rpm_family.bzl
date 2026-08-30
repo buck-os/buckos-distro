@@ -19,7 +19,7 @@ load(
     "release_arch_suffix",
     "target_platform",
 )
-load("//defs:releases.bzl", "release_suffix")
+load("//defs:releases.bzl", "iso_volume_label", "release_suffix")
 load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_buildroot")
 load("//defs/rules/srpm.bzl", "prebuilt_rpm")
@@ -1134,12 +1134,12 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
             # of these is how you find out which one you burned, and two
             # ISOs claiming the same CDLABEL would have the live root of
             # whichever disc was found first.
-            label = "{}-{}-{}{}".format(
+            label = iso_volume_label("{}-{}-{}{}".format(
                 flavor.upper(),
                 release,
                 name.upper(),
                 variant.upper(),
-            )
+            ))
 
             iso_image(
                 name = "iso-" + name + variant + suffix,

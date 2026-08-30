@@ -9,7 +9,7 @@ load(
     "release_arch_suffix",
     "target_platform",
 )
-load("//defs:releases.bzl", "release_suffix")
+load("//defs:releases.bzl", "iso_volume_label", "release_suffix")
 load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_deb_buildroot")
 load("//defs/rules/dsc.bzl", "prebuilt_deb")
@@ -342,11 +342,11 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
             kernel = ":kernel-live" + variant + suffix,
             initramfs = ":initramfs-live" + variant + suffix,
             squashfs = ":squashfs-live" + variant + suffix,
-            volume_label = "{}-{}-LIVE{}".format(
+            volume_label = iso_volume_label("{}-{}-LIVE{}".format(
                 flavor.upper(),
                 release,
                 "-PREBUILT" if variant else "",
-            ),
+            )),
             kernel_args = "console=tty0 {}".format(
                 "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
             ),
