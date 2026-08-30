@@ -33,9 +33,13 @@ def live_iso_boot_tests(
     squashfs_name = "squashfs-verify-" + suffix
     iso_name = "iso-verify-" + suffix
     production_iso = flavor_package + "iso-live" + image_suffix
+    # Same routing as the production image in defs/rpm_family.bzl, and it
+    # has to stay the same: the verification image is the production one
+    # plus an overlay, so a squashfs written by a different tool would make
+    # the boot pair prove something about two different builds.
     old_squashfs = release == "9" and flavor in ("centos", "centos-hyperscale")
     squashfs_tools = (
-        flavor_package + "buildroot-binary-seed" + release_arch_suffix
+        flavor_package + "buildroot-squashfs-tools" + release_arch_suffix
         if old_squashfs
         else flavor_package + "buildroot-image-tools" + release_arch_suffix
     )

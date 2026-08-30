@@ -81,6 +81,17 @@ _INITRAMFS_MODULES = {
 # a confusing dracut error rather than as "this set has no kernel".
 _TOOL_SETS = ["image-tools"]
 
+# What mksquashfs needs to compile that @buildsys-build does not already
+# provide.  One entry, and it is the header zstd_wrapper.c includes; see
+# the buildroot-squashfs-tools comment in rpm_buildroots_for.
+#
+# These names come out of the pin table, not out of thin air: the pin
+# exists because something in the build set already build-requires it. If
+# that consumer ever leaves the set the pin goes with it and the buildroot
+# fails at analysis on a missing target, which is the right failure but
+# not an obvious one.
+_SQUASHFS_COMPILE_SEED = {"libzstd-devel": True}
+
 # Every bootable image set is built twice, from the same package list.
 #
 # "" takes each package from the source build that produces it wherever a
@@ -382,6 +393,49 @@ def rpm_buildroots(flavor, release, suffix, platform, exec_constraints, data = N
         dist_tag = dist_tag,
         macros = "//defs:macros.buckos-distro",
         seed_rpms = seed_rpms,
+        target_cpu = target_cpu,
+        default_target_platform = platform,
+        exec_compatible_with = exec_constraints,
+        visibility = ["PUBLIC"],
+    )
+
+    # ── The one buildroot that has to host a compile ─────────────────
+    #
+    # rpm_images routes Enterprise Linux 9's squashfs into a buildroot and
+    # builds mksquashfs from source there, because the packaged tool cannot
+    # write per-file xattrs.  That makes this the only image action whose
+    # buildroot must satisfy a *compile* rather than run a packaged tool,
+    # and nothing in the seed was ever asked to.
+    #
+    # The base carries gcc, make and glibc's headers, so XATTR_SUPPORT is
+    # already satisfied -- squashfs-tools' xattr.c reaches for sys/xattr.h
+    # and nothing outside glibc.  zstd_wrapper.c includes <zstd.h>, and
+    # ZSTD_SUPPORT cannot be turned off: tools/squashfs_build.py compiles
+    # with COMP_DEFAULT=zstd and the images are zstd-compressed, so a tool
+    # without it cannot write them.
+    #
+    # A separate buildroot rather than a wider base.  Putting libzstd-devel
+    # in BASE_SEED would hand a header to every package in the flavor to
+    # serve one compile, which is the union the comment above exists to
+    # prevent.
+    #
+    # Defined for every release, not only the ones that route to it: the
+    # pin is present in all twelve RPM-family locks, and a definition that
+    # appears and disappears with a condition is harder to find than an
+    # unused target is to ignore.
+    compile_seed = seed_rpms
+    if data != None:
+        compile_seed = seed_rpms + [
+            ":" + entry["target"] + suffix
+            for entry in data.SEED_RPMS
+            if entry["name"] in _SQUASHFS_COMPILE_SEED
+        ]
+
+    seeded_buildroot(
+        name = "buildroot-squashfs-tools" + suffix,
+        dist_tag = dist_tag,
+        macros = "//defs:macros.buckos-distro",
+        seed_rpms = compile_seed,
         target_cpu = target_cpu,
         default_target_platform = platform,
         exec_compatible_with = exec_constraints,
@@ -1096,13 +1150,15 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
     argument defs/rules/boot.bzl makes for kernel_image and initramfs.
 
     The ISO runs in the image-tools buildroot.  Squashfs normally does too;
-    Enterprise Linux 9 instead compiles the pinned 4.6.1 source in its
-    binary-seed buildroot because its packaged tool cannot add per-file
-    xattrs, then uses that target-architecture binary for the image.
+    Enterprise Linux 9 instead compiles the pinned 4.6.1 source because its
+    packaged tool cannot add per-file xattrs, then uses that
+    target-architecture binary for the image.  That compile gets its own
+    buildroot -- the binary seed plus the headers it needs, which the seed
+    alone does not carry.
     """
     tools = ":buildroot-image-tools" + suffix
     old_squashfs = release == "9" and flavor in ("centos", "centos-hyperscale")
-    squashfs_tools = ":buildroot-binary-seed" + suffix if old_squashfs else tools
+    squashfs_tools = ":buildroot-squashfs-tools" + suffix if old_squashfs else tools
     squashfs_source = "//tools:squashfs-tools-4.6.1-source" if old_squashfs else None
 
     for name in sorted(data.IMAGE_SETS):
