@@ -53,12 +53,13 @@ import sys
 from _deb import fakeroot_command, stage_fakeroot_runtime
 from _isolation import (
     ISOLATION_MODES,
+    fabricated_mount_components,
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    sandbox_path,
 )
 from _rpm import (
-    fabricated_mount_components,
     make_dirs_writable,
     reproducible_env,
     resolve_in_buildroot,
@@ -78,8 +79,9 @@ def stage_rootfs(rootfs, work):
     """Put the image tarball somewhere the sandbox can actually see it.
 
     Buck hands us the tarball under buck-out/v2/gen, and nothing mounts
-    that inside the chroot -- only the work area is bind-mounted, at its
-    own absolute path.  Hardlinked so a half-gigabyte image costs a
+    that inside the chroot -- only the work area is bind-mounted, and at
+    _isolation.SANDBOX_WORK rather than at the name used out here.
+    Hardlinked so a half-gigabyte image costs a
     directory entry; see stage_rootfs in tools/initramfs_build.py, which
     solves the identical problem and explains the fallback.
     """
@@ -423,11 +425,13 @@ def _relabel(args, isolation, rootfs, root, work, env):
     # This is the one step whose sandbox root is the image rather than a
     # buildroot, so it is the one step where the work bind mountpoint is
     # created inside the payload.  Record what is missing first, prune it
-    # after, or mksquashfs compresses the build machine's scratch path into
-    # every image.
-    fabricated = fabricated_mount_components(root, work)
+    # after, or mksquashfs compresses an empty directory nobody asked for
+    # into every image.  It used to be worse than untidy: the directory
+    # was named after the build machine's scratch path, so the image
+    # differed from one built anywhere else.
+    fabricated = fabricated_mount_components(root)
     run_isolated(
-        ["/bin/sh", "-c", _matchpathcon_script(work)],
+        ["/bin/sh", "-c", _matchpathcon_script(sandbox_path(work, work, isolation))],
         isolation, work, work, root, env=env,
     )
     for path in fabricated:
@@ -466,7 +470,14 @@ def _build(args, isolation, rootfs, work, out):
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
     env["FAKEROOTDONTTRYCHOWN"] = "1"
-    fakeroot = stage_fakeroot_runtime(sysroot, work, required=False)
+    fakeroot = stage_fakeroot_runtime(sysroot, work, isolation,
+                                      required=False)
+
+    # Every script below names its paths as the sandbox sees them; `root`
+    # and `image` keep their host spelling here, where this process
+    # unpacks into one and copies the other out.
+    def inside(path):
+        return sandbox_path(path, work, isolation)
 
     mksquashfs = None
     if args.mksquashfs_source:
@@ -479,7 +490,8 @@ def _build(args, isolation, rootfs, work, out):
             flush=True,
         )
         run_isolated(
-            ["/bin/sh", "-c", _build_mksquashfs_script(source, work, mksquashfs)],
+            ["/bin/sh", "-c", _build_mksquashfs_script(
+                inside(source), inside(work), inside(mksquashfs))],
             isolation, work, work, sysroot, env=env,
         )
 
@@ -490,7 +502,7 @@ def _build(args, isolation, rootfs, work, out):
     run_isolated(
         fakeroot_command(
             fakeroot,
-            ["/bin/sh", "-c", _unpack_script(staged, root)],
+            ["/bin/sh", "-c", _unpack_script(inside(staged), inside(root))],
         ),
         isolation, work, work, sysroot, env=env,
     )
@@ -511,7 +523,9 @@ def _build(args, isolation, rootfs, work, out):
             fakeroot_command(
                 fakeroot,
                 ["/bin/sh", "-c", _mksquashfs_script(
-                    args, root, image, pseudo, mksquashfs
+                    args, inside(root), inside(image),
+                    inside(pseudo) if pseudo else None,
+                    inside(mksquashfs) if mksquashfs else None,
                 )],
                 load=True,
             ),
@@ -522,7 +536,7 @@ def _build(args, isolation, rootfs, work, out):
         # deletable; without this a broken build needs manual cleanup with
         # ids the user does not have.
         run_isolated(
-            ["/bin/sh", "-c", _cleanup_script(root)],
+            ["/bin/sh", "-c", _cleanup_script(inside(root))],
             isolation, work, work, sysroot, env=env,
         )
 

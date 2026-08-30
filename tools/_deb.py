@@ -11,6 +11,8 @@ import tarfile
 import tempfile
 from xml.sax.saxutils import quoteattr
 
+from _isolation import sandbox_path
+
 
 SOURCE_FIELD_RE = re.compile(r"^([^\s()]+)(?:\s+\(([^()]+)\))?$")
 BINARY_NMU_RE = re.compile(r"\+b[0-9]+$")
@@ -387,9 +389,16 @@ def ensure_base_files(root: str) -> None:
 def stage_fakeroot_runtime(
     buildroot: str,
     work: str,
+    isolation: str,
     required: bool = True,
 ) -> dict[str, str] | None:
     """Copy the target's fakeroot runtime into the shared work mount.
+
+    The returned paths are the sandbox's, not the host's: every one of
+    them is spelled into the argv `fakeroot_command` builds and is read by
+    a process running inside.  Translating here rather than at each of the
+    four call sites keeps the two spellings from ever both being in scope,
+    which is the mistake this would otherwise invite.
 
     `fakeroot-sysv` and Debian's multiarch `libfakeroot` layout are
     Debian-family spellings, and an RPM buildroot has neither.  The image
@@ -439,8 +448,13 @@ def stage_fakeroot_runtime(
     library = os.path.join(runtime, "libfakeroot-sysv.so")
     shutil.copy2(libraries[0], library)
     paths["library"] = library
+    # Never written out here -- fakeroot creates it -- so it is only ever
+    # a name, and the only namespace that name is used in is the sandbox's.
     paths["state"] = os.path.join(runtime, "state")
-    return paths
+    return {
+        name: sandbox_path(path, work, isolation)
+        for name, path in paths.items()
+    }
 
 
 def fakeroot_command(

@@ -60,6 +60,7 @@ from _isolation import (
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    sandbox_path,
 )
 from _rpm import (
     make_dirs_writable,
@@ -529,6 +530,12 @@ def _build(args, isolation, label, work, out):
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
 
+    # The scripts name their paths as the sandbox sees them; `iso_root`
+    # and `image` keep their host spelling here, where this process stages
+    # the payloads in and copies the ISO out.
+    def inside(path):
+        return sandbox_path(path, work, isolation)
+
     # The three big inputs, plus the two configs.  Written from out here
     # rather than inside the sandbox because nothing about them needs the
     # target's tools -- they are bytes Buck already produced and two text
@@ -555,10 +562,11 @@ def _build(args, isolation, label, work, out):
     )
 
     if args.boot_mode in ("hybrid", "bios"):
-        run_isolated(["/bin/sh", "-c", _bios_script(iso_root)],
+        run_isolated(["/bin/sh", "-c", _bios_script(inside(iso_root))],
                      isolation, work, work, sysroot, env=env)
     if args.boot_mode in ("hybrid", "uefi"):
-        run_isolated(["/bin/sh", "-c", _efi_script(iso_root, args.target_cpu,
+        run_isolated(["/bin/sh", "-c", _efi_script(inside(iso_root),
+                                                   args.target_cpu,
                                                    args.source_date_epoch)],
                      isolation, work, work, sysroot, env=env)
 
@@ -569,7 +577,8 @@ def _build(args, isolation, label, work, out):
 
     timestamp = _iso_timestamp(args.source_date_epoch)
     run_isolated(
-        ["/bin/sh", "-c", _xorriso_script(args, iso_root, image, timestamp)],
+        ["/bin/sh", "-c", _xorriso_script(
+            args, inside(iso_root), inside(image), timestamp)],
         isolation, work, work, sysroot, env=env,
     )
 

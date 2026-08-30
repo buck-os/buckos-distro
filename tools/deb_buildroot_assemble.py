@@ -12,6 +12,7 @@ from _isolation import (
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    SANDBOX_WORK,
 )
 from _rpm import make_dirs_writable, reproducible_env
 
@@ -47,13 +48,14 @@ def _refresh_library_cache(out, isolation, target_cpu, source_date_epoch):
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)
-        # The sandbox binds the work area at its own absolute path and
-        # has to create that path inside the tree to do it.  The mount
-        # goes with the namespace, the empty directory does not, and its
-        # name carries mkdtemp's random suffix -- so leaving it would
-        # make this output differ on every build.
-        leftover = os.path.join(out, os.path.relpath(work, "/"))
-        shutil.rmtree(leftover, ignore_errors=True)
+        # The sandbox has to create its mount point inside the tree, and
+        # the empty directory outlives the namespace the mount died with.
+        # Under a fixed bind that is one known name rather than a chain
+        # ending in mkdtemp's random suffix, so this no longer has to be
+        # computed from the host path -- but it still has to be removed,
+        # or the output differs from one built without a sandbox.
+        shutil.rmtree(os.path.join(out, SANDBOX_WORK.lstrip("/")),
+                      ignore_errors=True)
         make_dirs_writable(out)
 
 

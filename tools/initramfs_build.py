@@ -51,6 +51,7 @@ from _isolation import (
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    sandbox_path,
 )
 from _rpm import make_dirs_writable, reproducible_env, scratch_dir
 
@@ -69,8 +70,9 @@ def stage_image_tool(buildroot, work, name):
     in the user-namespace bind mount used here, even under fakeroot.  The
     binary-seeded buildroot's cp can, and image construction tools are meant
     to come from that buildroot rather than become rootfs payload.  The work
-    directory is bind-mounted at the same absolute path inside the image, so
-    putting the binary there makes it available without modifying the image.
+    directory is bind-mounted inside the image at _isolation.SANDBOX_WORK, so
+    putting the binary there makes it available without modifying the image;
+    address it with sandbox_path() at the point it is handed to a script.
     """
     source = os.path.join(buildroot, "usr", "bin", name)
     if not os.path.isfile(source):
@@ -99,8 +101,9 @@ def stage_rootfs(rootfs, work):
     """Put the image tarball somewhere the sandbox can actually see it.
 
     Buck hands us the tarball under buck-out/v2/gen, and nothing mounts
-    that inside the chroot -- only the work area is bind-mounted, at its
-    own absolute path.  Passing the gen path straight to tar therefore
+    that inside the chroot -- only the work area is bind-mounted, and at
+    _isolation.SANDBOX_WORK rather than at the name used out here.  Passing
+    the gen path straight to tar therefore
     fails with "Cannot open: No such file or directory" about a file that
     plainly exists outside, which reads like a permissions problem and is
     not one.
@@ -288,7 +291,14 @@ def _build(args, isolation, rootfs, kver, work, out):
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
     env["FAKEROOTDONTTRYCHOWN"] = "1"
-    fakeroot = stage_fakeroot_runtime(sysroot, work, required=False)
+    fakeroot = stage_fakeroot_runtime(sysroot, work, isolation,
+                                      required=False)
+
+    # The scripts below name their paths as the sandbox sees them; `root`
+    # and `image` keep their host spelling here, where this process copies
+    # the finished initramfs out.
+    def inside(path):
+        return sandbox_path(path, work, isolation)
 
     image_cp = None
     if args.generator != "dracut":
@@ -306,9 +316,10 @@ def _build(args, isolation, rootfs, kver, work, out):
         file=sys.stderr,
         flush=True,
     )
-    unpack = _unpack_script(staged, root)
+    unpack = _unpack_script(inside(staged), inside(root))
     if image_cp:
-        unpack += "\n" + _install_image_tool_script(image_cp, root, "cp")
+        unpack += "\n" + _install_image_tool_script(
+            inside(image_cp), inside(root), "cp")
     run_isolated(
         fakeroot_command(
             fakeroot,
@@ -332,9 +343,9 @@ def _build(args, isolation, rootfs, kver, work, out):
         # The unpacked image is the sysroot here, so /proc, /sys, /dev and
         # /tmp land inside *it* -- which is what dracut needs and what a
         # nested chroot would not have.
-        script = _dracut_script(args, kver, image)
+        script = _dracut_script(args, kver, inside(image))
         if args.generator != "dracut":
-            script = _initramfs_tools_script(args, kver, image)
+            script = _initramfs_tools_script(args, kver, inside(image))
         run_isolated(
             fakeroot_command(
                 fakeroot,
@@ -348,7 +359,7 @@ def _build(args, isolation, rootfs, kver, work, out):
         # deletable; without this a broken build needs manual cleanup with
         # ids the user does not have.
         run_isolated(
-            ["/bin/sh", "-c", _cleanup_script(root)],
+            ["/bin/sh", "-c", _cleanup_script(inside(root))],
             isolation, work, work, sysroot, env=env,
         )
 

@@ -50,6 +50,22 @@ from _rpm import require_tool, run
 
 ISOLATION_MODES = ("auto", "bwrap", "unshare", "none")
 
+# Where the work area appears inside a sandbox, regardless of where it
+# lives outside.
+#
+# The scratch directory has a random name, so binding it at its own
+# absolute path made that name an *input* to every compiler that ran
+# inside: it is %_topdir, so it is the working directory, so it lands in
+# DW_AT_comp_dir, and from there in the GNU build-id.  Two builds of the
+# same source in different scratch directories produced different
+# binaries.  A constant takes the randomness out of the compiler's view.
+#
+# /build rather than something under /tmp because /tmp is a tmpfs in both
+# modes, and rather than /builddir because that is $HOME and rpm already
+# uses it.  It has to be a path no buildroot ships, which is asserted
+# before the mount rather than assumed -- see _assert_no_real_build_dir.
+SANDBOX_WORK = "/build"
+
 # Where the kernel records a namespace's id translations.
 _UID_MAP = "/etc/subuid"
 _GID_MAP = "/etc/subgid"
@@ -294,13 +310,100 @@ def _mapped_user_namespace():
 # ── The sandbox ──────────────────────────────────────────────────────
 
 
+def sandbox_path(path, work, isolation):
+    """Where a path under the work area is visible inside the sandbox.
+
+    Call this on every path that crosses into the sandbox -- anything
+    interpolated into a script, or passed as an argument to the command
+    run_isolated() executes.  Paths the driver only uses for its own file
+    I/O stay as they are: the work area is bound, not moved, so both names
+    refer to the same directory and only one of them is meaningful inside.
+
+    Raises rather than passing an unrecognised path through, because the
+    work area is the *only* writable path the sandbox exposes (see
+    _chroot_script).  A path from anywhere else is either a bug or a
+    literal that belongs in the buildroot's own namespace, and returning
+    it unchanged would produce exactly the failure this translation exists
+    to prevent: a name that resolves outside and not inside, discovered
+    part-way through an expensive action rather than here.
+
+    isolation="none" has no mount namespace and therefore no bind, so the
+    work area is at its host path and the translation is the identity.
+    That mode is a property of the caller, not of the path, which is why
+    it is a parameter rather than something this function detects.
+    """
+    if isolation == "none":
+        return path
+
+    absolute = os.path.abspath(path)
+    root = os.path.abspath(work)
+    if absolute == root:
+        return SANDBOX_WORK
+    if absolute.startswith(root + os.sep):
+        return os.path.join(SANDBOX_WORK, os.path.relpath(absolute, root))
+
+    raise ValueError(
+        "{} is not under the work area {}, so it has no address inside "
+        "the sandbox".format(absolute, root)
+    )
+
+
+def fabricated_mount_components(sandbox_root):
+    """The mount point the sandbox invents inside its root, if it invents one.
+
+    Bubblewrap has to create the work area's mount point inside the tree
+    it mounts at `/`, and that directory survives the sandbox.  When the
+    tree is the image being built, rather than a buildroot, it is shipped.
+
+    Two steps do that.  The Debian rootfs transaction runs against the
+    target, and the SELinux relabel runs against the unpacked image
+    because the policy deciding the labels has to be the image's own.
+    Everything else passes a buildroot and is unaffected.
+
+    Call it before the sandbox runs, while the distinction is still
+    observable, and prune what it returns afterwards.  A tree that already
+    owns the directory gets an empty list, so pruning cannot delete a
+    shipped one.
+
+    It used to walk the host path component by component, because the bind
+    was at a path with as many components as the machine's scratch
+    directory happened to have and any suffix of them could be invented.
+    A fixed bind makes it one known name; the list survives only because
+    callers iterate it, and because a second fabricated path would belong
+    here rather than in a new function.
+    """
+    candidate = os.path.join(sandbox_root, SANDBOX_WORK.lstrip("/"))
+    return [] if os.path.isdir(candidate) else [candidate]
+
+
+def _assert_no_real_build_dir(sysroot):
+    """Refuse to shadow a buildroot that ships SANDBOX_WORK itself.
+
+    Mounting the work area over a directory the tree genuinely owns would
+    hide its contents for the length of the build, and the symptom would
+    be missing files rather than a mount error.  No buildroot in the fleet
+    ships one today -- checked across ten, on both flavors and both
+    architectures -- but nothing stops a future package from adding one,
+    and this is a cheap stat against a claim that would otherwise decay
+    into a comment.
+    """
+    if not sysroot:
+        return
+    candidate = os.path.join(os.path.abspath(sysroot), SANDBOX_WORK.lstrip("/"))
+    if os.path.isdir(candidate) and os.listdir(candidate):
+        sys.exit(
+            "buildroot {} ships a non-empty {}, which the work area mount "
+            "would hide".format(sysroot, SANDBOX_WORK)
+        )
+
+
 def _chroot_script(work, chdir, sysroot, sync_fds=None):
     """The shell that turns a fresh namespace into the buildroot as /.
 
-    The work area is bound at its own absolute path inside the chroot so
-    every path the caller already computed -- _topdir, _tmppath, and the
-    --buildroot installroot, which are siblings under it -- resolves to
-    the same string in as out.
+    The work area is bound at SANDBOX_WORK, a constant, rather than at its
+    own absolute path: the paths a caller computes outside are translated
+    with sandbox_path() before they cross, so the scratch directory's
+    random name never reaches a tool running inside.
 
     It is also the *only* writable path exposed, and deliberately so: a
     caller with inputs elsewhere in buck-out stages them under the work
@@ -312,7 +415,7 @@ def _chroot_script(work, chdir, sysroot, sync_fds=None):
     """
     root = os.path.abspath(sysroot)
     work = os.path.abspath(work)
-    chdir = os.path.abspath(chdir)
+    chdir = sandbox_path(chdir, work, "unshare")
 
     # Interpolated as shell assignments rather than passed through the
     # environment: `run()` replaces the child's env wholesale, so anything
@@ -331,6 +434,8 @@ def _chroot_script(work, chdir, sysroot, sync_fds=None):
     lines += [
         "ROOT={}".format(shlex.quote(root)),
         "WORK={}".format(shlex.quote(work)),
+        # Where the work area lands inside, not where it lives outside.
+        "MOUNT={}".format(shlex.quote(SANDBOX_WORK)),
         "CHDIR={}".format(shlex.quote(chdir)),
         # Make the sysroot a mount point in its own right so chroot has a
         # real root to pivot onto.
@@ -348,11 +453,16 @@ def _chroot_script(work, chdir, sysroot, sync_fds=None):
         'mount --rbind /dev "$ROOT/dev"',
         'mount --rbind /sys "$ROOT/sys"',
         'mount -t tmpfs tmpfs "$ROOT/tmp"',
-        # After the tmpfs, not before: with no --work the work area is
-        # itself under /tmp, and a mount point created first would be
-        # hidden by the tmpfs that lands on top of it.
-        'mkdir -p "$ROOT$WORK"',
-        'mount --bind "$WORK" "$ROOT$WORK"',
+        # One known component rather than the host path's whole chain of
+        # directories, which is also what retires a hazard this ordering
+        # used to exist for: with no --work the work area is itself under
+        # /tmp, so the mount point landed inside the tmpfs mounted just
+        # above and was hidden by it.  SANDBOX_WORK is never under /tmp,
+        # so the order no longer decides anything -- kept as it is because
+        # a mount point created after its parent filesystem is the
+        # sequence that reads correctly either way.
+        'mkdir -p "$ROOT$MOUNT"',
+        'mount --bind "$WORK" "$ROOT$MOUNT"',
         'cd "$ROOT$CHDIR"',
         'exec chroot "$ROOT" sh -c \'cd "$1"; shift; exec "$@"\' sh "$CHDIR" "$@"',
     ]
@@ -495,7 +605,7 @@ def remove_tree(path):
     return child.wait() == 0
 
 
-def _with_action_tmpdir(env, work):
+def _with_action_tmpdir(env, work, isolation):
     """Point temporary files at the work area, which is on real disk.
 
     `/tmp` inside the sandbox is a tmpfs in both modes -- `--tmpfs /tmp`
@@ -507,7 +617,10 @@ def _with_action_tmpdir(env, work):
 
     The work area is the only writable disk the sandbox has: it lives
     under the scratch root, which everything already assumes is a real
-    filesystem, and it is bound at the same absolute path inside and out.
+    filesystem.  The directory is created at its host name and named to
+    the child by its sandbox one, which under a fixed bind is the constant
+    SANDBOX_WORK + "/tmp" -- so this variable, like the rest of the pinned
+    environment, no longer varies between two runs of the same build.
 
     Set here rather than in reproducible_env because this is the only
     layer that knows the work area.  The pinned variables there are
@@ -530,7 +643,7 @@ def _with_action_tmpdir(env, work):
     # it needed all three; a tool honouring only one of the others would
     # otherwise still reach the tmpfs.
     for name in ("TMPDIR", "TMP", "TEMP"):
-        out.setdefault(name, action_tmp)
+        out.setdefault(name, sandbox_path(action_tmp, work, isolation))
     return out
 
 
@@ -540,10 +653,13 @@ def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
     `sysroot` is the tree to become /, already composed if the caller
     layers anything onto the seed -- never the shared seed input itself,
     which is a Buck artifact other actions are reading concurrently.
-    `work` is the scratch area to make visible inside; `chdir` is where to
-    start.
+    `work` is the scratch area to make visible inside, bound at
+    SANDBOX_WORK in the sandboxed modes; `chdir` is where to start, given
+    as a host path under `work` and translated here so no caller has to
+    remember to do it.  Anything else the command names must be translated
+    by the caller with sandbox_path().
     """
-    env = _with_action_tmpdir(env, work)
+    env = _with_action_tmpdir(env, work, isolation)
 
     if isolation == "none":
         # `chdir` is the sandbox's starting directory in the other modes,
@@ -557,6 +673,8 @@ def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
             "isolation={} requires --buildroot-tree: there is no root to "
             "enter".format(isolation)
         )
+
+    _assert_no_real_build_dir(sysroot)
 
     if isolation == "bwrap":
         bwrap = require_tool("bwrap")
@@ -572,9 +690,10 @@ def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
                 "--die-with-parent",
                 # The flavor buildroot becomes /.
                 "--bind", os.path.abspath(sysroot), "/",
-                # The work area stays writable at its real path so paths the
-                # caller computed outside resolve identically inside.
-                "--bind", os.path.abspath(work), os.path.abspath(work),
+                # The work area, writable, at a constant address.  Callers
+                # translate with sandbox_path() rather than reusing the
+                # host name.
+                "--bind", os.path.abspath(work), SANDBOX_WORK,
                 # Preserve any restrictions imposed on the caller's procfs.
                 # A fresh procfs mount can be rejected inside a container when
                 # its existing procfs hides sensitive entries.
@@ -590,7 +709,7 @@ def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
                 "--dev", "/dev",
                 "--tmpfs", "/tmp",
                 "--setenv", "HOME", "/builddir",
-                "--chdir", os.path.abspath(chdir),
+                "--chdir", sandbox_path(chdir, work, isolation),
             ]
             return run(
                 wrapper + list(cmd),

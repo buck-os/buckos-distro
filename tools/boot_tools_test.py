@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 from _deb import fakeroot_command, stage_fakeroot_runtime
-from _rpm import fabricated_mount_components
+from _isolation import fabricated_mount_components
 from deb_rootfs_install import (
     archive_script,
     bootstrap_script,
@@ -157,7 +157,7 @@ class TestDebRootfsTransaction(unittest.TestCase):
             os.makedirs(work)
 
             self.assertIsNone(
-                stage_fakeroot_runtime(buildroot, work, required=False)
+                stage_fakeroot_runtime(buildroot, work, "bwrap", required=False)
             )
             self.assertEqual(
                 ["/bin/sh", "-c", "true"],
@@ -176,7 +176,7 @@ class TestDebRootfsTransaction(unittest.TestCase):
             os.makedirs(work)
 
             with self.assertRaisesRegex(SystemExit, "fakeroot-sysv"):
-                stage_fakeroot_runtime(buildroot, work)
+                stage_fakeroot_runtime(buildroot, work, "bwrap")
 
     def test_bootstrap_extracts_before_running_maintainer_scripts(self):
         script = bootstrap_script("/target", "/debs")
@@ -223,25 +223,19 @@ class TestDebRootfsTransaction(unittest.TestCase):
         self.assertIn("rm -rf /work/rootfs/work", script)
         self.assertLess(script.index("rm -rf /work/rootfs/work"), script.index("tar --create"))
 
-    def test_every_invented_component_is_pruned_not_only_the_leaf(self):
-        # Bubblewrap creates every missing component of the bind path, not
-        # just the last one.  The default scratch root hides this because the
-        # image already ships /var/tmp, so exactly one is invented; a deeper
-        # BUCKOS_SCRATCH_ROOT leaves the parents behind in the payload.
+    def test_the_invented_mount_point_is_reported_for_pruning(self):
+        # Bubblewrap creates the bind's mount point inside the tree it
+        # mounts at /.  It used to create every missing *component* of the
+        # host scratch path, so a deeper BUCKOS_SCRATCH_ROOT left parents
+        # behind in the payload; the fixed bind makes it one known name and
+        # this no longer depends on the scratch root at all.
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "rootfs")
             os.makedirs(os.path.join(target, "var", "tmp"))
 
             self.assertEqual(
-                [os.path.join(target, "var/tmp/buckos-x")],
-                fabricated_mount_components(target, "/var/tmp/buckos-x"),
-            )
-            self.assertEqual(
-                [
-                    os.path.join(target, "var/tmp/alt/nested"),
-                    os.path.join(target, "var/tmp/alt"),
-                ],
-                fabricated_mount_components(target, "/var/tmp/alt/nested"),
+                [os.path.join(target, "build")],
+                fabricated_mount_components(target),
             )
 
     def test_a_directory_the_image_owns_is_never_pruned(self):
@@ -251,10 +245,21 @@ class TestDebRootfsTransaction(unittest.TestCase):
             target = os.path.join(tmp, "rootfs")
             os.makedirs(os.path.join(target, "var", "tmp"))
 
-            fabricated = fabricated_mount_components(target, "/var/tmp/buckos-x")
+            fabricated = fabricated_mount_components(target)
 
             self.assertNotIn(os.path.join(target, "var"), fabricated)
             self.assertNotIn(os.path.join(target, "var/tmp"), fabricated)
+
+    def test_a_tree_that_already_owns_the_directory_is_left_alone(self):
+        # The case the assertion in run_isolated refuses outright when the
+        # directory has contents; an empty one is the sandbox's own leftover
+        # and pruning it is correct, but it must not be reported as
+        # fabricated when the tree shipped it.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "rootfs")
+            os.makedirs(os.path.join(target, "build"))
+
+            self.assertEqual([], fabricated_mount_components(target))
 
     def test_archive_drops_the_timestamps_mtime_does_not_pin(self):
         # posix extended headers carry atime and ctime at nanosecond
@@ -319,11 +324,9 @@ class TestSquashfsScratchLeak(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             image = os.path.join(tmp, "root")
             os.makedirs(os.path.join(image, "var", "tmp"))
-            work = "/var/tmp/buckos-distro-squashfs-abc123"
+            fabricated = fabricated_mount_components(image)
 
-            fabricated = fabricated_mount_components(image, work)
-
-            self.assertEqual([os.path.join(image, "var/tmp/buckos-distro-squashfs-abc123")], fabricated)
+            self.assertEqual([os.path.join(image, "build")], fabricated)
             self.assertNotIn(os.path.join(image, "var/tmp"), fabricated)
             self.assertNotIn(os.path.join(image, "var"), fabricated)
 
@@ -339,8 +342,8 @@ class TestSquashfsScratchLeak(unittest.TestCase):
         body = text[text.index("def _relabel("):]
         body = body[: body.index("\ndef ")]
 
-        record = body.index("fabricated_mount_components(root, work)")
-        sandbox = body.index("_matchpathcon_script(work)")
+        record = body.index("fabricated_mount_components(root)")
+        sandbox = body.index("_matchpathcon_script(sandbox_path(")
         prune = body.index("shutil.rmtree(path, ignore_errors=True)")
 
         self.assertLess(record, sandbox, "recorded after the sandbox ran")
