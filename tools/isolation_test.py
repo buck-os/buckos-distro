@@ -571,6 +571,103 @@ class TestSandboxPathTranslation(unittest.TestCase):
                 os.chdir(previous)
 
 
+class TestHostPathsCannotEnterTheSandbox(unittest.TestCase):
+    """The static half of the translation, which is worth more than the boots.
+
+    A sandbox path used host-side fails immediately with ENOENT.  A host
+    path used inside fails an hour into an expensive action.  Only the
+    second direction needs catching, and with a fixed bind it is exactly
+    the detectable one: nothing crossing has any business naming the host
+    work area.
+    """
+
+    WORK = "/scratch/buckos-distro-replay-9f3c1e00"
+
+    def test_a_translated_script_passes(self):
+        _isolation._assert_no_host_work_path(
+            ["/bin/sh", "-c", "tar -xf /build/image.tar -C /build/root"],
+            {"TMPDIR": "/build/tmp"},
+            self.WORK,
+        )
+
+    def test_an_untranslated_script_stops_the_build(self):
+        with self.assertRaises(SystemExit) as caught:
+            _isolation._assert_no_host_work_path(
+                ["/bin/sh", "-c",
+                 "tar -xf {}/image.tar -C /build/root".format(self.WORK)],
+                None,
+                self.WORK,
+            )
+        message = str(caught.exception)
+        self.assertIn(self.WORK, message)
+        self.assertIn("/build", message)
+        self.assertIn("argv[2]", message)
+
+    def test_an_untranslated_argument_stops_the_build(self):
+        """Not only interpolated scripts: bare argv crosses too."""
+        with self.assertRaises(SystemExit) as caught:
+            _isolation._assert_no_host_work_path(
+                ["/usr/bin/rpmbuild", "--define",
+                 "_topdir {}/topdir".format(self.WORK)],
+                None,
+                self.WORK,
+            )
+        self.assertIn("argv[2]", str(caught.exception))
+
+    def test_an_untranslated_environment_value_stops_the_build(self):
+        """The channel the call-site audit would not have caught."""
+        with self.assertRaises(SystemExit) as caught:
+            _isolation._assert_no_host_work_path(
+                ["/bin/true"],
+                {"TMPDIR": "{}/topdir/tmp".format(self.WORK)},
+                self.WORK,
+            )
+        self.assertIn("$TMPDIR", str(caught.exception))
+
+    def test_every_offender_is_named_not_only_the_first(self):
+        """A driver that got it wrong once usually got it wrong twice."""
+        with self.assertRaises(SystemExit) as caught:
+            _isolation._assert_no_host_work_path(
+                ["/bin/sh", "-c", "{}/a".format(self.WORK), "{}/b".format(self.WORK)],
+                {"TMPDIR": "{}/tmp".format(self.WORK)},
+                self.WORK,
+            )
+        message = str(caught.exception)
+        self.assertIn("3 thing(s)", message)
+        for where in ("argv[2]", "argv[3]", "$TMPDIR"):
+            self.assertIn(where, message)
+
+    def test_a_long_script_is_excerpted_around_the_offence(self):
+        """A 4KB script has to name its own bug or nobody reads the message."""
+        script = "# filler\n" * 400 + "cp {}/x /tmp/y".format(self.WORK)
+        with self.assertRaises(SystemExit) as caught:
+            _isolation._assert_no_host_work_path(
+                ["/bin/sh", "-c", script], None, self.WORK)
+        message = str(caught.exception)
+        self.assertIn("cp {}/x".format(self.WORK), message)
+        self.assertLess(len(message), len(script))
+
+    def test_isolation_none_is_never_checked(self):
+        """That mode has no bind, so the host path is the correct answer.
+
+        Asserted through run_isolated rather than the helper, because the
+        property is that the check is not reached at all -- a helper-level
+        test would pass even if the call were placed above the early
+        return, which is the mistake worth catching.
+        """
+        with patch("_isolation.run", return_value="ran") as ran:
+            result = _isolation.run_isolated(
+                ["/bin/sh", "-c", "cat {}/marker".format(self.WORK)],
+                "none",
+                self.WORK,
+                self.WORK,
+                None,
+                env={"TMPDIR": "{}/tmp".format(self.WORK)},
+            )
+        self.assertEqual("ran", result)
+        ran.assert_called_once()
+
+
 class TestNoBuildrootShipsTheMountPoint(unittest.TestCase):
     """Mounting over a directory a package owns would hide it silently.
 

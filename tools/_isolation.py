@@ -376,6 +376,58 @@ def fabricated_mount_components(sandbox_root):
     return [] if os.path.isdir(candidate) else [candidate]
 
 
+def _excerpt(text, needle, span=40):
+    """The neighbourhood of `needle`, so a 4KB script names its own bug."""
+    at = text.find(needle)
+    start, end = max(0, at - span), min(len(text), at + len(needle) + span)
+    return "{}{}{}".format(
+        "..." if start else "", text[start:end], "..." if end < len(text) else ""
+    )
+
+
+def _assert_no_host_work_path(cmd, env, work):
+    """Refuse to enter the sandbox carrying a path that does not exist in it.
+
+    A mis-translated path has two directions and they are not symmetric.
+    A *sandbox* path used host-side fails immediately with ENOENT, because
+    SANDBOX_WORK does not exist out here -- cheap and loud.  A *host* path
+    used inside fails deep in an action that may already have run for an
+    hour, with a message about a missing file that plainly exists.
+
+    The dangerous direction is the detectable one.  With a fixed bind,
+    nothing entering a sandbox has any business naming the host work area:
+    it is reachable in there only as SANDBOX_WORK.  So this is not a
+    heuristic and it has no false positives to weigh -- an occurrence *is*
+    the defect, by construction.
+
+    Checking here rather than at each caller is what makes it a property
+    of the boundary rather than a rule drivers have to remember.  It turns
+    the whole class from a runtime failure into a build-time one without
+    triaging anything by hand.
+    """
+    host = os.path.abspath(work)
+    offenders = []
+    for index, argument in enumerate(cmd):
+        if isinstance(argument, str) and host in argument:
+            offenders.append(("argv[{}]".format(index), _excerpt(argument, host)))
+    for name, value in sorted((env or {}).items()):
+        if isinstance(value, str) and host in value:
+            offenders.append(("${}".format(name), _excerpt(value, host)))
+
+    if offenders:
+        sys.exit(
+            "the host work area {} is named in {} thing(s) entering the "
+            "sandbox, where that path does not exist. It is visible in "
+            "there as {} -- translate with sandbox_path() at the point it "
+            "crosses:\n{}".format(
+                host,
+                len(offenders),
+                SANDBOX_WORK,
+                "\n".join("  {}: {}".format(where, what) for where, what in offenders),
+            )
+        )
+
+
 def _assert_no_real_build_dir(sysroot):
     """Refuse to shadow a buildroot that ships SANDBOX_WORK itself.
 
@@ -675,6 +727,7 @@ def run_isolated(cmd, isolation, work, chdir, sysroot, env=None):
         )
 
     _assert_no_real_build_dir(sysroot)
+    _assert_no_host_work_path(cmd, env, work)
 
     if isolation == "bwrap":
         bwrap = require_tool("bwrap")
