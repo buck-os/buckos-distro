@@ -337,29 +337,7 @@ class TestBuildrootSkeleton(unittest.TestCase):
         env = build_environment("1700000000", ["parallel=1", "parallel=1"])
         self.assertEqual("1", env["FAKEROOTDONTTRYCHOWN"])
         self.assertEqual("1", env["FORCE_UNSAFE_CONFIGURE"])
-        self.assertEqual(
-            "reproducible=+fixfilepath parallel=1", env["DEB_BUILD_OPTIONS"]
-        )
-
-    def test_build_path_is_mapped_out_of_every_package(self):
-        # Debian's default reproducible feature set enables fixdebugpath and
-        # not fixfilepath, so without this the scratch path reaches debug info,
-        # __FILE__, and the build-id derived from them.  Asserted for a source
-        # with no options of its own, because that is most of them.
-        self.assertEqual(
-            "reproducible=+fixfilepath",
-            build_environment("1700000000")["DEB_BUILD_OPTIONS"],
-        )
-        self.assertEqual(
-            "reproducible=+fixfilepath",
-            build_environment("1700000000", [])["DEB_BUILD_OPTIONS"],
-        )
-
-    def test_per_source_options_do_not_displace_the_path_mapping(self):
-        env = build_environment("1700000000", ["nostrap", "nolto", "nostrap"])
-        self.assertEqual(
-            "reproducible=+fixfilepath nostrap nolto", env["DEB_BUILD_OPTIONS"]
-        )
+        self.assertEqual("parallel=1", env["DEB_BUILD_OPTIONS"])
 
     def test_aggregate_installroot_contains_only_declared_packages(self):
         paths = ["/tmp/one.deb", "/tmp/unrelated.deb"]

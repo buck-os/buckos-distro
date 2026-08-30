@@ -42,17 +42,8 @@ def build_environment(
     # namespace. GNU tar's configure script rejects that safe arrangement
     # unless the standard container-build override is explicit.
     env["FORCE_UNSAFE_CONFIGURE"] = "1"
-    # The work area is bound into the sandbox at its own absolute path, so it
-    # is the build directory, and the compiler records it in debug info and in
-    # __FILE__.  dpkg enables fixdebugpath by default, which reaches only
-    # -fdebug-prefix-map; fixfilepath adds -ffile-prefix-map, which also covers
-    # macro expansions and the paths ld hashes into the GNU build-id.  Debian's
-    # default feature set omits it, so without this every DEB carries the path
-    # of the machine that built it.
-    options = ["reproducible=+fixfilepath"]
     if build_options:
-        options.extend(build_options)
-    env["DEB_BUILD_OPTIONS"] = " ".join(dict.fromkeys(options))
+        env["DEB_BUILD_OPTIONS"] = " ".join(dict.fromkeys(build_options))
     return env
 
 
