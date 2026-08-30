@@ -667,6 +667,22 @@ Stated plainly, because each one is load-bearing:
   already exists -- glibc's file trigger rebuilds `/etc/ld.so.cache`, and
   without it `bpftool` cannot load a library sitting on disk.
 
+- **The Debian-family buildroot has no trigger to turn on, so it runs
+  `ldconfig` itself.** Composing a tree from payloads runs neither maintainer
+  scripts nor dpkg triggers, and there is no per-package overlay transaction to
+  enable them in. So `/etc/ld.so.cache` is absent, `ctypes.util.find_library`
+  shells out to `ldconfig -p` and gets nothing, and `xkeyboard-config`'s
+  generator cannot load `libxkbcommon` from a file sitting in the tree. The
+  assembly therefore runs the buildroot's own `ldconfig` once, in the sandbox,
+  after composition.
+
+  In the sandbox rather than on the host, and the difference is not stylistic.
+  Both Debian-family flavors carry AArch64 locks, and the host's `ldconfig -r`
+  against a foreign-architecture tree **exits 0 while writing a cache that holds
+  no libraries**. The failure mode of the obvious fix is a cache that exists and
+  answers nothing, which is worse than the absence it replaces. Reached through
+  the binfmt handler, the tree's own `ldconfig` produces a populated one.
+
 - **Backslashes in payload paths become directories, in buildroots only.**
   buck2 reserves the backslash as a path separator and cannot address a
   file whose name contains one. systemd escapes a dash in a unit name as
