@@ -61,7 +61,12 @@ from _isolation import (
     resolve_isolation,
     run_isolated,
 )
-from _rpm import make_dirs_writable, reproducible_env, scratch_dir
+from _rpm import (
+    make_dirs_writable,
+    reproducible_env,
+    resolve_in_buildroot,
+    scratch_dir,
+)
 
 _ISO_ROOT = "iso"
 _OUT = "out.iso"
@@ -84,6 +89,20 @@ _GRUB_MODULES = (
     "png reboot regexp search search_fs_file search_fs_uuid search_label "
     "serial sleep syslinuxcfg test video xfs zstd"
 ).split()
+
+# run() replaces the environment wholesale, so the PATH inside the sandbox
+# is the host's rather than the buildroot's.  A bare tool name therefore
+# resolves only when the two layouts happen to agree, and mkfs.vfat is the
+# one that does not: dosfstools puts it in /usr/sbin, which is on some
+# operators' PATH and not others'.  Every EL ISO target was a coin flip on
+# whose shell started the build.  Resolve them in the script instead.
+_FAT_TOOLS = {
+    "MKFSVFAT": ("/usr/sbin/mkfs.vfat", "/usr/bin/mkfs.vfat"),
+    "MMD": ("/usr/bin/mmd", "/usr/sbin/mmd"),
+    "MCOPY": ("/usr/bin/mcopy", "/usr/sbin/mcopy"),
+    "MLABEL": ("/usr/bin/mlabel", "/usr/sbin/mlabel"),
+}
+_XORRISO_CANDIDATES = ("/usr/bin/xorriso", "/usr/sbin/xorriso")
 
 _EFI_ARCH = {
     "x86_64": ("x86_64-efi", "BOOTX64.EFI"),
@@ -254,6 +273,10 @@ def _efi_script(iso_root, target_cpu, source_date_epoch):
         # is resolved against whatever $root is at startup -- the FAT
         # image.  That is why grub.cfg is copied into efiboot.img below
         # and not merely onto the ISO.
+        resolve_in_buildroot("MKFSVFAT", _FAT_TOOLS["MKFSVFAT"]),
+        resolve_in_buildroot("MMD", _FAT_TOOLS["MMD"]),
+        resolve_in_buildroot("MCOPY", _FAT_TOOLS["MCOPY"]),
+        resolve_in_buildroot("MLABEL", _FAT_TOOLS["MLABEL"]),
         'GRUB_MKIMAGE=',
         'for _candidate in /usr/bin/grub2-mkimage /usr/bin/grub-mkimage; do',
         '  if [ -x "$_candidate" ]; then GRUB_MKIMAGE="$_candidate"; break; fi',
@@ -288,15 +311,15 @@ def _efi_script(iso_root, target_cpu, source_date_epoch):
         #
         # Do not fold the label back into -n.  It reads like the obvious
         # simplification and it silently reintroduces two moving bytes.
-        'mkfs.vfat -F 16 -s 1 -i {} "$EFIBOOT" >/dev/null'.format(
+        '"$MKFSVFAT" -F 16 -s 1 -i {} "$EFIBOOT" >/dev/null'.format(
             shlex.quote(_fat_volume_id(source_date_epoch))
         ),
-        'mmd -i "$EFIBOOT" ::/EFI ::/EFI/BOOT',
-        'mcopy -i "$EFIBOOT" -s "$EFIDIR"/* ::/EFI/BOOT/',
+        '"$MMD" -i "$EFIBOOT" ::/EFI ::/EFI/BOOT',
+        '"$MCOPY" -i "$EFIBOOT" -s "$EFIDIR"/* ::/EFI/BOOT/',
         # FAT labels are 11 characters, uppercase, and mtools truncates
         # rather than failing.  Fixed rather than derived from anything, so
         # a stable one is better than a mangled one; nothing reads it.
-        'mlabel -i "$EFIBOOT" ::{}'.format(shlex.quote("EFIBOOT")),
+        '"$MLABEL" -i "$EFIBOOT" ::{}'.format(shlex.quote("EFIBOOT")),
         'test -s "$EFIBOOT"',
     ])
 
@@ -340,7 +363,7 @@ def _bios_script(iso_root):
 def _xorriso_script(args, iso_root, out, timestamp):
     """The mkisofs emulation, with whichever El Torito entries apply."""
     cmd = [
-        "xorriso", "-as", "mkisofs",
+        "-as", "mkisofs",
         "-o", out,
         "-V", args.volume_label,
         # Rock Ridge with ownership rationalised to root, and Joliet for
@@ -380,7 +403,8 @@ def _xorriso_script(args, iso_root, out, timestamp):
     # there is no eval and no second layer.
     lines = [
         "set -e",
-        "set -- " + " ".join(shlex.quote(part) for part in cmd),
+        resolve_in_buildroot("XORRISO", _XORRISO_CANDIDATES),
+        'set -- "$XORRISO" ' + " ".join(shlex.quote(part) for part in cmd),
     ]
 
     # isohybrid is what makes the ISO also work written raw to a USB

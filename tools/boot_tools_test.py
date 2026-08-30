@@ -1013,6 +1013,29 @@ class TestEfiImageIsAFunctionOfItsInputs(unittest.TestCase):
                 value = _fat_volume_id(epoch)
                 self.assertRegex(value, r"\A[0-9A-F]{8}\Z")
 
+    def test_no_sandbox_tool_is_invoked_bare(self):
+        # run() replaces the environment wholesale, so PATH inside the
+        # sandbox is the host's rather than the buildroot's. A bare tool
+        # name resolves only where the two layouts agree, and mkfs.vfat
+        # lives in /usr/sbin, so every EL ISO target was a coin flip on
+        # whose shell started the build: it worked in one container and
+        # failed in another with identical inputs.
+        from iso_build import _xorriso_script
+
+        args = type("Args", (), {
+            "boot_mode": "hybrid",
+            "volume_label": "TEST",
+            "layout": "rpm",
+        })()
+        scripts = [self.script(), _xorriso_script(args, "/iso", "/out.iso", "2023111400000000")]
+        for script in scripts:
+            for line in script.splitlines():
+                head = line.strip().split(" ")[0]
+                self.assertFalse(
+                    head in ("mkfs.vfat", "mmd", "mcopy", "mlabel", "xorriso"),
+                    "invoked bare, resolves against the host PATH: " + line.strip(),
+                )
+
     def test_mkfs_pins_the_serial(self):
         self.assertIn("-i {}".format(_fat_volume_id("1700000000")), self.script())
 
@@ -1024,15 +1047,15 @@ class TestEfiImageIsAFunctionOfItsInputs(unittest.TestCase):
         """
         mkfs = [
             line for line in self.script().splitlines()
-            if line.startswith("mkfs.vfat ")
+            if line.startswith('"$MKFSVFAT" ')
         ]
         self.assertEqual(1, len(mkfs), mkfs)
         self.assertNotIn(" -n ", mkfs[0])
 
     def test_the_label_is_applied_with_mtools_afterwards(self):
         lines = self.script().splitlines()
-        mkfs = next(i for i, l in enumerate(lines) if l.startswith("mkfs.vfat "))
-        mlabel = next(i for i, l in enumerate(lines) if l.startswith("mlabel "))
+        mkfs = next(i for i, l in enumerate(lines) if l.startswith('"$MKFSVFAT" '))
+        mlabel = next(i for i, l in enumerate(lines) if l.startswith('"$MLABEL" '))
         self.assertGreater(mlabel, mkfs)
         self.assertIn("::EFIBOOT", lines[mlabel])
 
