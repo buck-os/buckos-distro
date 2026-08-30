@@ -13,5 +13,23 @@ DEFAULT_RELEASE = default_release("ubuntu", RELEASES)
 
 deb_downloads_for("ubuntu", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE_ARCH)
 deb_buildroots_for("ubuntu", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE_ARCH)
-deb_packages_for("ubuntu", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE_ARCH)
+deb_packages_for(
+    "ubuntu",
+    RELEASES,
+    DEFAULT_RELEASE,
+    DATA_BY_RELEASE_ARCH,
+    build_options_by_source = {
+        # Two upstream rules race under a parallel make, and debhelper
+        # takes its job count from nproc, so both fail on a large host and
+        # pass on a small one. Serialized rather than merely reduced: a
+        # lower job count makes a race less likely, not absent.
+        #
+        # lvm2 installs into debian/build/install_deb/etc/lvm from two
+        # targets at once and one of them loses the directory.
+        "lvm2": ["parallel=1"],
+        # Its generated sudoers parser rule races through shared y.tab
+        # files, which is the same rule Debian 13 already serializes.
+        "sudo": ["parallel=1"],
+    },
+)
 deb_images_for("ubuntu", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE_ARCH)
