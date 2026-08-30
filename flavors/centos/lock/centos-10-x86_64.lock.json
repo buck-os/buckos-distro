@@ -991,6 +991,33 @@
       "source": "cracklib"
     },
     {
+      "arch": "x86_64",
+      "evr": "2.41-65.el10",
+      "location": "toplink/vol/koji02/packages/binutils/2.41/65.el10/x86_64/cross-binutils-aarch64-2.41-65.el10.x86_64.rpm",
+      "name": "cross-binutils-aarch64",
+      "repo": "buildroot-koji",
+      "sha256": "bf58450fca594a5c619359c0570177cae8c8305029f601a6b3635130849f55cd",
+      "source": "binutils"
+    },
+    {
+      "arch": "x86_64",
+      "evr": "2.41-65.el10",
+      "location": "toplink/vol/koji02/packages/binutils/2.41/65.el10/x86_64/cross-binutils-ppc64le-2.41-65.el10.x86_64.rpm",
+      "name": "cross-binutils-ppc64le",
+      "repo": "buildroot-koji",
+      "sha256": "f189aa2614b30481f29fc2e2b6b806f5f8ec37c98aededa98b0a14ac84cdd0fa",
+      "source": "binutils"
+    },
+    {
+      "arch": "x86_64",
+      "evr": "2.41-65.el10",
+      "location": "toplink/vol/koji02/packages/binutils/2.41/65.el10/x86_64/cross-binutils-s390x-2.41-65.el10.x86_64.rpm",
+      "name": "cross-binutils-s390x",
+      "repo": "buildroot-koji",
+      "sha256": "6bf484766e69112d5133e135ff8a4731318ca6558bc81c215a284913fe00ace0",
+      "source": "binutils"
+    },
+    {
       "arch": "noarch",
       "evr": "20260811-1.git4dcd294.el10",
       "location": "Packages/crypto-policies-20260811-1.git4dcd294.el10.noarch.rpm",
@@ -2131,6 +2158,15 @@
       "name": "glibc-static",
       "repo": "crb",
       "sha256": "eb6ee66c929ff99f7b6d7f7e6e41e76ddbbf19bb6d11f57e3f5c2bd5df84a3ec",
+      "source": "glibc"
+    },
+    {
+      "arch": "x86_64",
+      "evr": "2.39-137.el10",
+      "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/x86_64/glibc32-2.39-137.el10.x86_64.rpm",
+      "name": "glibc32",
+      "repo": "buildroot-koji",
+      "sha256": "2a85e0f919de118c637bdc44fce3ccb1d1218e5e94f1f6b228ffe639524f707d",
       "source": "glibc"
     },
     {
@@ -5048,6 +5084,24 @@
       "repo": "appstream",
       "sha256": "e50ac72256140c822ae3e78fe00f125c4799965d8febd97760cad7be9e60796a",
       "source": "lksctp-tools"
+    },
+    {
+      "arch": "x86_64",
+      "evr": "22.1.8-1.el10",
+      "location": "Packages/lld-22.1.8-1.el10.x86_64.rpm",
+      "name": "lld",
+      "repo": "appstream",
+      "sha256": "91856b630be718ea529b807370cda8d7da0da215aaf6f7f5a627d181198b2684",
+      "source": "llvm"
+    },
+    {
+      "arch": "x86_64",
+      "evr": "22.1.8-1.el10",
+      "location": "Packages/lld-libs-22.1.8-1.el10.x86_64.rpm",
+      "name": "lld-libs",
+      "repo": "appstream",
+      "sha256": "6392ddb22e00822425639f364407608cfe8076a30e6c1ca952dd9d5dec59861d",
+      "source": "llvm"
     },
     {
       "arch": "x86_64",
@@ -8651,6 +8705,15 @@
     },
     {
       "arch": "x86_64",
+      "evr": "5.72-8.el10",
+      "location": "Packages/stunnel-5.72-8.el10.x86_64.rpm",
+      "name": "stunnel",
+      "repo": "baseos",
+      "sha256": "15033f80094d7103b8159a05d40510e7e9c4e4bb06f009490fa19add6d7fec3c",
+      "source": "stunnel"
+    },
+    {
+      "arch": "x86_64",
       "evr": "4.3.0-4.el10",
       "location": "Packages/swig-4.3.0-4.el10.x86_64.rpm",
       "name": "swig",
@@ -8666,6 +8729,33 @@
       "repo": "appstream",
       "sha256": "1eda8f1ec0456e9878d1de5bf1b56ca22f5cd5d7ff6d139852475224e308bb13",
       "source": "sysprof"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.39-137.el10",
+      "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-aarch64-el10-glibc-2.39-137.el10.noarch.rpm",
+      "name": "sysroot-aarch64-el10-glibc",
+      "repo": "buildroot-koji",
+      "sha256": "d23db60e141044549a05464751e165f2b68a38c25ca10c062a0310697a382f03",
+      "source": "glibc"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.39-137.el10",
+      "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-ppc64le-el10-glibc-2.39-137.el10.noarch.rpm",
+      "name": "sysroot-ppc64le-el10-glibc",
+      "repo": "buildroot-koji",
+      "sha256": "3b96457c218537ce2361149d8356cd717080a766e9c31e6fc3fe42f350a1c870",
+      "source": "glibc"
+    },
+    {
+      "arch": "noarch",
+      "evr": "2.39-137.el10",
+      "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-s390x-el10-glibc-2.39-137.el10.noarch.rpm",
+      "name": "sysroot-s390x-el10-glibc",
+      "repo": "buildroot-koji",
+      "sha256": "2835b3cc0827b84c42c5e4f0f4960c4635d2de5208bf217ddc8c3ab906a39e9e",
+      "source": "glibc"
     },
     {
       "arch": "x86_64",
@@ -21207,7 +21297,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -23352,7 +23442,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -25721,7 +25811,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -29254,7 +29344,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -30630,7 +30720,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -32831,7 +32921,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -34307,7 +34397,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -37174,7 +37264,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -38548,7 +38638,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -40137,7 +40227,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -42673,7 +42763,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -44884,7 +44974,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -46976,7 +47066,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -49650,7 +49740,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -52019,7 +52109,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -52109,9 +52199,11 @@
         "rpm-build": "rpm-build",
         "sed": "sed",
         "shadow-utils": "shadow-utils",
+        "stunnel": "stunnel",
         "tar": "tar",
         "unzip": "unzip",
         "util-linux": "util-linux",
+        "valgrind": "valgrind",
         "which": "which",
         "xz": "xz",
         "zlib-devel": "zlib-ng-compat-devel"
@@ -54785,6 +54877,15 @@
         },
         {
           "arch": "x86_64",
+          "evr": "5.72-8.el10",
+          "location": "Packages/stunnel-5.72-8.el10.x86_64.rpm",
+          "name": "stunnel",
+          "repo": "baseos",
+          "sha256": "15033f80094d7103b8159a05d40510e7e9c4e4bb06f009490fa19add6d7fec3c",
+          "source": "stunnel"
+        },
+        {
+          "arch": "x86_64",
           "evr": "1.26.0-1.el10",
           "location": "Packages/unbound-libs-1.26.0-1.el10.x86_64.rpm",
           "name": "unbound-libs",
@@ -54800,6 +54901,15 @@
           "repo": "baseos",
           "sha256": "bd0a6b269143ba6994dc7097435c8829a8f03e7a7e1f128c46a64731ed0df924",
           "source": "unzip"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "1:3.27.1-1.el10",
+          "location": "Packages/valgrind-3.27.1-1.el10.x86_64.rpm",
+          "name": "valgrind",
+          "repo": "appstream",
+          "sha256": "72e5c55fabca09ab6896f7f63faa80480aef10ea6078eb6ee70f60da1bf9dbf1",
+          "source": "valgrind"
         },
         {
           "arch": "x86_64",
@@ -54822,7 +54932,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -57305,7 +57415,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -60688,7 +60798,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -62377,7 +62487,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -64430,7 +64540,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -72499,7 +72609,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -75314,7 +75424,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -79622,7 +79732,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -81860,7 +81970,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -83257,7 +83367,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -85656,7 +85766,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -87331,7 +87441,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -91625,7 +91735,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -91658,6 +91768,9 @@
         "centos-stream-release": "centos-stream-release",
         "coreutils": "coreutils",
         "cpio": "cpio",
+        "cross-binutils-aarch64": "cross-binutils-aarch64",
+        "cross-binutils-ppc64le": "cross-binutils-ppc64le",
+        "cross-binutils-s390x": "cross-binutils-s390x",
         "dblatex": "dblatex",
         "dejagnu": "dejagnu",
         "diffutils": "diffutils",
@@ -91681,6 +91794,8 @@
         "info": "info",
         "libmpc-devel": "libmpc-devel",
         "libzstd-devel": "libzstd-devel",
+        "lld": "lld",
+        "llvm": "llvm",
         "make": "make",
         "mpfr-devel": "mpfr-devel",
         "patch": "patch",
@@ -91692,6 +91807,9 @@
         "sed": "sed",
         "shadow-utils": "shadow-utils",
         "sharutils": "sharutils",
+        "sysroot-aarch64-el10-glibc": "sysroot-aarch64-el10-glibc",
+        "sysroot-ppc64le-el10-glibc": "sysroot-ppc64le-el10-glibc",
+        "sysroot-s390x-el10-glibc": "sysroot-s390x-el10-glibc",
         "systemtap-sdt-devel": "systemtap-sdt-devel",
         "tar": "tar",
         "texinfo": "texinfo",
@@ -92144,6 +92262,15 @@
           "name": "glibc-static",
           "repo": "crb",
           "sha256": "eb6ee66c929ff99f7b6d7f7e6e41e76ddbbf19bb6d11f57e3f5c2bd5df84a3ec",
+          "source": "glibc"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.39-137.el10",
+          "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/x86_64/glibc32-2.39-137.el10.x86_64.rpm",
+          "name": "glibc32",
+          "repo": "buildroot-koji",
+          "sha256": "2a85e0f919de118c637bdc44fce3ccb1d1218e5e94f1f6b228ffe639524f707d",
           "source": "glibc"
         },
         {
@@ -92858,6 +92985,33 @@
           "source": "sqlite"
         },
         {
+          "arch": "noarch",
+          "evr": "2.39-137.el10",
+          "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-aarch64-el10-glibc-2.39-137.el10.noarch.rpm",
+          "name": "sysroot-aarch64-el10-glibc",
+          "repo": "buildroot-koji",
+          "sha256": "d23db60e141044549a05464751e165f2b68a38c25ca10c062a0310697a382f03",
+          "source": "glibc"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.39-137.el10",
+          "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-ppc64le-el10-glibc-2.39-137.el10.noarch.rpm",
+          "name": "sysroot-ppc64le-el10-glibc",
+          "repo": "buildroot-koji",
+          "sha256": "3b96457c218537ce2361149d8356cd717080a766e9c31e6fc3fe42f350a1c870",
+          "source": "glibc"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.39-137.el10",
+          "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-s390x-el10-glibc-2.39-137.el10.noarch.rpm",
+          "name": "sysroot-s390x-el10-glibc",
+          "repo": "buildroot-koji",
+          "sha256": "2835b3cc0827b84c42c5e4f0f4960c4635d2de5208bf217ddc8c3ab906a39e9e",
+          "source": "glibc"
+        },
+        {
           "arch": "x86_64",
           "evr": "257-33.el10",
           "location": "Packages/systemd-libs-257-33.el10.x86_64.rpm",
@@ -93092,6 +93246,33 @@
           "repo": "appstream",
           "sha256": "af5f57099d80a7c69ab6ef5308d6f9b671a68a40407cee1d82c9584bea6f90c4",
           "source": "cmake"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41-65.el10",
+          "location": "toplink/vol/koji02/packages/binutils/2.41/65.el10/x86_64/cross-binutils-aarch64-2.41-65.el10.x86_64.rpm",
+          "name": "cross-binutils-aarch64",
+          "repo": "buildroot-koji",
+          "sha256": "bf58450fca594a5c619359c0570177cae8c8305029f601a6b3635130849f55cd",
+          "source": "binutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41-65.el10",
+          "location": "toplink/vol/koji02/packages/binutils/2.41/65.el10/x86_64/cross-binutils-ppc64le-2.41-65.el10.x86_64.rpm",
+          "name": "cross-binutils-ppc64le",
+          "repo": "buildroot-koji",
+          "sha256": "f189aa2614b30481f29fc2e2b6b806f5f8ec37c98aededa98b0a14ac84cdd0fa",
+          "source": "binutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2.41-65.el10",
+          "location": "toplink/vol/koji02/packages/binutils/2.41/65.el10/x86_64/cross-binutils-s390x-2.41-65.el10.x86_64.rpm",
+          "name": "cross-binutils-s390x",
+          "repo": "buildroot-koji",
+          "sha256": "6bf484766e69112d5133e135ff8a4731318ca6558bc81c215a284913fe00ace0",
+          "source": "binutils"
         },
         {
           "arch": "noarch",
@@ -93617,6 +93798,15 @@
         },
         {
           "arch": "x86_64",
+          "evr": "3.1-52.20230828cvs.el10",
+          "location": "Packages/libedit-3.1-52.20230828cvs.el10.x86_64.rpm",
+          "name": "libedit",
+          "repo": "baseos",
+          "sha256": "49f4225770973669f10c2657e9a0a9c2f9ab8ab54e63412a23d111457d43c4af",
+          "source": "libedit"
+        },
+        {
+          "arch": "x86_64",
           "evr": "1.11.0-7.el10",
           "location": "Packages/libgcrypt-1.11.0-7.el10.x86_64.rpm",
           "name": "libgcrypt",
@@ -93830,6 +94020,51 @@
           "repo": "appstream",
           "sha256": "46f179e253d2f4e04340c120e1d00f8e4b5fa3095a1e96f1ecd61cb5b3e3d4a8",
           "source": "libxslt"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-1.el10",
+          "location": "Packages/lld-22.1.8-1.el10.x86_64.rpm",
+          "name": "lld",
+          "repo": "appstream",
+          "sha256": "91856b630be718ea529b807370cda8d7da0da215aaf6f7f5a627d181198b2684",
+          "source": "llvm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-1.el10",
+          "location": "Packages/lld-libs-22.1.8-1.el10.x86_64.rpm",
+          "name": "lld-libs",
+          "repo": "appstream",
+          "sha256": "6392ddb22e00822425639f364407608cfe8076a30e6c1ca952dd9d5dec59861d",
+          "source": "llvm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-1.el10",
+          "location": "Packages/llvm-22.1.8-1.el10.x86_64.rpm",
+          "name": "llvm",
+          "repo": "appstream",
+          "sha256": "d76a7fc689b9c47c908b9857926904428eac1c2dea6f4eee36a1793c6f2ac55d",
+          "source": "llvm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-1.el10",
+          "location": "Packages/llvm-filesystem-22.1.8-1.el10.x86_64.rpm",
+          "name": "llvm-filesystem",
+          "repo": "appstream",
+          "sha256": "6dbbac1a4d575ff67d8a0eb6cb712605cb8c3cadbcb3877c884cbf18d5cf1ae3",
+          "source": "llvm"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "22.1.8-1.el10",
+          "location": "Packages/llvm-libs-22.1.8-1.el10.x86_64.rpm",
+          "name": "llvm-libs",
+          "repo": "appstream",
+          "sha256": "2684137941cf06004403c73ed80b7cc218e638bad0bf77e3d73c0f82b11bd75e",
+          "source": "llvm"
         },
         {
           "arch": "noarch",
@@ -97758,7 +97993,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -99903,7 +100138,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -102490,7 +102725,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -105436,7 +105671,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -107797,7 +108032,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -110837,7 +111072,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -113080,7 +113315,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -115133,7 +115368,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -118342,7 +118577,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -119915,7 +120150,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -124204,7 +124439,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -127051,7 +127286,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -129200,7 +129435,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -130578,7 +130813,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -132682,7 +132917,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -135499,7 +135734,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -137533,7 +137768,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -139687,7 +139922,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -141177,7 +141412,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -142728,7 +142963,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -145052,7 +145287,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -152522,7 +152757,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -155442,7 +155677,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -156846,7 +157081,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -158954,7 +159189,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -165251,7 +165486,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -171357,7 +171592,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -176160,7 +176395,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -177970,7 +178205,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -179675,7 +179910,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -181171,7 +181406,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -186077,7 +186312,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -187453,7 +187688,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -188828,7 +189063,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -191182,7 +191417,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -192702,7 +192937,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -195523,7 +195758,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -197560,7 +197795,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -199468,7 +199703,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -200952,7 +201187,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -203724,7 +203959,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -205706,7 +205941,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -207183,7 +207418,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -208878,7 +209113,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -210254,7 +210489,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -212778,7 +213013,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -216671,7 +216906,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -219048,7 +219283,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -221580,7 +221815,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -227227,7 +227462,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -232111,7 +232346,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -234121,7 +234356,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -235540,7 +235775,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -238256,7 +238491,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -240484,7 +240719,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -241990,7 +242225,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -245466,7 +245701,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -246866,7 +247101,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -250831,7 +251066,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -252540,7 +252775,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -254646,7 +254881,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -258322,7 +258557,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -260767,7 +261002,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -262797,7 +263032,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -270592,7 +270827,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -272788,7 +273023,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -278312,7 +278547,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -280628,7 +280863,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -283608,7 +283843,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -287810,7 +288045,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -289979,7 +290214,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -291522,7 +291757,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -292949,7 +293184,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -293216,7 +293451,7 @@
       "kernel",
       "libxcrypt"
     ],
-    "probe": null,
+    "probe": "centos-10-x86_64.probe.json",
     "seed_only": false,
     "seed_packages": [],
     "source_exceptions": [
@@ -318646,22 +318881,22 @@
     }
   ],
   "summary": {
-    "built_from_source": 306,
+    "built_from_source": 310,
     "cycles": 1,
     "dynamic_buildrequires": 0,
     "dynamic_unmet": 0,
     "dynamic_unprobed": 0,
-    "fraction_built": 0.2306,
-    "from_seed": 1021,
+    "fraction_built": 0.2319,
+    "from_seed": 1027,
     "image_sets": {
       "image-tools": 172,
       "live": 190
     },
     "pins_by_repo": {
-      "appstream": 11453,
-      "baseos": 19729,
+      "appstream": 11461,
+      "baseos": 19732,
       "baseos-source": 121,
-      "buildroot-koji": 18,
+      "buildroot-koji": 32,
       "crb": 404,
       "epel": 19
     },
@@ -318669,7 +318904,7 @@
     "source_packages_built": 121,
     "staged_targets": 303,
     "superseded": 60,
-    "total_build_deps": 1327
+    "total_build_deps": 1337
   },
   "target_cpu": "x86_64",
   "variant_seed": []
