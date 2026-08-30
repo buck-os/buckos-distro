@@ -72,6 +72,38 @@ def compose_buildroot(seed_root, dep_roots, dest):
     return dest
 
 
+def refresh_library_cache(sysroot, isolation, work, env):
+    """Rebuild /etc/ld.so.cache for the tree this package builds against.
+
+    The seed buildroot arrives with a cache its own assembler built, and
+    that cache is correct for the seed and stale for this package: the
+    dependency layers overlaid above add libraries it does not mention.
+    A ctypes caller then fails on a library sitting on disk, because
+    ctypes.util.find_library asks `ldconfig -p`.  Measured on
+    xkeyboard-config: cache present, libxkbcommon.so.0 present, zero
+    xkbcommon entries in the cache.
+
+    Stale is worse than absent here.  An absent cache makes the loader
+    fall back to searching; a stale one answers, wrongly.
+
+    The RPM family gets this for free.  Its per-package overlay runs
+    triggers, and glibc's file trigger rebuilds the cache -- the reason
+    triggers are enabled there rather than for the shared base.  The
+    Debian family has no trigger to turn on, so the overlay has to say
+    so itself.
+    """
+    if isolation == "none":
+        return
+    run_isolated(
+        ["/usr/sbin/ldconfig"],
+        isolation,
+        work=work,
+        chdir=work,
+        sysroot=sysroot,
+        env=env,
+    )
+
+
 def host_sysroot_env(sysroot, env, target_cpu="x86_64"):
     root = os.path.abspath(sysroot)
     usr = os.path.join(root, "usr")
@@ -215,6 +247,8 @@ def main():
         env.update(host_sysroot_env(sysroot, env, args.target_cpu))
     else:
         env["TMPDIR"] = "/tmp"
+
+    refresh_library_cache(sysroot, isolation, work, env)
 
     fakeroot = stage_fakeroot_runtime(sysroot, work)
     command = fakeroot_command(fakeroot, [
