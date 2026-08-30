@@ -423,6 +423,17 @@ class TestBuildrootSkeleton(unittest.TestCase):
         self.assertEqual("1", env["FORCE_UNSAFE_CONFIGURE"])
         self.assertEqual("parallel=1", env["DEB_BUILD_OPTIONS"])
 
+    def test_pins_the_gnulib_getcwd_probe_that_times_out_under_load(self):
+        # gnulib's getcwd probe allows itself five seconds and is killed by
+        # SIGALRM on a busy machine, so configure records "no" for a test
+        # that never reached a verdict and compiles in a replacement.  The
+        # result is that build-farm load decides what `find` contains.
+        # Pinning the cache variable restores the answer the probe gives
+        # when it is allowed to finish, which is also what the archive
+        # ships.
+        env = build_environment("1700000000")
+        self.assertEqual("yes", env["gl_cv_func_getcwd_path_max"])
+
     def test_aggregate_installroot_contains_only_declared_packages(self):
         paths = ["/tmp/one.deb", "/tmp/unrelated.deb"]
         fields = {

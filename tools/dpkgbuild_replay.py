@@ -42,6 +42,24 @@ def build_environment(
     # namespace. GNU tar's configure script rejects that safe arrangement
     # unless the standard container-build override is explicit.
     env["FORCE_UNSAFE_CONFIGURE"] = "1"
+    # gnulib decides whether the system getcwd copes with paths past
+    # PATH_MAX by compiling a probe that mkdir/chdirs a deep chain and
+    # calls it.  The probe gives itself five seconds -- alarm(5) -- and on
+    # a busy machine it does not finish: every failing run measured here
+    # died on SIGALRM, exit 142, six of six, and none of them reached a
+    # verdict about getcwd at all.  configure records "no" for a probe it
+    # killed, and gnulib's replacement is compiled in, so `find` gains
+    # 1536 bytes of text and swaps getcwd for lstat, readlink and
+    # rewinddir.  A loaded build farm then ships different code from an
+    # idle one, silently, with nothing failing anywhere.
+    #
+    # "yes" is the answer the probe returns whenever it is allowed to
+    # finish -- including under emulation, where tar and cpio completed it
+    # while findutils timed out -- and it is what Debian's own buildds
+    # produced: the archive's `find` calls the system getcwd on both amd64
+    # and arm64.  So this pins the true result rather than a chosen one.
+    # What it overrides is a timeout, not a finding.
+    env["gl_cv_func_getcwd_path_max"] = "yes"
     if build_options:
         env["DEB_BUILD_OPTIONS"] = " ".join(dict.fromkeys(build_options))
     return env
