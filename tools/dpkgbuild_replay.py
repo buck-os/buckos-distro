@@ -42,23 +42,28 @@ def build_environment(
     # namespace. GNU tar's configure script rejects that safe arrangement
     # unless the standard container-build override is explicit.
     env["FORCE_UNSAFE_CONFIGURE"] = "1"
-    # gnulib decides whether the system getcwd copes with paths past
-    # PATH_MAX by compiling a probe that mkdir/chdirs a deep chain and
-    # calls it.  The probe gives itself five seconds -- alarm(5) -- and on
-    # a busy machine it does not finish: every failing run measured here
-    # died on SIGALRM, exit 142, six of six, and none of them reached a
-    # verdict about getcwd at all.  configure records "no" for a probe it
-    # killed, and gnulib's replacement is compiled in, so `find` gains
-    # 1536 bytes of text and swaps getcwd for lstat, readlink and
-    # rewinddir.  A loaded build farm then ships different code from an
-    # idle one, silently, with nothing failing anywhere.
+    # The archive's own `find` calls the system getcwd, on both amd64 and
+    # arm64: getcwd present, lstat, readlink and rewinddir absent.  Left
+    # unpinned this probe sometimes produces the other binary instead --
+    # one Debian never ships -- so letting it run is the deviation from
+    # upstream and pinning it is the fidelity.
     #
-    # "yes" is the answer the probe returns whenever it is allowed to
-    # finish -- including under emulation, where tar and cpio completed it
-    # while findutils timed out -- and it is what Debian's own buildds
-    # produced: the archive's `find` calls the system getcwd on both amd64
-    # and arm64.  So this pins the true result rather than a chosen one.
-    # What it overrides is a timeout, not a finding.
+    # What the pin overrides is a timeout, not a finding.  gnulib decides
+    # whether the system getcwd copes with paths past PATH_MAX by
+    # compiling a probe that mkdir/chdirs a deep chain and calls it there,
+    # and the probe allows itself five seconds -- alarm(5).  Every failing
+    # run measured here died on SIGALRM, exit 142, six of six, none of
+    # them reaching a verdict about getcwd at all.  A "no" here means
+    # could not determine, never determined no.
+    #
+    # And the platform is sound wherever the probe is allowed to finish,
+    # emulation included: tar and cpio completed it and returned yes in
+    # the same builds that timed findutils out.  Nothing anywhere suggests
+    # the system getcwd is inadequate on either architecture.
+    #
+    # The cost of leaving it is that build-farm load picks the binary: a
+    # "no" compiles in gnulib's replacement and `find` gains 1536 bytes of
+    # text, silently, with nothing failing.
     env["gl_cv_func_getcwd_path_max"] = "yes"
     if build_options:
         env["DEB_BUILD_OPTIONS"] = " ".join(dict.fromkeys(build_options))
