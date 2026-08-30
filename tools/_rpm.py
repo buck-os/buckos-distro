@@ -66,6 +66,22 @@ def scratch_dir(prefix, key=None, remove=None):
     so the scratch directory's name no longer reaches a compiler at all.
     The fix is in the bind rather than in the name.
 
+    One observation from that era is worth keeping, because it is about
+    how a path difference *presents* rather than about where the path
+    comes from, and it misleads in a direction that looks like good news.
+    A path-only difference is nearly invisible: nothing greps out of the
+    rpm, the DWARF is byte-identical after debugedit rewrites it, and what
+    is left is a build-id plus the two things derived from it --
+    .gnu_debuglink's CRC and the xz-compressed .gnu_debugdata, which
+    carries its own copy of the note.  The suffixes involved are
+    fixed-length, so **the binaries do not change size**.
+
+    Which means identical size, and an identical symbol table, are the
+    *expected signature* of a pure path difference rather than evidence
+    against one.  Anything comparing two builds has to read that the right
+    way round: those two agreeing is what a path difference looks like,
+    not what near-identity looks like.
+
     What `key` is still for is narrower and worth keeping.  A name derived
     from the action is a name this process can predict on its *next* run,
     which is what lets the block below delete a previous run's leftovers:
