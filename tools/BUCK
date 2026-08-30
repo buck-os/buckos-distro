@@ -116,8 +116,12 @@ python_binary(
 python_binary(
     name = "deb_buildroot_assemble",
     main = "deb_buildroot_assemble.py",
+    # :_isolation because the tree's library cache is written by the
+    # tree's own ldconfig, which means entering it -- see
+    # _refresh_library_cache.
     deps = [
         ":_deb",
+        ":_isolation",
         ":_rpm",
     ],
     visibility = ["PUBLIC"],
