@@ -36,6 +36,29 @@ neither can hide a provisioning gap:
 `tools/skip_contract_test.py` holds the inventory of all three and fails if
 a site appears, disappears, or is classified as environmental without using
 this module.
+
+## What a failure looks like, which depends on the gate's shape
+
+A gate expressed as a decorator names every case it cost, because the
+escalation replaces the test methods individually.  A gate that can only be
+evaluated once the class is being set up -- an import that may raise, say --
+has to raise from `setUpClass`, and unittest reports that as one class-level
+error rather than as a failure per case, because a `setUpClass` error
+preempts the methods entirely.
+
+Both fail loudly and both name the missing prerequisite, so neither can be
+mistaken for a pass.  The distinction is reporting granularity, not safety,
+and it is a property of where the gate can be evaluated rather than
+something a caller chooses.  Restructuring a dynamic gate into a decorator
+to gain the granularity means moving its side effect to module import time,
+which is a worse trade than the coarser report.
+
+One consequence is easy to misread.  When more than one gate on the same
+class is unmet, the decorator escalates first and neutralizes the class
+setup, so the later gate never runs and is never mentioned.  The report then
+names only the first missing prerequisite; the absence of the others from
+that output says nothing about whether they are satisfied.  Fix what is
+named, run again, and the next one appears.
 """
 
 import functools
