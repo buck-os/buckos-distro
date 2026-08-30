@@ -18,8 +18,11 @@ Modes:
     bwrap    bubblewrap in a full subordinate-id user namespace, with the
              buildroot at /, the work area bound read-write, and no network.
     unshare  util-linux `unshare`: an unprivileged user namespace, then
-             chroot into the buildroot.  Equivalent hermeticity to bwrap,
-             using tools present on any modern kernel.
+             chroot into the buildroot.  Not equivalent to bwrap: it
+             rebinds the host's /dev and a writable /proc where bwrap
+             gives a minimal /dev and a read-only one, and it degrades to
+             a single mapped id where bwrap refuses to start.  The
+             fallback, not the production path.
     auto     bwrap if installed, else unshare.  Never falls back to
              "none": silently degrading to the host toolchain is exactly
              the failure this layer exists to prevent, and it would be

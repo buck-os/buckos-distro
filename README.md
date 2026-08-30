@@ -6,7 +6,7 @@ Fedora 44 and 45, CentOS Stream 9 and 10, CentOS Hyperscale 9 and 10, Debian 13,
 
 ## Quick start
 
-The build runs on Linux. RPM-family builds need Python 3, GNU tar, `rpm2archive`, and either Bubblewrap or util-linux `unshare`. Debian-family builds need Python 3, GNU tar, `dpkg-source`, `dpkg-buildpackage`, `dpkg-deb`, and the same isolation choice. Both isolation paths need `newuidmap`, `newgidmap`, and subordinate UID and GID ranges for the build user.
+The build runs on Linux. RPM-family builds need Python 3, GNU tar, `rpm2archive`, and either Bubblewrap or util-linux `unshare`. Debian-family builds need Python 3, GNU tar, `dpkg-source`, `dpkg-buildpackage`, `dpkg-deb`, and the same isolation choice. Bubblewrap requires `newuidmap`, `newgidmap`, and subordinate UID and GID ranges for the build user, and refuses to start without them. The unshare path warns and continues with a single mapped ID, which cannot preserve package file ownership.
 
 `setup.sh` installs the open-source Buck2 binary under `$HOME/.local/bin` when no working `buck2` is already available. It also creates the ignored `prelude/` mount point and writes `.buckconfig.local` when that file does not exist. It does not install system packages.
 
@@ -64,7 +64,7 @@ Dependency resolution happens before Buck analysis:
 2. `tools/generate.py` converts the lockfile into Starlark data.
 3. Buck loads that generated data as an ordinary dependency graph.
 
-Debian and Ubuntu use the corresponding `tools/deb_lock.py` and `tools/deb_generate.py` pair. Both checked-in graphs currently replay GNU hello as the end-to-end source-build fixture.
+Debian and Ubuntu use the corresponding `tools/deb_lock.py` and `tools/deb_generate.py` pair. Debian 13 carries 86 source recipes and Ubuntu 26.04 carries 114.
 
 The lockfile records exact package locations, SHA-256 digests, repository origins, source recipes, bootstrap stages, overrides, and image sets. Buck verifies each downloaded package against its recorded digest.
 
@@ -381,8 +381,12 @@ remote-executable, since a seeded buildroot is hermetic.
 escape hatch: not hermetic, local-only, no cache upload.
 
 `tools/_isolation.py` uses bubblewrap where it is installed and an
-unprivileged user namespace via util-linux `unshare` otherwise; the two are
-equivalent in hermeticity, so neither is a prerequisite.
+unprivileged user namespace via util-linux `unshare` otherwise. Bubblewrap is
+the production path and the two are not interchangeable. Bubblewrap gives a
+build a minimal `/dev` and a read-only `/proc`, while the unshare path rebinds
+the host's, so a spec that probes for a device node or writes a procfs tunable
+can get a different answer from each. Bubblewrap also refuses to start without
+subordinate ID ranges where unshare degrades to a single mapped ID.
 
 ## Limitations
 
@@ -549,9 +553,9 @@ Stated plainly, because each one is load-bearing:
 
   SPEC.md §1 names the escape hatch -- per-package **graduation**, rewriting
   one package as a native recipe when the control is worth the
-  maintenance. It is not implemented: `package()` dispatches only to the
-  fedora replay, and every other flavor fails with "frontend is not
-  implemented yet".
+  maintenance. It is not implemented: `package()` dispatches to the RPM and
+  Debian-family replays, and BuckOS fails during loading because it has no
+  frontend.
 - **USE flags reach only as far as the packaging exposes them.** For rpm
   that is `%bcond`, which is generous; for Debian it is much narrower.
 - **A rootfs needs subordinate id ranges, and its artifact is a tarball.**

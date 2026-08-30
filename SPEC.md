@@ -107,13 +107,13 @@ SELinux-labelled live images require squashfs-tools 4.6 or newer for pseudo-file
 
 ## CentOS Stream release graph
 
-`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. Release 9 layers CentOS Stream BaseOS, AppStream, and CRB with EPEL and EPEL Next. Its buildroot includes the EPEL RPM macros, and its live image installs the EPEL and EPEL Next release packages without forcing an unrelated EPEL Next workload package. Release 10 retains its BaseOS, AppStream, and CRB graph and remains the default.
+`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. Release 9 layers CentOS Stream BaseOS, AppStream, CRB, and Extras Common with EPEL and EPEL Next, plus a `buildroot-koji` repository used only for build dependencies. Its buildroot includes the EPEL RPM macros, and its live image installs the EPEL and EPEL Next release packages without forcing an unrelated EPEL Next workload package. Release 10 layers the same set with EPEL but without EPEL Next, and remains the default.
 
 Both CentOS releases pin the build-system package group, live root filesystem, and image toolchain for x86_64 and AArch64. Their source replay targets build the checked-in SRPM fixture with the target release's compiler and `.el9` or `.el10` macros. x86_64 images are hybrid BIOS/UEFI media; AArch64 images use UEFI.
 
 ## CentOS Hyperscale release graph
 
-`[buckos.centos-hyperscale] releases` is independent of the CentOS Stream release graph so both variants can coexist at releases 9 and 10. Hyperscale layers the SIG's `main` repository and `centos-release-hyperscale` from CentOS Extras on the corresponding CentOS Stream BaseOS, AppStream, and CRB repositories. Release 9 also uses EPEL and EPEL Next; its release package requires both. Release 10 uses EPEL, and its release package requires only `epel-release`.
+`[buckos.centos-hyperscale] releases` is independent of the CentOS Stream release graph so both variants can coexist at releases 9 and 10. Hyperscale layers the SIG's `main` repository and `centos-release-hyperscale` from CentOS Extras on the corresponding CentOS Stream BaseOS, AppStream, CRB, and Extras Common repositories, plus a `koji-buildroot` repository used only for build dependencies. Release 9 also uses EPEL and EPEL Next; its release package requires both. Release 10 uses EPEL, and its release package requires only `epel-release`.
 
 Hyperscale inherits the CentOS build-system package group, adds the release's EPEL RPM macros to the binary seed, and uses `.hs.el9` or `.hs.el10` for source replay. Its image closures install the Hyperscale release package, select newer Hyperscale replacements by RPM version, and explicitly resolve the split `systemd-sysusers` provider used by Hyperscale systemd. EPEL 10's rich release dependency is pinned to `centos-stream-release` by an explicit solver override.
 
@@ -121,7 +121,7 @@ The Hyperscale live rootfs also installs a narrow SELinux compatibility module f
 
 ## Debian-family release graphs
 
-`[buckos.debian] releases` and `[buckos.ubuntu] releases` use the same release-and-architecture expansion as Fedora. The checked-in Debian 13 (`trixie`) and Ubuntu 26.04 (`resolute`) data pin the GNU hello source set, complete binary buildroot closures, native live stacks, and image tools for x86_64 and AArch64. Debian boots with live-boot/live-config; Ubuntu boots with casper. Package downloads support the same content-addressed `package_url_template` placeholders as Fedora.
+`[buckos.debian] releases` and `[buckos.ubuntu] releases` use the same release-and-architecture expansion as Fedora. The checked-in Debian 13 (`trixie`) and Ubuntu 26.04 (`resolute`) data pin 86 and 114 source recipes respectively, complete binary buildroot closures, native live stacks, and image tools for x86_64 and AArch64. Debian resolves 127 of its 129 live payload packages from source and Ubuntu 175 of 197. Debian boots with live-boot/live-config; Ubuntu boots with casper. Package downloads support the same content-addressed `package_url_template` placeholders as Fedora.
 
 ## Root filesystem and media pipeline
 
