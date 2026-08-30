@@ -37,12 +37,16 @@ BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 | [Ubuntu](flavors/ubuntu/README.md) 26.04 | Implemented | x86_64/AArch64 DEBs, root filesystems, live ISOs |
 | [BuckOS](flavors/buckos/README.md) | Stub | None |
 
-Each x86_64 Fedora release has zero static solve problems and zero unprobed dynamic requirements, but each still has five dynamic-unmet records:
+Every checked-in lock solves with zero static problems. The x86_64 RPM-family graphs stand as follows:
 
 | Release | Source packages | Live image | Built from source | Staged targets | Probed |
 | ------- | --------------- | ---------- | ----------------- | -------------- | ------ |
-| 44      | 125             | 186        | 181               | 339            | 114    |
-| 45      | 129             | 193        | 187               | 351            | 119    |
+| Fedora 44 | 125 | 186 | 181 | 339 | 114 |
+| Fedora 45 | 129 | 193 | 187 | 351 | 119 |
+| CentOS Stream 9 | 133 | 200 | 195 | 360 | none |
+| CentOS Stream 10 | 121 | 190 | 185 | 303 | 101 |
+| CentOS Hyperscale 9 | 132 | 200 | 195 | 357 | none |
+| CentOS Hyperscale 10 | 121 | 191 | 186 | 303 | none |
 
 Solving, probing, and building are separate milestones. The `Probed` column counts source packages with checked-in dynamic `BuildRequires` reports; it does not claim that every reported requirement was satisfied or that every package builds. A graph is converged only when a probe report exists and static solve problems, unprobed dynamic requirements, and dynamic-unmet records are all zero. The three counters alone do not establish it: a lock with no probe report reports all three as zero because there is nothing to count, which is why `rpm_relock.py` forces a probe pass whenever the lock names no report. Outside Fedora, CentOS Stream 10 x86_64 is currently the only RPM-family lock carrying one. The Fedora x86_64 locks have zero static problems and zero unprobed requirements, but five dynamic-unmet records each.
 
