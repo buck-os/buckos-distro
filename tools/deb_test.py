@@ -193,6 +193,35 @@ class TestBuildrootSkeleton(unittest.TestCase):
             self.assertEqual(1, sum(line.startswith("root:") for line in passwd.splitlines()))
             self.assertEqual(1, sum(line.startswith("root:") for line in group.splitlines()))
 
+    def test_resolves_localhost_without_a_hosts_package(self):
+        with tempfile.TemporaryDirectory() as root:
+            ensure_base_files(root)
+
+            with open(os.path.join(root, "etc", "hosts"), encoding="utf-8") as stream:
+                hosts = stream.read()
+            self.assertIn("127.0.0.1 localhost", hosts)
+            self.assertIn("::1 localhost", hosts)
+
+            with open(os.path.join(root, "etc", "nsswitch.conf"), encoding="utf-8") as stream:
+                nsswitch = stream.read()
+            self.assertEqual("hosts: files\n", nsswitch)
+            self.assertNotIn("dns", nsswitch)
+
+    def test_keeps_a_packaged_hosts_database(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "etc"))
+            with open(os.path.join(root, "etc", "hosts"), "w", encoding="utf-8") as stream:
+                stream.write("127.0.0.1 packaged\n")
+            with open(os.path.join(root, "etc", "nsswitch.conf"), "w", encoding="utf-8") as stream:
+                stream.write("hosts: files myhostname\n")
+
+            ensure_base_files(root)
+
+            with open(os.path.join(root, "etc", "hosts"), encoding="utf-8") as stream:
+                self.assertEqual("127.0.0.1 packaged\n", stream.read())
+            with open(os.path.join(root, "etc", "nsswitch.conf"), encoding="utf-8") as stream:
+                self.assertEqual("hosts: files myhostname\n", stream.read())
+
     def test_selects_the_packaged_dpkg_vendor(self):
         with tempfile.TemporaryDirectory() as root:
             origins = os.path.join(root, "etc", "dpkg", "origins")

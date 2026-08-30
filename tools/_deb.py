@@ -232,6 +232,23 @@ def ensure_base_files(root: str) -> None:
     merge_base_passwd_database(root, "passwd")
     merge_base_passwd_database(root, "group")
 
+    # No package owns /etc/hosts on a Debian system; the installer writes it.
+    # A buildroot composed from package payloads therefore never has one, and
+    # glibc falls through to DNS for localhost and returns EAI_AGAIN. Any
+    # %check that binds or connects to localhost then fails or hangs --
+    # CPython's test_httpservers is the first one this graph reaches.
+    hosts = os.path.join(root, "etc", "hosts")
+    if not os.path.exists(hosts):
+        with open(hosts, "w", encoding="utf-8") as stream:
+            stream.write("127.0.0.1 localhost\n::1 localhost\n")
+    # Named without dns on purpose: replay actions run with no network, so a
+    # dns source buys nothing but resolver timeouts on every lookup that
+    # misses.
+    nsswitch = os.path.join(root, "etc", "nsswitch.conf")
+    if not os.path.exists(nsswitch):
+        with open(nsswitch, "w", encoding="utf-8") as stream:
+            stream.write("hosts: files\n")
+
     # base-files selects the native dpkg vendor in its postinst. Some large
     # source packages, including GCC, query it even during debian/rules clean.
     origins = os.path.join(root, "etc", "dpkg", "origins")
