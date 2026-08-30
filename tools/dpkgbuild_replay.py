@@ -84,7 +84,14 @@ def host_sysroot_env(sysroot, env, target_cpu="x86_64"):
         "PATH": os.pathsep.join([
             os.path.join(usr, "bin"),
             os.path.join(usr, "sbin"),
-            env.get("PATH", "/usr/bin:/bin"),
+            # os.environ rather than the sandbox environment: this is
+            # the host-provenance path, and reaching host tools is the
+            # only thing it exists for.  The declared sandbox PATH is
+            # deliberately narrow and would drop /usr/local/bin here.
+            # Stated rather than inherited, which is the same principle
+            # as the allowlist applied to the one mode that wants the
+            # host.
+            os.environ.get("PATH", "/usr/bin:/bin"),
         ]),
         "PKG_CONFIG_PATH": os.pathsep.join([
             os.path.join(lib, multiarch, "pkgconfig"),
