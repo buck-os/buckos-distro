@@ -232,6 +232,41 @@ class TestBuildrootSkeleton(unittest.TestCase):
 
             self.assertEqual("debian", os.readlink(os.path.join(origins, "default")))
 
+    def test_links_the_blas_and_lapack_alternatives(self):
+        with tempfile.TemporaryDirectory() as root:
+            triplet = os.path.join(root, "usr", "lib", "x86_64-linux-gnu")
+            os.makedirs(os.path.join(triplet, "blas"))
+            os.makedirs(os.path.join(triplet, "lapack"))
+            open(os.path.join(triplet, "blas", "libblas.so.3"), "wb").close()
+            open(os.path.join(triplet, "lapack", "liblapack.so.3"), "wb").close()
+
+            ensure_base_files(root)
+
+            self.assertEqual(
+                "blas/libblas.so.3",
+                os.readlink(os.path.join(triplet, "libblas.so.3")),
+            )
+            self.assertEqual(
+                "lapack/liblapack.so.3",
+                os.readlink(os.path.join(triplet, "liblapack.so.3")),
+            )
+
+    def test_leaves_the_loader_name_alone_without_an_implementation(self):
+        with tempfile.TemporaryDirectory() as root:
+            triplet = os.path.join(root, "usr", "lib", "x86_64-linux-gnu")
+            # The directory exists and holds a different implementation, so
+            # the scan had somewhere real to look and declined rather than
+            # finding nothing.
+            os.makedirs(os.path.join(triplet, "blas"))
+            open(os.path.join(triplet, "blas", "libblas.so.3.12.1"), "wb").close()
+
+            ensure_base_files(root)
+
+            self.assertTrue(
+                os.path.isfile(os.path.join(triplet, "blas", "libblas.so.3.12.1"))
+            )
+            self.assertFalse(os.path.lexists(os.path.join(triplet, "libblas.so.3")))
+
     def test_links_the_versioned_imagemagick_convert(self):
         with tempfile.TemporaryDirectory() as root:
             bindir = os.path.join(root, "usr", "bin")

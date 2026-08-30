@@ -299,6 +299,24 @@ def ensure_base_files(root: str) -> None:
         if not os.path.lexists(link) and os.path.isfile(os.path.join(bindir, target)):
             os.symlink(target, link)
 
+    # The same mechanism, one directory up rather than in bin. Debian keeps
+    # each BLAS and LAPACK implementation in a subdirectory and registers
+    # the name the loader actually looks for as an alternative beside it,
+    # so a payload-composed tree holds blas/libblas.so.3 and nothing named
+    # libblas.so.3. ldconfig does not rescue this: the subdirectory is on
+    # no search path in /etc/ld.so.conf.d.
+    #
+    # The visible cost is disproportionate to the missing symlink. numpy's
+    # extension fails to load, numpy reports it as importing from a source
+    # directory, matplotlib fails, and gcc's debian/rules2 exits before it
+    # ever invokes make.
+    for triplet in sorted(glob.glob(os.path.join(root, "usr", "lib", "*-linux-gnu*"))):
+        for subdir, name in (("blas", "libblas.so.3"), ("lapack", "liblapack.so.3")):
+            link = os.path.join(triplet, name)
+            target = os.path.join(subdir, name)
+            if not os.path.lexists(link) and os.path.isfile(os.path.join(triplet, target)):
+                os.symlink(target, link)
+
     java_bindir = os.path.join(root, "usr", "lib", "jvm", "default-java", "bin")
     if os.path.isdir(java_bindir):
         for executable in sorted(os.listdir(java_bindir)):
