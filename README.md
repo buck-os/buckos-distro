@@ -683,6 +683,21 @@ Stated plainly, because each one is load-bearing:
   answers nothing, which is worse than the absence it replaces. Reached through
   the binfmt handler, the tree's own `ldconfig` produces a populated one.
 
+  Once at assembly is necessary and not sufficient, because there are two
+  trees. The package replay composes its own: it overlays each dependency's
+  installroot on top of the seed *after* that seed's cache was built, so the
+  cache it inherits is valid for what it was built from and stale for exactly
+  the libraries the package was given. Measured in a failing `xkeyboard-config`
+  sysroot: cache present at 5607 bytes, `libxkbcommon.so.0` present, and zero
+  `xkbcommon` entries in the cache. A populated cache that omits the library
+  sitting beside it is harder to diagnose than an empty one, because the file
+  is there and looks right. The replay therefore runs `ldconfig` again after
+  the overlay, which takes that sysroot to 10323 bytes and two entries.
+
+  This is the same need the RPM per-package overlay meets by turning triggers
+  on, one paragraph above. The Debian family has no trigger to enable, so the
+  overlay does it directly.
+
 - **Backslashes in payload paths become directories, in buildroots only.**
   buck2 reserves the backslash as a path separator and cannot address a
   file whose name contains one. systemd escapes a dash in a unit name as
