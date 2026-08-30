@@ -559,6 +559,17 @@ python_test(
 # cannot represent, and putting the tree under buck-out turns that into a
 # build failure that survives deleting the file and re-arms itself on
 # `buck2 kill`.  The module docstring has the whole loop.
+# The environment a sandboxed action runs in.  Its pins were setdefault,
+# so an inherited value won and a daemon started from a shell exporting TZ
+# produced different output with nothing to say so.  See the module
+# docstring for why that outranks the PATH bug beside it.
+python_test(
+    name = "reproducible_env_test",
+    srcs = ["reproducible_env_test.py"],
+    base_module = "",
+    deps = [":_rpm"],
+)
+
 python_test(
     name = "scratch_contract_test",
     srcs = ["scratch_contract_test.py"],
