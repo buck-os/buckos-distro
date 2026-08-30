@@ -20,6 +20,11 @@ readonly IMAGE_PROVENANCE_PATH='/buckos-re-image-provenance.json'
 readonly RUNTIME_PROVENANCE_PATH='/etc/buckos-re-runtime-provenance.json'
 readonly BUILD_PROXY_PATH='/etc/buckos-re-build-proxy.env'
 readonly BUILD_PROXY_SENTINEL='buckos-sdme-proxy-transport-v1'
+readonly DEPLOYMENT_IDENTITY_PATH='/etc/nativelink/deployment.identity'
+readonly SERVICE_UNIT='nativelink.service'
+readonly SERVICE_UNIT_DIR='/etc/systemd/system'
+readonly TLS_DIRECTORY='/etc/nativelink/tls'
+readonly TLS_MIN_VALIDITY_SECONDS='86400'
 readonly TRANSACTION_SCHEMA_VERSION='1'
 readonly CONTROL_ADDRESS_WAIT_SECONDS='30'
 readonly CONTROL_ADDRESS_POLL_SECONDS='1'
@@ -41,6 +46,10 @@ zone='buckos-re'
 zone_supplied=0
 container_name=''
 control_address=''
+control_container_name=''
+control_container_name_set=0
+control_dns=''
+control_dns_set=0
 control_worker_bind_address=''
 memory=''
 cpus=''
@@ -53,9 +62,27 @@ cas_max_bytes=''
 ac_max_bytes=''
 worker_cas_max_bytes=''
 publish=0
+security_mode='plaintext'
+security_mode_set=0
 client_cidrs=''
 worker_cidrs=''
 firewall_check=''
+tls_control_chain=''
+tls_control_chain_set=0
+tls_control_key=''
+tls_control_key_set=0
+tls_control_ca=''
+tls_control_ca_set=0
+tls_reapi_client_ca=''
+tls_reapi_client_ca_set=0
+tls_worker_client_ca=''
+tls_worker_client_ca_set=0
+tls_worker_chain=''
+tls_worker_chain_set=0
+tls_worker_key=''
+tls_worker_key_set=0
+tls_worker_issuer_ca=''
+tls_worker_issuer_ca_set=0
 ubuntu_oci_archive=''
 nativelink_oci_archive=''
 ubuntu_oci_archive_set=0
@@ -71,13 +98,22 @@ systemctl_bin=''
 flock_bin=''
 sleep_bin=''
 timeout_bin=''
+openssl_bin=''
 oci_archive_tool=''
 oci_archive_metadata=''
+tls_tool=''
 cleanup_paths=()
 transaction_dir=''
 provision_lock_fd=''
 runtime_build_definition=''
 runtime_proxy_file=''
+tls_identity_json=''
+tls_helper_args=()
+tls_stage_dir=''
+expected_deployment_identity=''
+expected_deployment_identity_sha256=''
+container_snapshot_dir=''
+install_deployment_assets=0
 
 cleanup() {
     local path
@@ -111,11 +147,16 @@ Required for plan/prepare-runtime/apply:
   --data-root PATH              absolute persistent data root
 
 Required for worker plan/apply:
-  --control-address HOST        zone hostname or private/VPN address, no port
   --probe-sysroot PATH          immutable native probe sysroot
   --probe-sysroot-sha256 HEX    deterministic tree digest
   --min-scratch-bytes N         measured admission threshold
   --min-scratch-inodes N        measured admission threshold
+
+Required for plaintext worker plan/apply:
+  --control-address NAME        exact local control container name
+
+Required for mTLS plan/apply:
+  --control-dns NAME            exact DNS SAN and worker endpoint name
 
 Optional:
   --arch x86_64|aarch64        defaults to the native host architecture
@@ -127,6 +168,17 @@ Optional:
   --cas-max-bytes N            control CAS override
   --ac-max-bytes N             control action-cache override
   --worker-cas-max-bytes N     worker fast-CAS override
+  --security-mode MODE         plaintext (default) or mtls
+  --control-container-name NAME
+                               local plaintext control; default: buckos-re-control
+  --tls-control-chain PATH     control server certificate chain
+  --tls-control-key PATH       control server private key
+  --tls-control-ca PATH        control server trust anchor
+  --tls-reapi-client-ca PATH   combined Buck and worker client trust
+  --tls-worker-client-ca PATH  worker-only client trust
+  --tls-worker-chain PATH      worker client certificate chain
+  --tls-worker-key PATH        worker client private key
+  --tls-worker-issuer-ca PATH  worker client issuing trust anchor
   --ubuntu-oci-archive PATH    trusted offline Ubuntu OCI archive
   --nativelink-oci-archive PATH
                                trusted offline NativeLink OCI archive
@@ -136,8 +188,8 @@ Optional:
   --firewall-check PATH        read-only external policy verifier
   -v, --verbose
 
-Publishing requires both allowlists and a firewall/VPN checker. The script
-does not install or modify firewall policy.
+Publishing requires mTLS, both allowlists, and a firewall/VPN checker. The
+script does not install or modify firewall policy.
 EOF
 }
 
@@ -306,6 +358,19 @@ validate_control_address() {
     fi
 }
 
+validate_control_dns() {
+    reject_placeholder '--control-dns' "$control_dns"
+    [[ ${#control_dns} -le 253 ]] || die "--control-dns is too long"
+    [[ "$control_dns" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || \
+        die "--control-dns must be a canonical lowercase DNS name"
+}
+
+tls_options_supplied() {
+    ((tls_control_chain_set || tls_control_key_set || tls_control_ca_set || \
+       tls_reapi_client_ca_set || tls_worker_client_ca_set || \
+       tls_worker_chain_set || tls_worker_key_set || tls_worker_issuer_ca_set))
+}
+
 validate_cidrs() {
     local label="$1"
     local value="$2"
@@ -359,6 +424,16 @@ resolve_command() {
     printf '%s\n' "$path"
 }
 
+set_option_once() {
+    local option="$1"
+    local value_name="$2"
+    local set_name="$3"
+    local value="$4"
+    (( ${!set_name} == 0 )) || die "$option may be supplied only once"
+    printf -v "$value_name" '%s' "$value"
+    printf -v "$set_name" '%d' 1
+}
+
 parse_args() {
     (($# >= 2)) || { usage >&2; exit 2; }
     operation="$1"
@@ -381,6 +456,16 @@ parse_args() {
             --container-name) (($# >= 2)) || die "$1 needs a value"; container_name="$2"; shift 2 ;;
             --arch) (($# >= 2)) || die "$1 needs a value"; arch=$(normalize_arch "$2") || die "unsupported architecture: $2"; shift 2 ;;
             --control-address) (($# >= 2)) || die "$1 needs a value"; control_address="$2"; shift 2 ;;
+            --control-container-name)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" control_container_name control_container_name_set "$2"
+                shift 2
+                ;;
+            --control-dns)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" control_dns control_dns_set "$2"
+                shift 2
+                ;;
             --memory) (($# >= 2)) || die "$1 needs a value"; memory="$2"; shift 2 ;;
             --cpus) (($# >= 2)) || die "$1 needs a value"; cpus="$2"; shift 2 ;;
             --root-disk) (($# >= 2)) || die "$1 needs a value"; root_disk="$2"; shift 2 ;;
@@ -391,6 +476,51 @@ parse_args() {
             --cas-max-bytes) (($# >= 2)) || die "$1 needs a value"; cas_max_bytes="$2"; shift 2 ;;
             --ac-max-bytes) (($# >= 2)) || die "$1 needs a value"; ac_max_bytes="$2"; shift 2 ;;
             --worker-cas-max-bytes) (($# >= 2)) || die "$1 needs a value"; worker_cas_max_bytes="$2"; shift 2 ;;
+            --security-mode)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" security_mode security_mode_set "$2"
+                shift 2
+                ;;
+            --tls-control-chain)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" tls_control_chain tls_control_chain_set "$2"
+                shift 2
+                ;;
+            --tls-control-key)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" tls_control_key tls_control_key_set "$2"
+                shift 2
+                ;;
+            --tls-control-ca)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" tls_control_ca tls_control_ca_set "$2"
+                shift 2
+                ;;
+            --tls-reapi-client-ca)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" tls_reapi_client_ca tls_reapi_client_ca_set "$2"
+                shift 2
+                ;;
+            --tls-worker-client-ca)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" tls_worker_client_ca tls_worker_client_ca_set "$2"
+                shift 2
+                ;;
+            --tls-worker-chain)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" tls_worker_chain tls_worker_chain_set "$2"
+                shift 2
+                ;;
+            --tls-worker-key)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" tls_worker_key tls_worker_key_set "$2"
+                shift 2
+                ;;
+            --tls-worker-issuer-ca)
+                (($# >= 2)) || die "$1 needs a value"
+                set_option_once "$1" tls_worker_issuer_ca tls_worker_issuer_ca_set "$2"
+                shift 2
+                ;;
             --ubuntu-oci-archive)
                 (($# >= 2)) || die "$1 needs a value"
                 ((ubuntu_oci_archive_set == 0)) || die "$1 may be supplied only once"
@@ -417,6 +547,10 @@ parse_args() {
 }
 
 set_defaults() {
+    case "$security_mode" in
+        plaintext|mtls) ;;
+        *) die "invalid --security-mode: $security_mode" ;;
+    esac
     if [[ -z "$arch" ]]; then
         arch=$(normalize_arch "$(uname -m)") || die "unsupported native architecture: $(uname -m)"
     fi
@@ -432,17 +566,26 @@ set_defaults() {
         root_disk=${root_disk:-20G}
     else
         container_name=${container_name:-buckos-re-worker-${arch//_/-}}
+        if [[ "$security_mode" == plaintext ]]; then
+            control_container_name=${control_container_name:-buckos-re-control}
+        fi
         memory=${memory:-128G}
         cpus=${cpus:-48}
         root_disk=${root_disk:-32G}
     fi
     validate_name "$container_name"
+    if [[ -n "$control_container_name" ]]; then
+        validate_name "$control_container_name"
+    fi
     validate_size '--memory' "$memory"
     validate_cpus "$cpus"
     validate_size '--root-disk' "$root_disk"
 }
 
-validate_operation_args() {
+# Everything the option matrix can decide on its own, so that a malformed,
+# incomplete, duplicate, cross-role, or plaintext-publication request is
+# refused before any host tool is resolved or any system state is probed.
+validate_option_matrix() {
     case "$operation" in
         plan|prepare-runtime|apply)
             reject_placeholder '--data-root' "$data_root"
@@ -452,13 +595,53 @@ validate_operation_args() {
 
     if [[ "$operation" == prepare-runtime ]]; then
         [[ "$role" == worker ]] || die "prepare-runtime is valid only for the worker role"
-        if [[ -n "$container_name$control_address$memory$cpus$root_disk$probe_sysroot$probe_sysroot_sha256$min_scratch_bytes$min_scratch_inodes$cas_max_bytes$ac_max_bytes$worker_cas_max_bytes$client_cidrs$worker_cidrs$firewall_check" ]] || ((publish || zone_supplied)); then
+        if [[ -n "$container_name$control_address$memory$cpus$root_disk$probe_sysroot$probe_sysroot_sha256$min_scratch_bytes$min_scratch_inodes$cas_max_bytes$ac_max_bytes$worker_cas_max_bytes$client_cidrs$worker_cidrs$firewall_check" ]] || ((publish || zone_supplied || security_mode_set || control_container_name_set || control_dns_set)) || tls_options_supplied; then
             die "prepare-runtime accepts only --data-root, --arch, and acquisition options"
         fi
     fi
 
+    if [[ ! "$operation" =~ ^(plan|apply)$ ]]; then
+        if ((security_mode_set || control_container_name_set || control_dns_set)) || \
+           tls_options_supplied; then
+            die "security and TLS options are valid only for plan/apply"
+        fi
+    fi
+
+    if [[ "$operation" =~ ^(plan|apply)$ ]]; then
+        if [[ "$security_mode" == plaintext ]]; then
+            ((control_dns_set == 0)) || die "--control-dns requires --security-mode mtls"
+            tls_options_supplied && die "TLS credential options require --security-mode mtls"
+        else
+            validate_control_dns
+            if [[ "$role" == control ]]; then
+                ((tls_control_chain_set && tls_control_key_set && tls_control_ca_set && \
+                   tls_reapi_client_ca_set && tls_worker_client_ca_set)) || \
+                    die "mTLS control requires control chain, key, CA, REAPI client CA, and worker client CA"
+                ((tls_worker_chain_set == 0 && tls_worker_key_set == 0 && \
+                   tls_worker_issuer_ca_set == 0)) || \
+                    die "worker TLS identity options are invalid for the control role"
+            else
+                ((tls_control_ca_set && tls_worker_chain_set && tls_worker_key_set && \
+                   tls_worker_issuer_ca_set)) || \
+                    die "mTLS worker requires control CA, worker chain, key, and issuer CA"
+                ((tls_control_chain_set == 0 && tls_control_key_set == 0 && \
+                   tls_reapi_client_ca_set == 0 && tls_worker_client_ca_set == 0)) || \
+                    die "control TLS identity options are invalid for the worker role"
+            fi
+        fi
+    fi
+
     if [[ "$role" == worker && "$operation" =~ ^(plan|apply)$ ]]; then
-        validate_control_address
+        if [[ "$security_mode" == plaintext ]]; then
+            validate_control_address
+            [[ "$control_address" == "$control_container_name" ]] || \
+                die "plaintext worker --control-address must equal the local control container name"
+        else
+            [[ -z "$control_address" ]] || \
+                die "--control-address is invalid for an mTLS worker; use --control-dns"
+            ((control_container_name_set == 0)) || \
+                die "--control-container-name is invalid for an mTLS worker"
+        fi
         validate_positive_integer '--min-scratch-bytes' "$min_scratch_bytes"
         validate_nonnegative_integer '--min-scratch-inodes' "$min_scratch_inodes"
         validate_probe_root
@@ -468,11 +651,34 @@ validate_operation_args() {
         if [[ "$role" == control && -n "$control_address$probe_sysroot$probe_sysroot_sha256$min_scratch_bytes$min_scratch_inodes$worker_cas_max_bytes" ]]; then
             die "worker-only options were supplied for the control role"
         fi
+        if [[ "$role" == control ]] && ((control_container_name_set)); then
+            die "--control-container-name is valid only for a plaintext worker"
+        fi
         if [[ "$role" == worker && -n "$cas_max_bytes$ac_max_bytes" ]]; then
             die "control-only cache options were supplied for the worker role"
         fi
     fi
 
+    if [[ ! "$operation" =~ ^(plan|prepare-runtime|apply)$ ]] && \
+       ((ubuntu_oci_archive_set || nativelink_oci_archive_set)); then
+        die "local OCI archive options are valid only for plan/prepare-runtime/apply"
+    fi
+
+    if [[ -n "$cas_max_bytes" ]]; then validate_positive_integer '--cas-max-bytes' "$cas_max_bytes"; fi
+    if [[ -n "$ac_max_bytes" ]]; then validate_positive_integer '--ac-max-bytes' "$ac_max_bytes"; fi
+    if [[ -n "$worker_cas_max_bytes" ]]; then validate_positive_integer '--worker-cas-max-bytes' "$worker_cas_max_bytes"; fi
+
+    if ((publish)); then
+        [[ "$role" == control ]] || die "--publish is valid only for the control role"
+        [[ "$security_mode" == mtls ]] || die "--publish requires --security-mode mtls"
+    elif [[ -n "$client_cidrs$worker_cidrs$firewall_check" ]]; then
+        die "firewall options require --publish"
+    fi
+}
+
+# Checks that need a resolved interpreter or that read host state. These run
+# only once the option matrix above has been accepted.
+validate_operation_environment() {
     if [[ "$operation" =~ ^(plan|prepare-runtime|apply)$ ]]; then
         if ((ubuntu_oci_archive_set)); then
             [[ -n "$ubuntu_oci_archive" ]] || die "--ubuntu-oci-archive must not be empty"
@@ -486,30 +692,26 @@ validate_operation_args() {
             path_is_beneath "$nativelink_oci_archive" "$data_root" && \
                 die "--nativelink-oci-archive must be outside --data-root"
         fi
-    elif ((ubuntu_oci_archive_set || nativelink_oci_archive_set)); then
-        die "local OCI archive options are valid only for plan/prepare-runtime/apply"
     fi
 
-    if [[ -n "$cas_max_bytes" ]]; then validate_positive_integer '--cas-max-bytes' "$cas_max_bytes"; fi
-    if [[ -n "$ac_max_bytes" ]]; then validate_positive_integer '--ac-max-bytes' "$ac_max_bytes"; fi
-    if [[ -n "$worker_cas_max_bytes" ]]; then validate_positive_integer '--worker-cas-max-bytes' "$worker_cas_max_bytes"; fi
-
     if ((publish)); then
-        [[ "$role" == control ]] || die "--publish is valid only for the control role"
         validate_cidrs '--client-cidrs' "$client_cidrs"
         validate_cidrs '--worker-cidrs' "$worker_cidrs"
         firewall_check=$(validate_safe_file '--firewall-check' "$firewall_check")
         [[ -x "$firewall_check" ]] || die "firewall checker is not executable: $firewall_check"
-    elif [[ -n "$client_cidrs$worker_cidrs$firewall_check" ]]; then
-        die "firewall options require --publish"
     fi
 
-    if [[ "$operation" =~ ^(prepare-runtime|apply)$ ]]; then
+    if [[ "$operation" =~ ^(prepare-runtime|apply)$ || \
+          ( "$operation" == plan && "$security_mode" == mtls ) ]]; then
         local native
-        native=$(normalize_arch "$(uname -m)") || die "unsupported native architecture: $(uname -m)"
-        [[ "$arch" == "$native" ]] || die "$operation requires a native $arch host; this host is $native"
+        if [[ "$operation" != plan ]]; then
+            native=$(normalize_arch "$(uname -m)") || die "unsupported native architecture: $(uname -m)"
+            [[ "$arch" == "$native" ]] || die "$operation requires a native $arch host; this host is $native"
+        fi
         ((EUID == 0)) || die "$operation must run as root"
-        validate_apply_path_ancestry
+        if [[ "$operation" != plan ]]; then
+            validate_apply_path_ancestry
+        fi
     fi
 }
 
@@ -529,6 +731,91 @@ if actual != expected:
 if data.get("image", {}).get("version") != "v1.6.6":
     raise SystemExit("NativeLink metadata version is not v1.6.6")
 PY
+}
+
+# The only place that decides which tracked NativeLink config a role,
+# architecture, and security mode uses. The name comes from the validated
+# deployment metadata; nothing else in this script names a config file.
+deployment_config_basename() {
+    local target_role="$1"
+    local target_arch="$2"
+    local target_mode="$3"
+    local metadata selected
+    validate_runtime_metadata
+    metadata=$(validate_safe_file 'NativeLink deployment metadata' \
+        "$asset_root/nativelink/deployment.json")
+    selected=$("$python_bin" - "$metadata" "$target_role" "$target_arch" "$target_mode" 2>&1 <<'PY'
+import json
+import sys
+
+path, role, architecture, mode = sys.argv[1:]
+try:
+    with open(path, encoding="utf-8") as stream:
+        data = json.load(stream)
+except (OSError, ValueError) as error:
+    raise SystemExit("cannot read NativeLink deployment metadata: {}".format(error))
+configs = data.get("configs")
+if not isinstance(configs, dict):
+    raise SystemExit("NativeLink deployment metadata has no config mapping")
+if mode == "mtls":
+    configs = configs.get("mtls")
+    if not isinstance(configs, dict):
+        raise SystemExit("NativeLink deployment metadata has no mTLS config mapping")
+if role == "control":
+    selected = configs.get("control")
+else:
+    workers = configs.get("workers")
+    if not isinstance(workers, dict):
+        raise SystemExit("NativeLink deployment metadata has no worker config mapping")
+    selected = workers.get(architecture)
+if not isinstance(selected, str) or not selected:
+    raise SystemExit(
+        "NativeLink deployment metadata selects no {} {} config".format(mode, role)
+    )
+if (
+    selected in (".", "..")
+    or "/" in selected
+    or "\0" in selected
+    or selected != selected.strip()
+):
+    raise SystemExit("NativeLink deployment config name is not a plain basename")
+print(selected)
+PY
+    ) || die "$selected"
+    # Re-assert the basename shape here so that nothing but a plain tracked
+    # config name can reach path construction.
+    [[ "$selected" =~ ^[A-Za-z0-9._-]+$ && "$selected" != . && "$selected" != .. ]] || \
+        die "NativeLink deployment config name is not a plain basename"
+    printf '%s\n' "$selected"
+}
+
+# Bind a selected basename to the exact tracked file, refusing any escape or
+# symlink substitution before the caller can hash, print, or install it.
+resolve_deployment_config() {
+    local selected="$1"
+    local nativelink_dir candidate resolved
+    nativelink_dir=$(realpath -e -- "$asset_root/nativelink") || \
+        die "tracked NativeLink directory does not exist"
+    candidate="$nativelink_dir/$selected"
+    [[ ! -L "$candidate" ]] || \
+        die "selected NativeLink config is a symlink: $selected"
+    [[ -f "$candidate" ]] || \
+        die "selected NativeLink config is not a regular file: $selected"
+    resolved=$(realpath -e -- "$candidate") || \
+        die "cannot resolve selected NativeLink config: $selected"
+    [[ "$resolved" == "$candidate" ]] || \
+        die "selected NativeLink config escapes the tracked directory: $selected"
+    validate_safe_file 'selected NativeLink config' "$resolved" >/dev/null
+    printf '%s\n' "$resolved"
+}
+
+select_security_profile() {
+    local target_role="$1"
+    local target_arch="$2"
+    local target_mode="$3"
+    local selected
+    selected=$(deployment_config_basename "$target_role" "$target_arch" "$target_mode")
+    resolve_deployment_config "$selected"
 }
 
 validate_oci_archive_metadata() {
@@ -564,10 +851,14 @@ validate_assets() {
         "$asset_root/sdme/offline-oci-archives.json"
         "$asset_root/nativelink/nativelink.service"
         "$asset_root/nativelink/control.json5"
+        "$asset_root/nativelink/control-mtls.json5"
         "$asset_root/nativelink/worker-x86_64.json5"
+        "$asset_root/nativelink/worker-x86_64-mtls.json5"
         "$asset_root/nativelink/worker-aarch64.json5"
+        "$asset_root/nativelink/worker-aarch64-mtls.json5"
         "$asset_root/sdme/worker-rootfs.sdme"
         "$asset_root/scripts/sdme_select_address.py"
+        "$asset_root/scripts/sdme_tls.py"
         "$asset_root/scripts/oci_archive.py"
         "$repo_root/tools/nativelink_config.py"
     )
@@ -587,6 +878,7 @@ validate_assets() {
     if [[ "$role" == worker && ! -x "$asset_root/scripts/preflight-worker.sh" ]]; then
         die "worker preflight wrapper is not executable"
     fi
+    [[ -x "$tls_tool" ]] || die "mTLS credential helper is not executable"
     validate_metadata
 }
 
@@ -631,8 +923,12 @@ prepare_tools() {
             timeout_bin=$(resolve_command timeout)
         fi
     fi
+    if [[ "$security_mode" == mtls && "$operation" =~ ^(plan|apply)$ ]]; then
+        openssl_bin=$(resolve_command openssl)
+    fi
     oci_archive_tool="$asset_root/scripts/oci_archive.py"
     oci_archive_metadata="$asset_root/sdme/offline-oci-archives.json"
+    tls_tool="$asset_root/scripts/sdme_tls.py"
 }
 
 validate_host_prerequisites() {
@@ -654,12 +950,11 @@ role_paths() {
     if [[ "$role" == control ]]; then
         state_dir="$data_root/control"
         scratch_dir=''
-        config_file="$asset_root/nativelink/control.json5"
     else
         state_dir="$data_root/worker-$arch/state"
         scratch_dir="$data_root/worker-$arch/scratch"
-        config_file="$asset_root/nativelink/worker-${arch}.json5"
     fi
+    config_file=$(select_security_profile "$role" "$arch" "$security_mode")
     unit_file="$asset_root/nativelink/nativelink.service"
     env_file="$provision_dir/${container_name}.env"
 }
@@ -674,13 +969,58 @@ emit_environment() {
         if [[ -n "$cas_max_bytes" ]]; then printf 'NATIVELINK_CAS_MAX_BYTES=%s\n' "$cas_max_bytes"; fi
         if [[ -n "$ac_max_bytes" ]]; then printf 'NATIVELINK_AC_MAX_BYTES=%s\n' "$ac_max_bytes"; fi
     else
-        printf 'NATIVELINK_REAPI_ADDRESS=%s\n' "$control_address"
-        printf 'NATIVELINK_WORKER_API_ADDRESS=%s\n' "$control_address"
+        if [[ "$security_mode" == mtls ]]; then
+            printf 'NATIVELINK_CONTROL_DNS=%s\n' "$control_dns"
+        else
+            printf 'NATIVELINK_REAPI_ADDRESS=%s\n' "$control_address"
+            printf 'NATIVELINK_WORKER_API_ADDRESS=%s\n' "$control_address"
+        fi
         printf 'BUCKOS_RE_WORKER_ARCH=%s\n' "$arch"
         printf 'BUCKOS_RE_MIN_SCRATCH_BYTES=%s\n' "$min_scratch_bytes"
         printf 'BUCKOS_RE_MIN_SCRATCH_INODES=%s\n' "$min_scratch_inodes"
         if [[ -n "$worker_cas_max_bytes" ]]; then printf 'NATIVELINK_WORKER_CAS_MAX_BYTES=%s\n' "$worker_cas_max_bytes"; fi
     fi
+}
+
+set_tls_helper_arguments() {
+    tls_helper_args=(
+        "$python_bin"
+        "$tls_tool"
+        --openssl "$openssl_bin"
+        --role "$role"
+        --control-dns "$control_dns"
+        --minimum-validity-seconds "$TLS_MIN_VALIDITY_SECONDS"
+        # Credential sources must live outside anything this deployment owns
+        # or rewrites, so neither the checkout nor the managed data root may
+        # supply them.
+        --exclude-root "$repo_root"
+        --exclude-root "$data_root"
+        --tls-control-ca "$tls_control_ca"
+    )
+    if [[ "$role" == control ]]; then
+        tls_helper_args+=(
+            --tls-control-chain "$tls_control_chain"
+            --tls-control-key "$tls_control_key"
+            --tls-reapi-client-ca "$tls_reapi_client_ca"
+            --tls-worker-client-ca "$tls_worker_client_ca"
+        )
+    else
+        tls_helper_args+=(
+            --tls-worker-chain "$tls_worker_chain"
+            --tls-worker-key "$tls_worker_key"
+            --tls-worker-issuer-ca "$tls_worker_issuer_ca"
+        )
+    fi
+    if ((verbose)); then tls_helper_args+=(-v); fi
+}
+
+validate_tls_credentials() {
+    [[ "$security_mode" == mtls ]] || return 0
+    set_tls_helper_arguments
+    if ! tls_identity_json=$(run_command "${tls_helper_args[@]}"); then
+        die "mTLS credential validation failed"
+    fi
+    [[ -n "$tls_identity_json" ]] || die "mTLS credential validation returned no identity"
 }
 
 run_oci_archive_tool() {
@@ -781,6 +1121,7 @@ plan_commands() {
     local platform
     platform=$(oci_arch "$arch")
     printf '# Native architecture: %s\n' "$arch"
+    printf '# NativeLink security mode: %s\n' "$security_mode"
     printf '# Existing matching filesystems and containers are reused. Mismatched containers are refused.\n'
     if [[ "$role" == worker ]]; then
         printf '# Fresh worker bootstrap sequence:\n'
@@ -810,12 +1151,26 @@ plan_commands() {
             --memory "$memory"
             --cpus "$cpus"
             --root-disk "$root_disk"
-            --control-address "$control_address"
+            --security-mode "$security_mode"
             --probe-sysroot "$probe_sysroot"
             --probe-sysroot-sha256 "$probe_sysroot_sha256"
             --min-scratch-bytes "$min_scratch_bytes"
             --min-scratch-inodes "$min_scratch_inodes"
         )
+        if [[ "$security_mode" == mtls ]]; then
+            worker_apply+=(
+                --control-dns "$control_dns"
+                --tls-control-ca "$tls_control_ca"
+                --tls-worker-chain "$tls_worker_chain"
+                --tls-worker-key "$tls_worker_key"
+                --tls-worker-issuer-ca "$tls_worker_issuer_ca"
+            )
+        else
+            worker_apply+=(
+                --control-address "$control_address"
+                --control-container-name "$control_container_name"
+            )
+        fi
         if [[ -n "$worker_cas_max_bytes" ]]; then
             worker_apply+=(--worker-cas-max-bytes "$worker_cas_max_bytes")
         fi
@@ -862,8 +1217,7 @@ plan_commands() {
             --worker-cidrs "$worker_cidrs"
     fi
 
-    printf '# Write %s with mode 0600 and the following contents:\n' "$env_file"
-    emit_environment | sed 's/^/#   /'
+    printf '# Write the generated environment to %s with mode 0600; contents are not printed.\n' "$env_file"
 
     local create=(
         sdme create
@@ -896,6 +1250,11 @@ plan_commands() {
         )
     fi
     print_command "${create[@]}"
+    if [[ "$security_mode" == mtls ]]; then
+        printf '# Validate, stage, and atomically publish the role-specific credentials at %s without printing their contents.\n' "$TLS_DIRECTORY"
+    else
+        printf '# Require %s to be absent.\n' "$TLS_DIRECTORY"
+    fi
     print_command sdme cp "$config_file" "$container_name:/etc/nativelink/$(basename -- "$config_file")"
     print_command sdme cp "$unit_file" "$container_name:/etc/systemd/system/nativelink.service"
     print_command sdme cp "$env_file" "$container_name:/etc/nativelink/nativelink.env"
@@ -913,7 +1272,7 @@ plan_commands() {
     fi
     print_command sdme start "$container_name"
     if [[ "$role" == control ]]; then
-        printf '# Discover the running container zone address, preferring RFC1918/ULA over link-local, write it as NATIVELINK_WORKER_BIND_ADDRESS, and recopy %s.\n' "$env_file"
+        printf '# Discover the running container zone address, preferring RFC1918/ULA over link-local, and rewrite %s without printing its contents.\n' "$env_file"
         print_command sdme cp "$env_file" "$container_name:/etc/nativelink/nativelink.env"
     fi
     if [[ "$role" == control ]]; then
@@ -921,6 +1280,7 @@ plan_commands() {
     else
         print_command sdme exec "$container_name" --user root -- install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "/var/lib/nativelink/worker-$arch" /var/tmp
     fi
+    printf '# Atomically publish %s after all deployment assets are complete.\n' "$DEPLOYMENT_IDENTITY_PATH"
     print_command sdme exec "$container_name" --user root -- systemctl daemon-reload
     print_command sdme exec "$container_name" --user root -- systemctl enable nativelink.service
     print_command sdme exec "$container_name" --user root -- systemctl restart nativelink.service
@@ -993,15 +1353,7 @@ raise SystemExit(1)
 ' "$name"
 }
 
-container_status() {
-    local record
-    local result
-    if record=$(container_record "$1"); then
-        :
-    else
-        result=$?
-        return "$result"
-    fi
+record_status() {
     "$python_bin" -c '
 import json
 import sys
@@ -1015,7 +1367,19 @@ if not isinstance(status, str):
     print("invalid SDME container status", file=sys.stderr)
     raise SystemExit(2)
 print(status)
-' "$record"
+' "$1"
+}
+
+container_status() {
+    local record
+    local result
+    if record=$(container_record "$1"); then
+        :
+    else
+        result=$?
+        return "$result"
+    fi
+    record_status "$record"
 }
 
 generate_archive_provenance() {
@@ -1978,6 +2342,327 @@ write_environment_file() {
     mv -- "$temporary" "$env_file"
 }
 
+file_sha256() {
+    "$sha256_bin" "$1" | awk '{print $1}'
+}
+
+deployment_topology_identity() {
+    transaction_identity \
+        "runtime=$RUNTIME_FS" \
+        "role=$role" \
+        "architecture=$arch" \
+        "security_mode=$security_mode" \
+        "zone=$zone" \
+        "container=$container_name" \
+        "memory=$memory" \
+        "cpus=$cpus" \
+        "root_disk=$root_disk" \
+        "publish=$publish" \
+        "state=$state_dir" \
+        "scratch=$scratch_dir" \
+        "probe=$probe_sysroot" \
+        "probe_sha256=$probe_sysroot_sha256" \
+        "control_address=$control_address" \
+        "control_dns=$control_dns" \
+        "cas_max_bytes=$cas_max_bytes" \
+        "ac_max_bytes=$ac_max_bytes" \
+        "worker_cas_max_bytes=$worker_cas_max_bytes" \
+        "min_scratch_bytes=$min_scratch_bytes" \
+        "min_scratch_inodes=$min_scratch_inodes"
+}
+
+emit_deployment_identity() {
+    local config_sha256 unit_sha256 tls_identity_sha256 topology_sha256
+    config_sha256=$(file_sha256 "$config_file")
+    unit_sha256=$(file_sha256 "$unit_file")
+    topology_sha256=$(deployment_topology_identity)
+    if [[ "$security_mode" == mtls ]]; then
+        tls_identity_sha256=$(printf '%s' "$tls_identity_json" | "$sha256_bin" | awk '{print $1}')
+    else
+        tls_identity_sha256='none'
+    fi
+    printf '%s\n' \
+        'schema_version=1' \
+        "role=$role" \
+        "architecture=$arch" \
+        "security_mode=$security_mode" \
+        "zone=$zone" \
+        "container_name=$container_name" \
+        "config_basename=$(basename -- "$config_file")" \
+        "config_sha256=$config_sha256" \
+        "unit_sha256=$unit_sha256" \
+        "control_dns=${control_dns:-none}" \
+        "tls_identity_sha256=$tls_identity_sha256" \
+        "topology_sha256=$topology_sha256"
+}
+
+prepare_deployment_identity() {
+    local arguments
+    if [[ "$security_mode" == mtls ]]; then
+        tls_stage_dir=$(mktemp -d "$provision_dir/tls-stage.XXXXXX")
+        cleanup_paths+=("$tls_stage_dir")
+        chmod 0700 "$tls_stage_dir"
+        arguments=("${tls_helper_args[@]}" --stage-dir "$tls_stage_dir")
+        if ! tls_identity_json=$(run_command "${arguments[@]}"); then
+            die "mTLS credential staging failed"
+        fi
+    fi
+    expected_deployment_identity=$(mktemp "$provision_dir/deployment-identity.XXXXXX")
+    cleanup_paths+=("$expected_deployment_identity")
+    emit_deployment_identity > "$expected_deployment_identity"
+    chmod 0600 "$expected_deployment_identity"
+    expected_deployment_identity_sha256=$(file_sha256 "$expected_deployment_identity")
+}
+
+prepare_deployment_transaction() {
+    if transaction_record_exists deployment "$container_name"; then
+        transaction_record_matches deployment "$container_name" \
+            "$expected_deployment_identity_sha256" \
+            "$expected_deployment_identity_sha256" \
+            "$security_mode" installing
+    else
+        write_transaction_record deployment "$container_name" \
+            "$expected_deployment_identity_sha256" \
+            "$expected_deployment_identity_sha256" \
+            "$security_mode" installing
+    fi
+}
+
+validate_snapshot_file() {
+    local label="$1"
+    local path="$2"
+    local expected_mode="$3"
+    local expected_uid="$4"
+    local expected_gid="$5"
+    local metadata
+    [[ -f "$path" && ! -L "$path" ]] || die "$label is not a regular file"
+    metadata=$(stat -c '%a:%u:%g:%h' -- "$path")
+    [[ "$metadata" == "$expected_mode:$expected_uid:$expected_gid:1" ]] || \
+        die "$label ownership, mode, or hard-link count is wrong"
+}
+
+snapshot_container_assets() {
+    container_snapshot_dir=$(mktemp -d "$provision_dir/container-assets.XXXXXX")
+    cleanup_paths+=("$container_snapshot_dir")
+    if ! query_sdme cp "$container_name:/etc/nativelink" "$container_snapshot_dir" >/dev/null; then
+        die "could not inspect installed NativeLink assets"
+    fi
+}
+
+validate_installed_tls() {
+    local service_gid="$1"
+    local installed_dir="$container_snapshot_dir/nativelink/tls"
+    local arguments=(
+        "${tls_helper_args[@]}"
+        --installed-dir "$installed_dir"
+        --service-gid "$service_gid"
+    )
+    run_command "${arguments[@]}" >/dev/null || \
+        die "installed mTLS credentials do not match this invocation"
+}
+
+# Complete verification of the still-private staging tree. The single rename
+# that publishes the TLS directory may only happen after this passes.
+validate_staged_tls() {
+    local service_gid="$1"
+    local remote_stage="$2"
+    local snapshot staged
+    [[ "$remote_stage" == "$TLS_DIRECTORY-${expected_deployment_identity_sha256:0:16}.tmp" ]] || \
+        die "mTLS staging directory is not the transaction-owned path"
+    snapshot=$(mktemp -d "$provision_dir/tls-stage-check.XXXXXX")
+    cleanup_paths+=("$snapshot")
+    if ! query_sdme cp "$container_name:$remote_stage" "$snapshot" >/dev/null; then
+        die "could not inspect the staged mTLS credentials"
+    fi
+    staged="$snapshot/$(basename -- "$remote_stage")"
+    run_command "${tls_helper_args[@]}" \
+        --installed-dir "$staged" --service-gid "$service_gid" >/dev/null || \
+        die "staged mTLS credentials do not match this invocation"
+    rm -rf -- "$snapshot"
+}
+
+validate_complete_deployment() {
+    local service_identity="$1"
+    local service_gid="${service_identity#*:}"
+    local installed_root identity installed_config installed_unit
+    local other_basename other_config other_mode
+    snapshot_container_assets
+    installed_root="$container_snapshot_dir/nativelink"
+    identity="$installed_root/$(basename -- "$DEPLOYMENT_IDENTITY_PATH")"
+    [[ -e "$identity" || -L "$identity" ]] || return 1
+    validate_snapshot_file 'installed deployment identity' "$identity" 600 0 0
+    cmp -s -- "$expected_deployment_identity" "$identity" || \
+        die "existing container deployment identity does not match this invocation"
+
+    installed_config="$installed_root/$(basename -- "$config_file")"
+    validate_snapshot_file 'installed NativeLink config' "$installed_config" 644 0 0
+    cmp -s -- "$config_file" "$installed_config" || \
+        die "installed NativeLink config does not match this invocation"
+    if ! query_sdme cp "$container_name:/etc/systemd/system/nativelink.service" \
+        "$container_snapshot_dir" >/dev/null; then
+        die "could not inspect installed NativeLink service unit"
+    fi
+    installed_unit="$container_snapshot_dir/nativelink.service"
+    validate_snapshot_file 'installed NativeLink service unit' "$installed_unit" 644 0 0
+    cmp -s -- "$unit_file" "$installed_unit" || \
+        die "installed NativeLink service unit does not match this invocation"
+
+    if [[ "$security_mode" == mtls ]]; then
+        validate_installed_tls "$service_gid"
+        other_mode=plaintext
+    else
+        [[ ! -e "$installed_root/tls" && ! -L "$installed_root/tls" ]] || \
+            die "plaintext container contains unexpected TLS credentials"
+        other_mode=mtls
+    fi
+    other_basename=$(deployment_config_basename "$role" "$arch" "$other_mode")
+    other_config="$installed_root/$other_basename"
+    [[ ! -e "$other_config" && ! -L "$other_config" ]] || \
+        die "existing container contains a config for another security mode"
+}
+
+# An identity-less container may be resumed only while NativeLink is provably
+# neither enabled nor active. Enablement is read from the container's own
+# systemd tree, which is decisive whether or not the container is running and
+# never starts the service. A running container is additionally asked for its
+# live unit state. Any missing or unrecognized evidence refuses the resume.
+require_quiescent_nativelink() {
+    local status="$1"
+    local snapshot installed_units enablement state
+    snapshot=$(mktemp -d "$provision_dir/service-state.XXXXXX")
+    cleanup_paths+=("$snapshot")
+    query_sdme cp "$container_name:$SERVICE_UNIT_DIR" "$snapshot" >/dev/null || \
+        die "could not inspect NativeLink enablement in $container_name"
+    installed_units="$snapshot/$(basename -- "$SERVICE_UNIT_DIR")"
+    if ! enablement=$("$python_bin" - "$installed_units" "$SERVICE_UNIT" 2>&1 <<'PY'
+import pathlib
+import sys
+
+root, unit = sys.argv[1:]
+base = pathlib.Path(root)
+if base.is_symlink() or not base.is_dir():
+    raise SystemExit("installed systemd state is missing")
+enabled_in = []
+for entry in sorted(base.iterdir()):
+    if entry.suffix not in (".wants", ".requires", ".upholds"):
+        continue
+    if entry.is_symlink() or not entry.is_dir():
+        continue
+    candidate = entry / unit
+    if candidate.is_symlink() or candidate.exists():
+        enabled_in.append(entry.name)
+if enabled_in:
+    raise SystemExit("NativeLink is enabled through {}".format(", ".join(enabled_in)))
+PY
+    ); then
+        die "${enablement:-could not inspect NativeLink enablement}: $container_name"
+    fi
+
+    if [[ "$status" == running ]]; then
+        state=$(query_sdme exec "$container_name" --user root -- \
+            systemctl is-active "$SERVICE_UNIT") || true
+        state=${state//[$'\r\n']/}
+        case "$state" in
+            inactive|unknown) ;;
+            '') die "could not determine the NativeLink runtime state in $container_name" ;;
+            *) die "NativeLink is $state in $container_name; recreate the container instead" ;;
+        esac
+        if [[ -f "$installed_units/$SERVICE_UNIT" && ! -L "$installed_units/$SERVICE_UNIT" ]]; then
+            state=$(query_sdme exec "$container_name" --user root -- \
+                systemctl is-enabled "$SERVICE_UNIT") || true
+            state=${state//[$'\r\n']/}
+            case "$state" in
+                disabled|static|masked|indirect) ;;
+                '') die "could not determine the NativeLink enablement state in $container_name" ;;
+                *) die "NativeLink is $state in $container_name; recreate the container instead" ;;
+            esac
+        fi
+    fi
+    rm -rf -- "$snapshot"
+}
+
+validate_local_plaintext_control() {
+    [[ "$role" == worker && "$security_mode" == plaintext ]] || return 0
+    local record result temporary identity config_sha256
+    local control_config control_basename
+    control_config=$(select_security_profile control "$arch" plaintext)
+    control_basename=$(basename -- "$control_config")
+    if record=$(container_record "$control_container_name"); then
+        :
+    else
+        result=$?
+        ((result == 1)) && die "local plaintext control container not found: $control_container_name"
+        die "could not inspect local plaintext control container: $control_container_name"
+    fi
+    "$python_bin" - "$record" "$control_container_name" "$zone" "$RUNTIME_FS" <<'PY'
+import json
+import sys
+
+record = json.loads(sys.argv[1])
+name, zone, rootfs = sys.argv[2:]
+network = record.get("network") or {}
+errors = []
+if record.get("name") != name:
+    errors.append("name")
+if record.get("rootfs") != rootfs:
+    errors.append("rootfs")
+if record.get("status") != "running":
+    errors.append("status")
+if not network.get("private_network"):
+    errors.append("private network")
+if network.get("network_zone") != zone:
+    errors.append("zone")
+if network.get("ports"):
+    errors.append("published ports")
+if errors:
+    raise SystemExit(
+        "local plaintext control topology mismatch: {}".format(", ".join(errors))
+    )
+PY
+    temporary=$(mktemp -d "$provision_dir/local-control.XXXXXX")
+    cleanup_paths+=("$temporary")
+    if ! query_sdme cp "$control_container_name:/etc/nativelink" \
+        "$temporary" >/dev/null; then
+        die "local plaintext control lacks a deployment identity"
+    fi
+    identity="$temporary/nativelink/$(basename -- "$DEPLOYMENT_IDENTITY_PATH")"
+    validate_snapshot_file 'local plaintext control identity' "$identity" 600 0 0
+    config_sha256=$(file_sha256 "$control_config")
+    "$python_bin" - "$identity" "$control_container_name" "$zone" "$config_sha256" \
+        "$control_basename" <<'PY'
+import sys
+
+path, name, zone, config_sha256, config_basename = sys.argv[1:]
+expected = {
+    "schema_version": "1",
+    "role": "control",
+    "security_mode": "plaintext",
+    "zone": zone,
+    "container_name": name,
+    "config_basename": config_basename,
+    "config_sha256": config_sha256,
+    "control_dns": "none",
+    "tls_identity_sha256": "none",
+}
+record = {}
+with open(path, encoding="utf-8") as stream:
+    for line in stream:
+        key, separator, value = line.rstrip("\n").partition("=")
+        if not separator or not key or not value or key in record:
+            raise SystemExit("local plaintext control deployment identity is malformed")
+        record[key] = value
+for key, value in expected.items():
+    if record.get(key) != value:
+        raise SystemExit("local plaintext control deployment identity mismatch: {}".format(key))
+PY
+    validate_snapshot_file 'local plaintext control config' \
+        "$temporary/nativelink/$control_basename" 644 0 0
+    cmp -s -- "$control_config" "$temporary/nativelink/$control_basename" || \
+        die "local plaintext control config does not match the tracked config"
+    [[ ! -e "$temporary/nativelink/tls" && ! -L "$temporary/nativelink/tls" ]] || \
+        die "local plaintext control contains unexpected TLS credentials"
+}
+
 validate_existing_container() {
     local record="$1"
     local expected_ports='none'
@@ -2059,10 +2744,61 @@ create_container() {
     run_sdme "${create[@]}"
 }
 
+install_tls_credentials() {
+    local service_identity="$1"
+    local service_gid="${service_identity#*:}"
+    local remote_stage="$TLS_DIRECTORY-${expected_deployment_identity_sha256:0:16}.tmp"
+    local files=()
+    local remote_files=()
+    if [[ "$security_mode" == plaintext ]]; then
+        if [[ -n "$container_snapshot_dir" && \
+              ( -e "$container_snapshot_dir/nativelink/tls" || \
+                -L "$container_snapshot_dir/nativelink/tls" ) ]]; then
+            die "plaintext container contains unexpected TLS credentials"
+        fi
+        run_sdme exec "$container_name" --user root -- test ! -e "$TLS_DIRECTORY"
+        return
+    fi
+
+    if [[ -n "$container_snapshot_dir" && \
+          ( -e "$container_snapshot_dir/nativelink/tls" || \
+            -L "$container_snapshot_dir/nativelink/tls" ) ]]; then
+        validate_installed_tls "$service_gid"
+        return
+    fi
+
+    if [[ "$role" == control ]]; then
+        files=(control-chain.pem control-key.pem reapi-client-ca.pem worker-client-ca.pem)
+    else
+        files=(control-ca.pem worker-chain.pem worker-key.pem)
+    fi
+    run_sdme exec "$container_name" --user root -- rm -rf -- "$remote_stage"
+    run_sdme exec "$container_name" --user root -- \
+        install -d -m 0700 -o root -g root "$remote_stage"
+    local file
+    for file in "${files[@]}"; do
+        run_sdme cp "$tls_stage_dir/$file" "$container_name:$remote_stage/$file"
+        remote_files+=("$remote_stage/$file")
+    done
+    run_sdme exec "$container_name" --user root -- \
+        chown "root:$SERVICE_USER" "${remote_files[@]}"
+    run_sdme exec "$container_name" --user root -- \
+        chmod 0440 "${remote_files[@]}"
+    run_sdme exec "$container_name" --user root -- \
+        chown "root:$SERVICE_USER" "$remote_stage"
+    run_sdme exec "$container_name" --user root -- chmod 0750 "$remote_stage"
+    validate_staged_tls "$service_gid" "$remote_stage"
+    run_sdme exec "$container_name" --user root -- test ! -e "$TLS_DIRECTORY"
+    run_sdme exec "$container_name" --user root -- \
+        mv -T -- "$remote_stage" "$TLS_DIRECTORY"
+
+    snapshot_container_assets
+    validate_installed_tls "$service_gid"
+}
+
 copy_assets() {
     run_sdme cp "$config_file" "$container_name:/etc/nativelink/$(basename -- "$config_file")"
     run_sdme cp "$unit_file" "$container_name:/etc/systemd/system/nativelink.service"
-    run_sdme cp "$env_file" "$container_name:/etc/nativelink/nativelink.env"
     if [[ "$role" == worker ]]; then
         run_sdme cp "$asset_root/sdme/worker-preflight.conf" \
             "$container_name:/etc/systemd/system/nativelink.service.d/10-worker-preflight.conf"
@@ -2075,6 +2811,51 @@ copy_assets() {
         run_sdme cp "$repo_root/tools/_rpm.py" \
             "$container_name:/usr/local/libexec/buckos-re/tools/_rpm.py"
     fi
+    run_sdme exec "$container_name" --user root -- \
+        chown root:root \
+        "/etc/nativelink/$(basename -- "$config_file")" \
+        /etc/systemd/system/nativelink.service
+    run_sdme exec "$container_name" --user root -- \
+        chmod 0644 \
+        "/etc/nativelink/$(basename -- "$config_file")" \
+        /etc/systemd/system/nativelink.service
+    if [[ "$role" == worker ]]; then
+        run_sdme exec "$container_name" --user root -- \
+            chown root:root \
+            /etc/systemd/system/nativelink.service.d/10-worker-preflight.conf \
+            /usr/local/libexec/buckos-re/preflight-worker.sh \
+            /usr/local/libexec/buckos-re/preflight_worker.py \
+            /usr/local/libexec/buckos-re/tools/_isolation.py \
+            /usr/local/libexec/buckos-re/tools/_rpm.py
+        run_sdme exec "$container_name" --user root -- \
+            chmod 0644 \
+            /etc/systemd/system/nativelink.service.d/10-worker-preflight.conf \
+            /usr/local/libexec/buckos-re/preflight_worker.py \
+            /usr/local/libexec/buckos-re/tools/_isolation.py \
+            /usr/local/libexec/buckos-re/tools/_rpm.py
+        run_sdme exec "$container_name" --user root -- \
+            chmod 0755 /usr/local/libexec/buckos-re/preflight-worker.sh
+    fi
+}
+
+copy_environment() {
+    run_sdme cp "$env_file" "$container_name:/etc/nativelink/nativelink.env"
+    run_sdme exec "$container_name" --user root -- \
+        chown root:root /etc/nativelink/nativelink.env
+    run_sdme exec "$container_name" --user root -- \
+        chmod 0600 /etc/nativelink/nativelink.env
+}
+
+publish_deployment_identity() {
+    local remote_temporary="${DEPLOYMENT_IDENTITY_PATH}.${expected_deployment_identity_sha256:0:16}.tmp"
+    run_sdme exec "$container_name" --user root -- rm -f -- "$remote_temporary"
+    run_sdme cp "$expected_deployment_identity" "$container_name:$remote_temporary"
+    run_sdme exec "$container_name" --user root -- \
+        chown root:root "$remote_temporary"
+    run_sdme exec "$container_name" --user root -- chmod 0600 "$remote_temporary"
+    run_sdme exec "$container_name" --user root -- test ! -e "$DEPLOYMENT_IDENTITY_PATH"
+    run_sdme exec "$container_name" --user root -- \
+        mv -T -- "$remote_temporary" "$DEPLOYMENT_IDENTITY_PATH"
 }
 
 ensure_started() {
@@ -2178,9 +2959,13 @@ apply_deployment() {
     fi
 
     ensure_runtime_fs
-    write_environment_file
+    prepare_deployment_identity
 
-    local record result service_identity='' worker_state_dir
+    if [[ "$role" == worker && "$security_mode" == plaintext ]]; then
+        validate_local_plaintext_control
+    fi
+
+    local record result service_identity='' worker_state_dir container_state
     worker_state_dir="$state_dir/worker-$arch"
     if record=$(container_record "$container_name"); then
         validate_existing_container "$record"
@@ -2195,10 +2980,31 @@ apply_deployment() {
             validate_transition_bind_directory \
                 'managed scratch path' "$scratch_dir" "$service_identity"
         fi
+        if validate_complete_deployment "$service_identity"; then
+            if transaction_record_exists deployment "$container_name"; then
+                transaction_record_matches deployment "$container_name" \
+                    "$expected_deployment_identity_sha256" \
+                    "$expected_deployment_identity_sha256" \
+                    "$security_mode" installing
+            fi
+            install_deployment_assets=0
+        else
+            transaction_record_exists deployment "$container_name" || \
+                die "existing container lacks a deployment identity and matching transaction"
+            transaction_record_matches deployment "$container_name" \
+                "$expected_deployment_identity_sha256" \
+                "$expected_deployment_identity_sha256" \
+                "$security_mode" installing
+            container_state=$(record_status "$record") || \
+                die "could not determine the state of container: $container_name"
+            require_quiescent_nativelink "$container_state"
+            install_deployment_assets=1
+        fi
         debug "reusing container $container_name"
     else
         result=$?
         ((result == 1)) || die "could not inspect container: $container_name"
+        prepare_deployment_transaction
         [[ ! -L "$state_dir" ]] || die "managed state path is a symlink: $state_dir"
         validate_managed_ancestry "$state_dir"
         run_command install -d -m 0750 "$state_dir"
@@ -2212,10 +3018,15 @@ apply_deployment() {
             validate_root_owned_bind_directory 'managed scratch path' "$scratch_dir"
         fi
         create_container
+        service_identity=$(runtime_service_identity)
+        install_deployment_assets=1
     fi
 
-    copy_assets
     ensure_started
+    if ((install_deployment_assets)); then
+        install_tls_credentials "$service_identity"
+        copy_assets
+    fi
     prepare_container_storage
     if [[ -z "$service_identity" ]]; then
         service_identity=$(runtime_service_identity)
@@ -2232,12 +3043,18 @@ apply_deployment() {
     fi
     if [[ "$role" == control ]]; then
         discover_control_worker_bind_address
-        write_environment_file
-        run_sdme cp "$env_file" "$container_name:/etc/nativelink/nativelink.env"
+    fi
+    write_environment_file
+    copy_environment
+    if ((install_deployment_assets)); then
+        publish_deployment_identity
     fi
     run_sdme exec "$container_name" --user root -- systemctl daemon-reload
     run_sdme exec "$container_name" --user root -- systemctl enable nativelink.service
     run_sdme exec "$container_name" --user root -- systemctl restart nativelink.service
+    if transaction_record_exists deployment "$container_name"; then
+        clear_transaction_record deployment "$container_name"
+    fi
 }
 
 status_deployment() {
@@ -2292,8 +3109,9 @@ lifecycle() {
 main() {
     parse_args "$@"
     set_defaults
+    validate_option_matrix
     prepare_tools
-    validate_operation_args
+    validate_operation_environment
     validate_host_prerequisites
 
     case "$operation" in
@@ -2304,6 +3122,7 @@ main() {
         plan|apply)
             role_paths
             validate_assets
+            validate_tls_credentials
             validate_probe_digest
             ;;
     esac

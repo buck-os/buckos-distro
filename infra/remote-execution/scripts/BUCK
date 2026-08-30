@@ -78,9 +78,19 @@ python_test(
     resources = {
         "sdme-provision.sh": "sdme-provision.sh",
         "sdme_select_address.py": "sdme_select_address.py",
+        "sdme_tls.py": "sdme_tls.py",
         "worker-preflight.conf": "//infra/remote-execution/sdme:worker-preflight",
         "worker-rootfs.sdme": "//infra/remote-execution/sdme:worker-rootfs",
     },
+)
+
+python_test(
+    name = "sdme_tls_test",
+    srcs = [
+        "sdme_tls.py",
+        "sdme_tls_test.py",
+    ],
+    base_module = "",
 )
 
 export_file(
