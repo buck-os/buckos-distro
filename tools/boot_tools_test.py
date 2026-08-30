@@ -15,6 +15,7 @@ from deb_rootfs_install import (
     archive_script,
     bootstrap_script,
     cleanup_script,
+    fabricated_mount_components,
     normalize_merged_usr_script,
     transaction_script,
 )
@@ -208,10 +209,45 @@ class TestDebRootfsTransaction(unittest.TestCase):
     def test_archive_drops_the_scratch_mount_left_inside_the_payload(self):
         # The transaction runs against the target, so the sandbox creates the
         # work bind mount inside the image and leaves a directory named after
-        # this build's random scratch path.  It was the fourth difference.
-        script = archive_script("/work/rootfs", "/work/rootfs.tar", "1700000000", "/work")
+        # this build's scratch path.  It was the fourth difference.
+        script = archive_script(
+            "/work/rootfs", "/work/rootfs.tar", "1700000000", ["/work/rootfs/work"],
+        )
         self.assertIn("rm -rf /work/rootfs/work", script)
         self.assertLess(script.index("rm -rf /work/rootfs/work"), script.index("tar --create"))
+
+    def test_every_invented_component_is_pruned_not_only_the_leaf(self):
+        # Bubblewrap creates every missing component of the bind path, not
+        # just the last one.  The default scratch root hides this because the
+        # image already ships /var/tmp, so exactly one is invented; a deeper
+        # BUCKOS_SCRATCH_ROOT leaves the parents behind in the payload.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "rootfs")
+            os.makedirs(os.path.join(target, "var", "tmp"))
+
+            self.assertEqual(
+                [os.path.join(target, "var/tmp/buckos-x")],
+                fabricated_mount_components(target, "/var/tmp/buckos-x"),
+            )
+            self.assertEqual(
+                [
+                    os.path.join(target, "var/tmp/alt/nested"),
+                    os.path.join(target, "var/tmp/alt"),
+                ],
+                fabricated_mount_components(target, "/var/tmp/alt/nested"),
+            )
+
+    def test_a_directory_the_image_owns_is_never_pruned(self):
+        # The list is what pruning acts on, so a shipped directory appearing
+        # in it would delete /var/tmp out of the payload.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "rootfs")
+            os.makedirs(os.path.join(target, "var", "tmp"))
+
+            fabricated = fabricated_mount_components(target, "/var/tmp/buckos-x")
+
+            self.assertNotIn(os.path.join(target, "var"), fabricated)
+            self.assertNotIn(os.path.join(target, "var/tmp"), fabricated)
 
     def test_archive_drops_the_timestamps_mtime_does_not_pin(self):
         # posix extended headers carry atime and ctime at nanosecond

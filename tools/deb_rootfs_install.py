@@ -123,14 +123,36 @@ def transaction_script(staging):
     ])
 
 
-def archive_script(target, tarball, source_date_epoch, work):
+def fabricated_mount_components(target, work):
+    """The parts of the work bind path the sandbox has to invent inside the image.
+
+    The transaction runs against the target, so bubblewrap creates every
+    missing component of the bind path there, not just the leaf.  With the
+    default scratch root that is one directory, because the image already
+    ships `/var/tmp`; under a deeper `BUCKOS_SCRATCH_ROOT` it is several,
+    and removing only the leaf leaves the rest in the payload.
+
+    Returns them deepest first.  Components the image genuinely owns are
+    absent from the list, so pruning cannot delete a shipped directory.
+    """
+    fabricated = []
+    current = target
+    for part in work.strip("/").split("/"):
+        current = os.path.join(current, part)
+        if not os.path.isdir(current):
+            fabricated.append(current)
+    fabricated.reverse()
+    return fabricated
+
+
+def archive_script(target, tarball, source_date_epoch, fabricated):
     quoted_target = shlex.quote(target)
     return "\n".join([
         "set -e",
-        # The transaction runs against the target, so the sandbox creates the
-        # work bind mount inside it and leaves an empty directory named after
-        # this build's scratch path.  Drop it before the payload is sealed.
-        "rm -rf {}".format(shlex.quote(os.path.join(target, work.lstrip("/")))),
+        # Deepest first, so each is empty by the time it is removed.
+        "\n".join(
+            "rm -rf {}".format(shlex.quote(path)) for path in fabricated
+        ) or ":",
         # posix extended headers carry atime and ctime at nanosecond
         # precision, which --mtime does not pin and no input determines, so
         # the archive differs on every build until they are dropped.
@@ -168,7 +190,9 @@ def main():
         sys.exit("Debian-family rootfs assembly requires an isolated binary-seed buildroot")
 
     debs = collect_debs(args.deb)
-    work = os.path.abspath(args.work) if args.work else scratch_dir("buckos-distro-deb-rootfs-")
+    work = (os.path.abspath(args.work) if args.work else
+            scratch_dir("buckos-distro-deb-rootfs-",
+                        key=os.path.abspath(args.out)))
     if args.work:
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work)
@@ -197,6 +221,7 @@ def main():
                 sysroot,
                 env=env,
             )
+            fabricated = fabricated_mount_components(target, work)
             run_isolated(
                 fakeroot_command(
                     fakeroot,
@@ -228,7 +253,7 @@ def main():
                         target,
                         tarball,
                         args.source_date_epoch,
-                        work,
+                        fabricated,
                     )],
                     load=True,
                 ),
