@@ -39,7 +39,7 @@ BUCK2_SOURCE=/path/to/buck2 ./setup.sh
 
 Every checked-in lock solves with zero static problems. The x86_64 RPM-family graphs stand as follows:
 
-| Release | Source packages | Live image | Built from source | Staged targets | Probed |
+| Release | Source packages | Live image | Source-resolved | Staged targets | Probed |
 | ------- | --------------- | ---------- | ----------------- | -------------- | ------ |
 | Fedora 44 | 125 | 186 | 181 | 339 | 114 |
 | Fedora 45 | 129 | 193 | 187 | 351 | 119 |
@@ -48,7 +48,7 @@ Every checked-in lock solves with zero static problems. The x86_64 RPM-family gr
 | CentOS Hyperscale 9 | 132 | 200 | 195 | 357 | none |
 | CentOS Hyperscale 10 | 121 | 191 | 186 | 303 | none |
 
-Solving, probing, and building are separate milestones. The `Probed` column counts source packages with checked-in dynamic `BuildRequires` reports; it does not claim that every reported requirement was satisfied or that every package builds. A graph is converged only when a probe report exists and static solve problems, unprobed dynamic requirements, and dynamic-unmet records are all zero. The three counters alone do not establish it: a lock with no probe report reports all three as zero because there is nothing to count, which is why `rpm_relock.py` forces a probe pass whenever the lock names no report. Outside Fedora, CentOS Stream 10 x86_64 is currently the only RPM-family lock carrying one. The Fedora x86_64 locks have zero static problems and zero unprobed requirements, but five dynamic-unmet records each.
+Solving, probing, and building are separate milestones, and every figure above is a solve result. `Source-resolved` counts live payload packages the source policy has a producer for, not packages that have been built: a lock with no probe report has unresolved dynamic `BuildRequires`, so a source build from it would fail at `%prep` on the first package whose buildroot is incomplete. The `Probed` column counts source packages with checked-in dynamic `BuildRequires` reports; it does not claim that every reported requirement was satisfied or that every package builds. A graph is converged only when a probe report exists and static solve problems, unprobed dynamic requirements, and dynamic-unmet records are all zero. The three counters alone do not establish it: a lock with no probe report reports all three as zero because there is nothing to count, which is why `rpm_relock.py` forces a probe pass whenever the lock names no report. Outside Fedora, CentOS Stream 10 x86_64 is currently the only RPM-family lock carrying one. The Fedora x86_64 locks have zero static problems and zero unprobed requirements, but five dynamic-unmet records each.
 
 A solve reads static `BuildRequires` out of repodata, and repodata does not carry everything the spec asks for: `tar`'s real list is eleven packages, of which repodata names one. The rest come from `tools/probe.py` running `rpmbuild -br` against the spec. A release with a clean static solve and no probe data can still fail at `%prep` with `Failed build dependencies`, while a fully probed release can still report unmet dynamic requirements.
 
@@ -201,7 +201,7 @@ buck2 build //flavors/ubuntu:iso-live-26.04-x86_64
 
 ## Boot validation
 
-Each `//tests:boot-*` target performs two QEMU boots. It first boots the exact architecture-qualified production ISO through the requested firmware, reports that artifact's SHA-256, and requires the serial getty's `login:` prompt. The prompt is the common late normal-boot milestone because every image selects a serial kernel console and carries systemd plus util-linux. It then boots the matching instrumented verification ISO and checks flavor, release, architecture, systemd as PID 1, zero failed units, zero SELinux AVC denials, and enforcing mode for RPM-family images. x86_64 is tested through both BIOS and UEFI; AArch64 is tested through UEFI.
+Each `//tests:boot-*` target performs two QEMU boots. It first boots the exact architecture-qualified production ISO through the requested firmware, reports that artifact's SHA-256, and requires the serial getty's `login:` prompt. The prompt is the common late normal-boot milestone because every image selects a serial kernel console and carries systemd plus util-linux. It then boots the matching instrumented verification ISO and checks flavor, release, architecture, systemd as PID 1, zero failed units, zero SELinux AVC denials, and enforcing mode for RPM-family images. For CentOS Hyperscale that clean result includes the compatibility module the live rootfs ships, described in SPEC.md, without which its systemd raises denials against the base policy. x86_64 is tested through both BIOS and UEFI; AArch64 is tested through UEFI.
 
 ```sh
 buck2 test //tests:boot-fedora-44-x86_64-bios
