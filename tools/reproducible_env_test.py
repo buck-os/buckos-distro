@@ -89,6 +89,32 @@ class TestTheEnvironmentIsDeclaredNotInherited(unittest.TestCase):
             "the build depends on whoever started the daemon",
         )
 
+    def test_named_hazards_are_not_inherited(self):
+        """Each of these has a documented route from the launcher into output.
+
+        MAKEFLAGS is the one to keep an eye on.  Nothing in this tree sets
+        DEB_BUILD_OPTIONS parallel= or derives a job count from cpu_count
+        or nproc, so an inherited MAKEFLAGS is one of the few mechanisms
+        by which ambient load could reach a build artifact -- which is a
+        live question elsewhere as this lands.  Named individually rather
+        than left to the exact-keys check below, so that if the symptom
+        disappears it is visible here why.
+        """
+        hazards = {
+            "MAKEFLAGS": "-j99",
+            "TMPDIR": "/somewhere/else",
+            "LD_PRELOAD": "/tmp/evil.so",
+            "LD_LIBRARY_PATH": "/tmp/lib",
+            "http_proxy": "http://proxy.invalid:3128",
+            "TERM": "xterm-256color",
+            "SHELL": "/bin/zsh",
+        }
+        with mock.patch.dict(os.environ, hazards, clear=False):
+            env = reproducible_env()
+        for name in hazards:
+            with self.subTest(variable=name):
+                self.assertNotIn(name, env)
+
     def test_the_keys_are_exactly_what_the_function_declares(self):
         """Adding an inherited variable later should fail here, not in a build."""
         with mock.patch.dict(os.environ, {"MAKEFLAGS": "-j99"}, clear=False):
