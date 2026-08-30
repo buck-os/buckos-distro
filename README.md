@@ -413,6 +413,13 @@ Stated plainly, because each one is load-bearing:
   `%pretrans`, and is still created up front as well, because payloads are
   unpacked *before* that transaction and anything reading the tree in
   between would see the gap.
+
+  Up front means *only where the path is free*. A release that predates the
+  sbin merge ships `/usr/sbin` as a real directory full of real binaries,
+  and replacing it with a symlink would discard them, so an occupied path is
+  left alone. Enterprise Linux buildroots are that case: they have a real
+  `/usr/sbin`, not a link, and a tool that lives only there is unreachable
+  through `/usr/bin`. Anything resolving a binary by name has to try both.
 - **Genuinely ambiguous capabilities need a human.** Real repodata has
   capabilities with many providers -- `glibc-langpack` has 211,
   `system-release` 34 -- and the solver refuses to guess. `--override
@@ -648,7 +655,9 @@ Stated plainly, because each one is load-bearing:
 
   `/usr/sbin -> bin` and the systemd sysusers entries in `/etc/passwd` are
   not evidence for running scriptlets: a tree built *with* `--noscripts`
-  has them too, because they come from package payloads. `golang-bin` is
+  has them too. The reasons differ, and neither is a scriptlet. The passwd
+  entries ship in `setup`'s payload; the compat link is fabricated by the
+  buildroot assembly itself, for the gap described above. `golang-bin` is
   the case that distinguishes the two.
 
   Triggers are off (`--notriggers`) for the shared base, where a single
