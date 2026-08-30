@@ -288,7 +288,7 @@ def _build(args, isolation, rootfs, kver, work, out):
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
     env["FAKEROOTDONTTRYCHOWN"] = "1"
-    fakeroot = stage_fakeroot_runtime(sysroot, work)
+    fakeroot = stage_fakeroot_runtime(sysroot, work, required=False)
 
     image_cp = None
     if args.generator != "dracut":

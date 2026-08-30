@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from _deb import fakeroot_command
+from _deb import fakeroot_command, stage_fakeroot_runtime
 from deb_rootfs_install import (
     archive_script,
     bootstrap_script,
@@ -136,6 +136,39 @@ class TestDebRootfsTransaction(unittest.TestCase):
         self.assertIn("-s", initial)
         self.assertIn("-i", resumed)
         self.assertEqual(resumed[-2:], ["tar", "--create"])
+
+    def test_an_rpm_buildroot_runs_shared_image_actions_unwrapped(self):
+        # fakeroot-sysv and Debian's multiarch libfakeroot layout do not
+        # exist in an RPM buildroot, and squashfs and initramfs are shared by
+        # every flavor.  Requiring it there took the whole RPM image pipeline
+        # down, unnoticed, because no RPM image had been built since.
+        with tempfile.TemporaryDirectory() as tmp:
+            buildroot = os.path.join(tmp, "buildroot")
+            os.makedirs(os.path.join(buildroot, "usr", "bin"))
+            work = os.path.join(tmp, "work")
+            os.makedirs(work)
+
+            self.assertIsNone(
+                stage_fakeroot_runtime(buildroot, work, required=False)
+            )
+            self.assertEqual(
+                ["/bin/sh", "-c", "true"],
+                fakeroot_command(None, ["/bin/sh", "-c", "true"]),
+            )
+            self.assertFalse(os.path.exists(os.path.join(work, "fakeroot")))
+
+    def test_a_debian_buildroot_without_fakeroot_still_fails_closed(self):
+        # The Debian tools that genuinely need it keep the hard requirement,
+        # so tolerating absence in the shared tools cannot let a broken
+        # Debian buildroot through unnoticed.
+        with tempfile.TemporaryDirectory() as tmp:
+            buildroot = os.path.join(tmp, "buildroot")
+            os.makedirs(os.path.join(buildroot, "usr", "bin"))
+            work = os.path.join(tmp, "work")
+            os.makedirs(work)
+
+            with self.assertRaisesRegex(SystemExit, "fakeroot-sysv"):
+                stage_fakeroot_runtime(buildroot, work)
 
     def test_bootstrap_extracts_before_running_maintainer_scripts(self):
         script = bootstrap_script("/target", "/debs")

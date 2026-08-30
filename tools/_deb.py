@@ -362,18 +362,34 @@ def ensure_base_files(root: str) -> None:
                     output.write(b"\n")
 
 
-def stage_fakeroot_runtime(buildroot: str, work: str) -> dict[str, str]:
-    """Copy the target's fakeroot runtime into the shared work mount."""
-    runtime = os.path.join(work, "fakeroot")
-    os.makedirs(runtime)
-    paths = {}
+def stage_fakeroot_runtime(
+    buildroot: str,
+    work: str,
+    required: bool = True,
+) -> dict[str, str] | None:
+    """Copy the target's fakeroot runtime into the shared work mount.
+
+    `fakeroot-sysv` and Debian's multiarch `libfakeroot` layout are
+    Debian-family spellings, and an RPM buildroot has neither.  The image
+    rules are shared, so the ones that serve every flavor pass
+    `required=False` and get None back, which `fakeroot_command` then leaves
+    the command unwrapped for; those actions run under the subordinate-ID
+    user namespace, which is what the RPM path used before fakeroot existed
+    here.
+
+    Detecting absence rather than asking the caller which family it is
+    costs nothing in safety: a Debian buildroot that lost its fakeroot fails
+    in `deb_rootfs_install`, which requires it, long before any image action
+    runs.
+    """
+    sources = {}
     for name in ("fakeroot-sysv", "faked-sysv"):
         source = os.path.join(buildroot, "usr", "bin", name)
         if not os.path.isfile(source):
+            if not required:
+                return None
             sys.exit("Debian buildroot has no /usr/bin/{}".format(name))
-        destination = os.path.join(runtime, name)
-        shutil.copy2(source, destination)
-        paths[name] = destination
+        sources[name] = source
 
     libraries = glob.glob(os.path.join(
         buildroot,
@@ -384,10 +400,20 @@ def stage_fakeroot_runtime(buildroot: str, work: str) -> dict[str, str]:
         "libfakeroot-sysv.so",
     ))
     if len(libraries) != 1:
+        if not required and not libraries:
+            return None
         sys.exit(
             "Debian buildroot must contain exactly one libfakeroot-sysv.so, "
             "found {}".format(len(libraries))
         )
+
+    runtime = os.path.join(work, "fakeroot")
+    os.makedirs(runtime)
+    paths = {}
+    for name, source in sources.items():
+        destination = os.path.join(runtime, name)
+        shutil.copy2(source, destination)
+        paths[name] = destination
     library = os.path.join(runtime, "libfakeroot-sysv.so")
     shutil.copy2(libraries[0], library)
     paths["library"] = library
@@ -396,10 +422,12 @@ def stage_fakeroot_runtime(buildroot: str, work: str) -> dict[str, str]:
 
 
 def fakeroot_command(
-    runtime: dict[str, str],
+    runtime: dict[str, str] | None,
     command: list[str],
     load: bool = False,
 ) -> list[str]:
+    if runtime is None:
+        return list(command)
     wrapped = [
         runtime["fakeroot-sysv"],
         "-f", runtime["faked-sysv"],

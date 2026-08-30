@@ -470,7 +470,7 @@ def _build(args, isolation, rootfs, work, out):
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
     env["FAKEROOTDONTTRYCHOWN"] = "1"
-    fakeroot = stage_fakeroot_runtime(sysroot, work)
+    fakeroot = stage_fakeroot_runtime(sysroot, work, required=False)
 
     mksquashfs = None
     if args.mksquashfs_source:
