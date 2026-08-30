@@ -621,3 +621,32 @@ def resolve_in_buildroot(var, candidates):
         "  exit 1",
         "fi",
     ])
+
+
+def fabricated_mount_components(sandbox_root, work):
+    """The parts of the work bind path the sandbox invents inside its root.
+
+    Bubblewrap has to create every missing component of a bind path inside
+    the tree it mounts at `/`, and those components survive the sandbox.
+    When that tree is the image being built, rather than a buildroot, they
+    are shipped: an empty directory named after the scratch path of the
+    machine that ran the build.
+
+    Two steps do that. The Debian rootfs transaction runs against the
+    target, and the SELinux relabel runs against the unpacked image because
+    the policy deciding the labels has to be the image's own. Everything
+    else passes a buildroot and is unaffected.
+
+    Call it before the sandbox runs, while the distinction is still
+    observable, and prune what it returns afterwards. Returns them deepest
+    first. Components the tree genuinely owns are absent, so pruning cannot
+    delete a shipped directory.
+    """
+    fabricated = []
+    current = sandbox_root
+    for part in work.strip("/").split("/"):
+        current = os.path.join(current, part)
+        if not os.path.isdir(current):
+            fabricated.append(current)
+    fabricated.reverse()
+    return fabricated

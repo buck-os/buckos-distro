@@ -14,7 +14,12 @@ from _isolation import (
     run_isolated,
 )
 from _deb import fakeroot_command, stage_fakeroot_runtime
-from _rpm import make_dirs_writable, reproducible_env, scratch_dir
+from _rpm import (
+    fabricated_mount_components,
+    make_dirs_writable,
+    reproducible_env,
+    scratch_dir,
+)
 
 
 def collect_debs(paths):
@@ -121,28 +126,6 @@ def transaction_script(staging):
         "rm -f /var/cache/ldconfig/aux-cache",
         "test -x /usr/lib/systemd/systemd",
     ])
-
-
-def fabricated_mount_components(target, work):
-    """The parts of the work bind path the sandbox has to invent inside the image.
-
-    The transaction runs against the target, so bubblewrap creates every
-    missing component of the bind path there, not just the leaf.  With the
-    default scratch root that is one directory, because the image already
-    ships `/var/tmp`; under a deeper `BUCKOS_SCRATCH_ROOT` it is several,
-    and removing only the leaf leaves the rest in the payload.
-
-    Returns them deepest first.  Components the image genuinely owns are
-    absent from the list, so pruning cannot delete a shipped directory.
-    """
-    fabricated = []
-    current = target
-    for part in work.strip("/").split("/"):
-        current = os.path.join(current, part)
-        if not os.path.isdir(current):
-            fabricated.append(current)
-    fabricated.reverse()
-    return fabricated
 
 
 def archive_script(target, tarball, source_date_epoch, fabricated):

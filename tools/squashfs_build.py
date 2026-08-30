@@ -58,6 +58,7 @@ from _isolation import (
     run_isolated,
 )
 from _rpm import (
+    fabricated_mount_components,
     make_dirs_writable,
     reproducible_env,
     resolve_in_buildroot,
@@ -419,10 +420,18 @@ def _relabel(args, isolation, rootfs, root, work, env):
         file=sys.stderr,
         flush=True,
     )
+    # This is the one step whose sandbox root is the image rather than a
+    # buildroot, so it is the one step where the work bind mountpoint is
+    # created inside the payload.  Record what is missing first, prune it
+    # after, or mksquashfs compresses the build machine's scratch path into
+    # every image.
+    fabricated = fabricated_mount_components(root, work)
     run_isolated(
         ["/bin/sh", "-c", _matchpathcon_script(work)],
         isolation, work, work, root, env=env,
     )
+    for path in fabricated:
+        shutil.rmtree(path, ignore_errors=True)
 
     pseudo = os.path.join(work, _PSEUDO)
     written, skipped = write_pseudo(os.path.join(work, _CONTEXTS), pseudo)

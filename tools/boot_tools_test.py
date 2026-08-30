@@ -11,11 +11,11 @@ import unittest
 from unittest import mock
 
 from _deb import fakeroot_command, stage_fakeroot_runtime
+from _rpm import fabricated_mount_components
 from deb_rootfs_install import (
     archive_script,
     bootstrap_script,
     cleanup_script,
-    fabricated_mount_components,
     normalize_merged_usr_script,
     transaction_script,
 )
@@ -299,6 +299,45 @@ class TestInitramfsTools(unittest.TestCase):
             "/work/image-tools-bin/cp /work/root/usr/bin/cp",
             script,
         )
+
+
+class TestSquashfsScratchLeak(unittest.TestCase):
+    def test_the_relabel_sandbox_root_is_pruned_of_its_own_mountpoint(self):
+        # The relabel step is the only one whose sandbox root is the image
+        # rather than a buildroot, so it is the only one where bubblewrap
+        # invents the work bind mountpoint inside the payload.  Under Buck
+        # the rule passes no --work, so the scratch path is random per run:
+        # every RPM live image both differed from the last and shipped an
+        # empty directory named after its build machine.
+        with tempfile.TemporaryDirectory() as tmp:
+            image = os.path.join(tmp, "root")
+            os.makedirs(os.path.join(image, "var", "tmp"))
+            work = "/var/tmp/buckos-distro-squashfs-abc123"
+
+            fabricated = fabricated_mount_components(image, work)
+
+            self.assertEqual([os.path.join(image, "var/tmp/buckos-distro-squashfs-abc123")], fabricated)
+            self.assertNotIn(os.path.join(image, "var/tmp"), fabricated)
+            self.assertNotIn(os.path.join(image, "var"), fabricated)
+
+    def test_relabel_records_before_the_sandbox_and_prunes_after(self):
+        # Ordering is the property. Recording has to happen before
+        # bubblewrap invents the mountpoint, or every component looks
+        # fabricated; pruning has to happen after, or there is nothing to
+        # remove. Both live in _relabel, so read that function rather than
+        # the file, which would compare definition order instead.
+        source = os.path.join(repo_root(), "tools", "squashfs_build.py")
+        with open(source, encoding="utf-8") as handle:
+            text = handle.read()
+        body = text[text.index("def _relabel("):]
+        body = body[: body.index("\ndef ")]
+
+        record = body.index("fabricated_mount_components(root, work)")
+        sandbox = body.index("_matchpathcon_script(work)")
+        prune = body.index("shutil.rmtree(path, ignore_errors=True)")
+
+        self.assertLess(record, sandbox, "recorded after the sandbox ran")
+        self.assertLess(sandbox, prune, "pruned before the sandbox ran")
 
 
 class TestSquashfsPseudoFile(unittest.TestCase):
