@@ -159,7 +159,7 @@ A spec that asks for a 32-bit dependency gets one. `gcc` requires `(glibc32 or g
 
 That restriction is the whole safety argument: it cannot introduce an ambiguity, because it only ever fills an empty slot. Registering every i686 `Provides` was measured first -- 9,230 builds offer 59,078 capabilities, 30,790 already answered, and 21,556 of those become ambiguities the exact-name rule cannot settle, `/bin/awk` between `gawk` and `gawk.i686`. It also lands on rpm's own answer without hardcoding rpm's spelling of it: the capabilities with no collapsed provider are exactly the ones rpm marks unambiguously 32-bit, while the contested ones are arch-neutral names where the 64-bit build is right anyway.
 
-Arch-specificity therefore lives in the capability, not in a per-arch preference. `glibc-devel.i686` requires unmarked `libm.so.6`, which only the 32-bit build provides, and plain `kernel-headers`, which is arch-neutral and answered by whatever the base already has. Preferring i686 for both -- an earlier attempt -- pulled in `kernel-headers.i686` and rpm refused the transaction outright, since a newer `kernel-headers.x86_64` was installed and the two are one package with one name. gcc's 32-bit slice is six packages.
+Arch-specificity therefore lives in the capability, not in a per-arch preference. `glibc-devel.i686` requires unmarked `libm.so.6`, which only the 32-bit build provides, and plain `kernel-headers`, which is arch-neutral and answered by whatever the base already has. Preferring i686 for both is wrong: it pulls in `kernel-headers.i686`, and rpm refuses the transaction outright when a newer `kernel-headers.x86_64` is installed, since the two are one package with one name. gcc's 32-bit slice is six packages.
 
 ### Version variants
 
@@ -409,10 +409,10 @@ Stated plainly, because each one is load-bearing:
   modes are the sandbox's business rather than the image's; this tree is a
   chroot to build in, not a filesystem to boot.
 
-  The `/usr/sbin -> bin` compat link used to be on this list and is now
-  made for real by `filesystem`'s `%pretrans`. It is still created up
-  front, because payloads are unpacked *before* that transaction and
-  anything reading the tree in between would see the gap.
+  The `/usr/sbin -> bin` compat link is made for real by `filesystem`'s
+  `%pretrans`, and is still created up front as well, because payloads are
+  unpacked *before* that transaction and anything reading the tree in
+  between would see the gap.
 - **Genuinely ambiguous capabilities need a human.** Real repodata has
   capabilities with many providers -- `glibc-langpack` has 211,
   `system-release` 34 -- and the solver refuses to guess. `--override
@@ -421,13 +421,13 @@ Stated plainly, because each one is load-bearing:
   overrides are an input to the solve and belong in review alongside the
   lockfile.
 
-  Most ambiguity is not genuine, though, and is no longer reported as
-  such. An ambiguous capability is deferred to the fixed point exactly as
+  Most ambiguity is not genuine, and is not reported as such. An
+  ambiguous capability is deferred to the fixed point exactly as
   `(A or B)` is, and if the closure already contains one of its providers
   the requirement is simply satisfied. That is a fact about the set rather
-  than a policy about which package is nicer -- nothing a reviewer would
-  have decided differently. It is most of them: solving the live image's
-  126 source packages reports 500 ambiguities resolved eagerly and **69**
+  than a policy about which package is nicer. It is most of them: solving
+  the live image's source packages reports 500 ambiguities resolved
+  eagerly and **69**
   deferred, because `/usr/bin/basename` between `coreutils` and
   `coreutils-single` is not a real question in a buildroot that has had
   `coreutils` in it since `@buildsys-build`.
@@ -483,15 +483,13 @@ Stated plainly, because each one is load-bearing:
   capability names carry parentheses of their own (`crate(anyhow/default)`,
   `python3.14dist(ldap3)`).
 
-  It used to be three hand-written shape matchers, one per expression
-  Fedora had so far been observed to emit. That held while three packages
-  were built from source and broke at 126: a full solve of the live
-  image's sources surfaced 44 expressions none of them could read, 27 of
-  them redhat-rpm-config's
+  Shape matching does not scale here, which is why the grammar is
+  implemented rather than pattern-matched. A full solve of the live
+  image's sources surfaces 44 distinct expressions, 27 of them
+  redhat-rpm-config's
   `((rpm-build >= … with (rpm-build < … or rpm-build >= …)) if rpm-build)`,
-  which is a BuildRequires of a large fraction of the distro. A fourth
-  matcher would have stopped at the fifth shape. The full solve now reads
-  all 44.
+  which is a BuildRequires of a large fraction of the distro. The solve
+  reads all 44.
 
   Two things still need a person. An `or` with no branch present is
   reported rather than chosen, because rpm picks a branch by policy and
@@ -579,14 +577,14 @@ Stated plainly, because each one is load-bearing:
   output is a tar archive, created inside the namespace, carrying ownership
   and xattrs (file capabilities) as metadata. Downstream
   image rules must unpack it inside their own namespace.
-- **~~Images are unlabeled~~ -- SELinux is enforcing.**
+- **SELinux is enforcing, and the labels are written into the image.**
   `setxattr("security.selinux")` returns `EPERM` inside a nested user
   namespace, which is where every stage here runs, so nothing in the build
-  can label a file by asking the kernel. That much is unchanged. What
-  changed is that it no longer has to ask: `mksquashfs` takes per-file
-  xattrs in a pseudo-file (`path x name=value`) and writes them straight
-  into the image's xattr table, and working out *what* each label should
-  be is a pure policy lookup needing no privilege at all. The image ships
+  can label a file by asking the kernel. It does not have to ask:
+  `mksquashfs` takes per-file xattrs in a pseudo-file
+  (`path x name=value`) and writes them straight into the image's xattr
+  table, and working out *what* each label should be is a pure policy
+  lookup needing no privilege at all. The image ships
   its own `selinux-policy-targeted` and its own `matchpathcon`, so the
   contexts come from the distro being built rather than the build host --
   the same argument `initramfs_build.py` makes for using the image's own
@@ -605,24 +603,19 @@ Stated plainly, because each one is load-bearing:
   its own, so emitting them would label some *other* path, and
   mislabelling is worse than leaving a unit file unlabelled.
 
-  What follows is the reasoning as it stood before, kept because the
-  constraint it describes is real and still shapes the design:
-
-- **Why the kernel will not do it for you.**
-  `setxattr("security.selinux")` returns `EPERM` inside a nested user
-  namespace, which is where every stage here runs -- even under
-  `unshare -Ur`, on a file where setting a `user.*` xattr succeeds. This is
-  not a blanket rule about `security.*`, and the difference is worth
-  knowing: `security.capability` *is* settable from a user namespace, via
+  The `EPERM` is not a blanket rule about `security.*`, and the difference
+  is worth knowing. It holds even under `unshare -Ur`, on a file where
+  setting a `user.*` xattr succeeds, while `security.capability` *is*
+  settable from a user namespace, via
   the kernel's v3 format that records a rootid, which is why the images
   here do carry working file capabilities on `arping`, `clockdiff`,
   `newuidmap` and `newgidmap`. The kernel extends that courtesy to
   capabilities and withholds it from labels. So `rpm-plugin-selinux` sets
   no context during the rootfs transaction, and there is nothing on disk
   for `mksquashfs` to copy -- measured on a live rootfs, zero labels across
-  the whole tree. That is why the labels have to be *written into the
-  image* rather than set on files: the fix above is offline image editing,
-  not privilege.
+  the whole tree. That is why the labels are *written into the
+  image* rather than set on files: it is offline image editing, not
+  privilege.
 
   buckos-build reaches the same conclusion from the other side, using
   `debugfs`'s `ea_set` to inject `security.ima` into ext4 from `.sig`
@@ -639,30 +632,24 @@ Stated plainly, because each one is load-bearing:
   real transaction with. `rpm --install` then runs inside the tree, writes
   the database, and executes `%pre`/`%post`.
 
-  This used to be `rpm --justdb --noscripts`, chosen for an ownership
-  property: a real install chowns files into the subordinate id range, and
-  Buck -- which does not own those ids -- then cannot delete or
-  re-materialize its own output. That is now handled by making directories
-  writable in a `finally` rather than by avoiding the transaction, which
+  A real install chowns files into the subordinate id range, and Buck,
+  which does not own those ids, then cannot delete or re-materialize its
+  own output. Making directories writable in a `finally` handles that, and
   also covers the case a `--justdb` tree never had: a transaction that
   fails partway leaves the tree unwritable too.
 
-  What forced the change is `golang-bin`, whose `%post` runs
-  `update-alternatives --install /usr/bin/go …`. Under `--justdb` it had no
-  effect -- `/etc/alternatives` stayed empty and `/usr/bin/go`, which ships
-  as a symlink into it, dangled. `libcap` then autodetected Go with `go
-  version`, got nothing, silently omitted its `captree` program, and failed
+  `--justdb --noscripts` is not sufficient, and `golang-bin` is why. Its
+  `%post` runs `update-alternatives --install /usr/bin/go …`; without
+  scriptlets `/etc/alternatives` stays empty and `/usr/bin/go`, which ships
+  as a symlink into it, dangles. `libcap` then autodetects Go with `go
+  version`, gets nothing, silently omits its `captree` program, and fails
   in `%files` on a file nothing said it was skipping. Every step is a
   warning or a success until the last one.
 
-  One measurement lesson survives from the first attempt, because the
-  mistake was in the method rather than the conclusion. Dropping
-  `--noscripts` was initially justified by observing `/usr/sbin -> bin` and
-  the systemd sysusers entries in `/etc/passwd` afterwards and attributing
-  both to it -- without building the same tree *with* `--noscripts` to
-  compare. The control says they are there either way: they come from
-  package payloads. `golang-bin` is the experiment that actually
-  distinguished the two.
+  `/usr/sbin -> bin` and the systemd sysusers entries in `/etc/passwd` are
+  not evidence for running scriptlets: a tree built *with* `--noscripts`
+  has them too, because they come from package payloads. `golang-bin` is
+  the case that distinguishes the two.
 
   Triggers are off (`--notriggers`) for the shared base, where a single
   transaction installs everything at once and firing order would be rpm's
