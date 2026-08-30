@@ -393,6 +393,24 @@ def _transaction_script(args, staging, target, tarball, modules=None):
             " done".format(installed_modules, quoted_target),
         ]
     lines += [
+        # Three things in the installed tree record this build rather than
+        # its inputs.  systemd wants an empty machine-id in an image so the
+        # first boot generates one, which is what the Debian path already
+        # ships; ldconfig's cache records per-file inode data; and sqlite's
+        # side files are transient coordination state.  rpmdb.sqlite itself
+        # is deterministic and is kept.
+        ": > {}/etc/machine-id".format(quoted_target),
+        "rm -f {}/var/cache/ldconfig/aux-cache".format(quoted_target),
+        # -shm is shared memory and holds no database content, so it always
+        # goes.  An empty -wal is the residue of a clean close; a non-empty
+        # one would hold committed frames, so it stays and shows up rather
+        # than being silently discarded.
+        "for rpmdb in {0}/usr/lib/sysimage/rpm {0}/var/lib/rpm; do"
+        " rm -f \"$rpmdb\"/rpmdb.sqlite-shm;"
+        " if [ -f \"$rpmdb\"/rpmdb.sqlite-wal ] &&"
+        " [ ! -s \"$rpmdb\"/rpmdb.sqlite-wal ]; then"
+        " rm -f \"$rpmdb\"/rpmdb.sqlite-wal; fi;"
+        " done".format(quoted_target),
         # posix extended headers carry atime and ctime at nanosecond
         # precision, which --mtime does not pin and no input determines, so
         # the archive differs on every build until they are dropped.

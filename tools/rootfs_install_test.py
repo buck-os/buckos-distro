@@ -25,6 +25,33 @@ class TestTransactionScript(unittest.TestCase):
         self.assertIn("--excludepath /etc/udev/hwdb.bin", script)
         self.assertIn("systemd-hwdb --root=/work/rootfs update", script)
 
+    def test_transaction_scrubs_the_content_that_records_this_build(self):
+        # Measured across two runs of the Fedora live rootfs: three of 16,251
+        # files differed, and squashfs compression turned them into 78 percent
+        # of the ISO.  rpmdb.sqlite itself was identical, so it is kept.
+        script = _transaction_script(
+            self.args(),
+            "/work/rpms",
+            "/work/rootfs",
+            "/work/rootfs.tar",
+        )
+        self.assertIn(": > /work/rootfs/etc/machine-id", script)
+        self.assertIn("rm -f /work/rootfs/var/cache/ldconfig/aux-cache", script)
+        self.assertIn("rpmdb.sqlite-shm", script)
+        self.assertLess(script.index("machine-id"), script.index("tar --create"))
+
+    def test_transaction_keeps_a_write_ahead_log_that_holds_frames(self):
+        # -shm is shared memory and holds no database content.  A non-empty
+        # -wal holds committed frames, so discarding it would corrupt the
+        # database the image boots with; it is left in place instead.
+        script = _transaction_script(
+            self.args(),
+            "/work/rpms",
+            "/work/rootfs",
+            "/work/rootfs.tar",
+        )
+        self.assertIn('[ ! -s "$rpmdb"/rpmdb.sqlite-wal ]', script)
+
     def test_keep_work_preserves_rootfs(self):
         script = _transaction_script(
             self.args(keep_work=True),
