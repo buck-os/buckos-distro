@@ -132,7 +132,17 @@
   # than per-release, so this also disables the cross build on 45, whose
   # older compiler may not have the bug.  Narrowing it needs a
   # per-release form of this setting, which does not exist yet.
-  without = gnutls:mingw
+  #
+  # libkcapi:doc is the same shape and a different cause.  Its C build
+  # succeeds; what fails is the LaTeX half, where pdf-stamp and ps-stamp
+  # both die with "Error 9" under the replay's `make -O -j316`, and the
+  # Makefile carries duplicate recipes for lib/doc/bin/docproc.  That
+  # looks like a doc build that is not parallel-safe, but the shape is
+  # inferred rather than proven -- what is established is that only the
+  # documentation targets fail.  Dropping them costs libkcapi-doc, which
+  # neither image set installs; the three subpackages the live image does
+  # use (libkcapi, libkcapi-hasher, libkcapi-hmaccalc) are unaffected.
+  without = gnutls:mingw, libkcapi:doc
 
 # Release 9 layers EPEL and EPEL Next; release 10 is plain Stream and stays
 # the default because releases are listed oldest first.
