@@ -130,12 +130,10 @@ def _isolation_for(info):
     if info.provenance == "host":
         return "none"
 
-    # "auto", not "bwrap": the mechanism is a property of the machine, not
-    # of the build, and bubblewrap is not installed everywhere.  The replay
-    # picks bwrap or an unprivileged userns+chroot, both genuinely
-    # hermetic, and hard-errors if it can find neither rather than
-    # quietly reverting to the host toolchain.
-    return "auto"
+    # The mechanism is a property of the execution environment, not the
+    # build. "auto" remains the portable default, while constrained hosts
+    # can select a supported mechanism explicitly.
+    return read_root_config("buckos", "isolation", "auto")
 
 def buildroot_env(ctx):
     """Extra env the buildroot requires, as --env KEY=VALUE flags."""
