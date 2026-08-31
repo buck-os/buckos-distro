@@ -1,0 +1,126 @@
+python_library(
+    name = "oci_acquire_lib",
+    srcs = [
+        "oci_acquire.py",
+        "oci_archive.py",
+    ],
+    base_module = "",
+)
+
+python_binary(
+    name = "oci_acquire",
+    main_module = "oci_acquire",
+    deps = [":oci_acquire_lib"],
+    visibility = ["PUBLIC"],
+)
+
+python_test(
+    name = "oci_acquire_test",
+    srcs = ["oci_acquire_test.py"],
+    base_module = "",
+    deps = [":oci_acquire_lib"],
+)
+
+python_test(
+    name = "check_deployment_test",
+    srcs = [
+        "check_deployment.py",
+        "check_deployment_test.py",
+    ],
+    base_module = "",
+)
+
+python_test(
+    name = "preflight_worker_test",
+    srcs = [
+        "preflight_worker.py",
+        "preflight_worker_test.py",
+    ],
+    base_module = "",
+    deps = ["//tools:_isolation"],
+)
+
+python_test(
+    name = "reapi_readiness_test",
+    srcs = [
+        "_skiploader.py",
+        "reapi_readiness.py",
+        "reapi_readiness_test.py",
+    ],
+    base_module = "",
+    deps = ["//tools:_skips"],
+)
+
+python_test(
+    name = "what_ran_evidence_test",
+    srcs = [
+        "what_ran_evidence.py",
+        "what_ran_evidence_test.py",
+    ],
+    base_module = "",
+)
+
+python_test(
+    name = "prepare_worker_probe_root_test",
+    srcs = [
+        "prepare_worker_probe_root.py",
+        "prepare_worker_probe_root_test.py",
+    ],
+    base_module = "",
+)
+
+python_test(
+    name = "sdme_provision_test",
+    srcs = [
+        "_skiploader.py",
+        "oci_archive.py",
+        "sdme_provision_test.py",
+    ],
+    base_module = "",
+    resources = {
+        "sdme-provision.sh": "sdme-provision.sh",
+        "sdme_select_address.py": "sdme_select_address.py",
+        "sdme_tls.py": "sdme_tls.py",
+        "worker-preflight.conf": "//infra/remote-execution/sdme:worker-preflight",
+        "worker-rootfs.sdme": "//infra/remote-execution/sdme:worker-rootfs",
+    },
+    deps = ["//tools:_skips"],
+)
+
+python_test(
+    name = "sdme_tls_test",
+    srcs = [
+        "_skiploader.py",
+        "sdme_tls.py",
+        "sdme_tls_test.py",
+    ],
+    base_module = "",
+    deps = ["//tools:_skips"],
+)
+
+export_file(
+    name = "reapi-readiness-source",
+    src = "reapi_readiness.py",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "smoke-test-script",
+    src = "smoke-test.sh",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "what-ran-evidence-source",
+    src = "what_ran_evidence.py",
+    visibility = ["PUBLIC"],
+)
+
+python_test(
+    name = "oci_archive_test",
+    srcs = [
+        "oci_archive.py",
+        "oci_archive_test.py",
+    ],
+    base_module = "",
+)

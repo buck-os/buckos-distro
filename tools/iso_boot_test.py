@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
-"""Boot an ISO through PC or Arm firmware and verify the guest marker."""
+"""Boot an exact production ISO, then its instrumented verification ISO."""
 
 import argparse
+from contextlib import contextmanager
+from dataclasses import dataclass
+import hashlib
 import os
 import platform
 import re
+import selectors
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
-import threading
+import time
 
 
 MARKER = "BUCKOS_VERIFY "
+PANIC = "Kernel panic - not syncing:"
+PRODUCTION_MILESTONE = "login:"
 ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 FIRMWARE_CANDIDATES = {
@@ -37,11 +43,27 @@ FIRMWARE_CANDIDATES = {
 }
 
 
+@dataclass(frozen=True)
+class BootCapture:
+    output: str
+    timed_out: bool
+    returncode: int
+
+
+class BootFailure(RuntimeError):
+    pass
+
+
+class BootInterrupted(RuntimeError):
+    pass
+
+
 def find_file(path, suffix=None):
     if os.path.isfile(path):
         return path
     if os.path.isdir(path):
-        for root, _dirs, names in os.walk(path):
+        for root, dirs, names in os.walk(path):
+            dirs.sort()
             for name in sorted(names):
                 if suffix is None or name.endswith(suffix):
                     return os.path.join(root, name)
@@ -146,9 +168,184 @@ def validate(args, fields):
     return errors
 
 
-def main():
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def clean_console(data):
+    return ANSI_RE.sub("", data.decode("utf-8", "replace")).replace("\r", "")
+
+
+def marker_from_output(output):
+    marker = None
+    for line in output.splitlines():
+        marker = parse_marker(line) or marker
+    return marker
+
+
+def complete_marker_from_output(output):
+    return any(
+        line.endswith("\n") and parse_marker(line) is not None
+        for line in output.splitlines(keepends=True)
+    )
+
+
+def panic_from_output(output):
+    for line in output.splitlines():
+        if PANIC in line:
+            return line.strip()
+    return None
+
+
+def console_tail(output, lines=300):
+    return "\n".join(output.splitlines()[-lines:]) + ("\n" if output else "")
+
+
+def terminate_process(process):
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    process.wait()
+
+
+def capture_boot(args, iso, phase, complete):
+    with tempfile.TemporaryDirectory(prefix="buckos-iso-boot-{}-".format(phase)) as temporary:
+        chunks = []
+        timed_out = False
+        process = None
+        selector = None
+        try:
+            command = qemu_command(args, iso, temporary)
+            print(
+                "{} phase: + {}".format(phase, " ".join(command)),
+                file=sys.stderr,
+                flush=True,
+            )
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            if process.stdout is None:
+                raise BootFailure(
+                    "{} phase: QEMU stdout pipe is unavailable".format(phase)
+                )
+
+            deadline = time.monotonic() + args.timeout
+            selector = selectors.DefaultSelector()
+            selector.register(process.stdout, selectors.EVENT_READ)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                if not selector.select(remaining):
+                    timed_out = True
+                    break
+                chunk = os.read(process.stdout.fileno(), 1 << 16)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                output = clean_console(b"".join(chunks))
+                if panic_from_output(output) or complete(output):
+                    break
+        except BootInterrupted as error:
+            raise BootInterrupted("{} phase: {}".format(phase, error)) from error
+        finally:
+            if selector is not None:
+                selector.close()
+            if process is not None:
+                terminate_process(process)
+                if process.stdout is not None:
+                    process.stdout.close()
+
+    return BootCapture(
+        output=clean_console(b"".join(chunks)),
+        timed_out=timed_out,
+        returncode=process.returncode,
+    )
+
+
+def validate_production_capture(capture, milestone):
+    panic = panic_from_output(capture.output)
+    if panic:
+        raise BootFailure("exact-media phase: guest kernel panic: " + panic)
+    if milestone in capture.output:
+        return
+    if capture.timed_out:
+        raise BootFailure(
+            "exact-media phase: guest did not reach serial milestone {!r} "
+            "before timeout".format(milestone)
+        )
+    raise BootFailure(
+        "exact-media phase: guest exited with status {} before serial "
+        "milestone {!r}".format(capture.returncode, milestone)
+    )
+
+
+def validate_verification_capture(args, capture):
+    panic = panic_from_output(capture.output)
+    if panic:
+        raise BootFailure("verification phase: guest kernel panic: " + panic)
+    marker = marker_from_output(capture.output)
+    if marker is None:
+        if capture.timed_out:
+            raise BootFailure(
+                "verification phase: guest did not emit {} before timeout".format(
+                    MARKER.strip()
+                )
+            )
+        raise BootFailure(
+            "verification phase: guest exited with status {} without {}".format(
+                capture.returncode,
+                MARKER.strip(),
+            )
+        )
+    errors = validate(args, marker)
+    if errors:
+        raise BootFailure(
+            "verification phase: boot validation failed: " + "; ".join(errors)
+        )
+    return marker
+
+
+def require_iso(path, phase):
+    iso = find_file(path, ".iso")
+    if not iso:
+        raise BootFailure("{} phase: ISO not found under {}".format(phase, path))
+    return os.path.realpath(iso)
+
+
+@contextmanager
+def interrupt_guard():
+    previous = {}
+
+    def interrupted(signum, _frame):
+        raise BootInterrupted(
+            "boot validation interrupted by {}".format(signal.Signals(signum).name)
+        )
+
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        previous[signum] = signal.signal(signum, interrupted)
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--iso", required=True)
+    parser.add_argument("--production-iso", required=True)
+    parser.add_argument("--verification-iso", required=True)
+    parser.add_argument("--production-milestone", default=PRODUCTION_MILESTONE)
     parser.add_argument(
         "--arch",
         dest="architecture",
@@ -163,63 +360,80 @@ def main():
     parser.add_argument("--firmware-vars", default="")
     parser.add_argument("--qemu", required=True)
     parser.add_argument("--timeout", type=int, default=600)
-    args = parser.parse_args()
+    parser.add_argument("-v", "--verbose", action="store_true")
+    args = parser.parse_args(argv)
+    if not args.production_milestone:
+        parser.error("--production-milestone must not be empty")
+    return args
 
-    iso = find_file(args.iso, ".iso")
-    if not iso:
-        sys.exit("ISO not found under {}".format(args.iso))
 
-    with tempfile.TemporaryDirectory(prefix="buckos-iso-boot-") as temporary:
-        command = qemu_command(args, iso, temporary)
-        print("+ {}".format(" ".join(command)), file=sys.stderr, flush=True)
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
-            start_new_session=True,
+def run(args):
+    production_iso = require_iso(args.production_iso, "exact-media")
+    verification_iso = require_iso(args.verification_iso, "verification")
+    if os.path.samefile(production_iso, verification_iso):
+        raise BootFailure(
+            "exact-media phase: production and verification ISO inputs "
+            "resolve to the same file"
         )
 
-        def terminate():
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+    production_sha256 = file_sha256(production_iso)
+    print(
+        "exact-media phase: production ISO sha256={} path={}".format(
+            production_sha256,
+            production_iso,
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+    if args.verbose:
+        print(
+            "exact-media phase: waiting for serial milestone {!r}".format(
+                args.production_milestone
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+    production = capture_boot(
+        args,
+        production_iso,
+        "exact-media",
+        lambda output: args.production_milestone in output,
+    )
+    try:
+        validate_production_capture(production, args.production_milestone)
+    except BootFailure:
+        sys.stderr.write(console_tail(production.output))
+        raise
+    print(
+        "BUCKOS_PRODUCTION_ISO sha256={} milestone={}".format(
+            production_sha256,
+            args.production_milestone,
+        )
+    )
 
-        timer = threading.Timer(args.timeout, terminate)
-        timer.start()
-        lines = []
-        marker = None
-        panic = None
-        try:
-            for line in process.stdout:
-                clean = ANSI_RE.sub("", line).replace("\r", "")
-                lines.append(clean)
-                marker = parse_marker(clean) or marker
-                if marker is not None:
-                    terminate()
-                    break
-                if "Kernel panic - not syncing:" in clean:
-                    panic = clean.strip()
-                    terminate()
-                    break
-        finally:
-            timer.cancel()
-            terminate()
-            process.wait()
-            process.stdout.close()
-
-    if marker is None:
-        sys.stderr.write("".join(lines[-300:]))
-        if panic:
-            sys.exit("guest kernel panic: " + panic)
-        sys.exit("guest did not emit {} before timeout".format(MARKER.strip()))
-    errors = validate(args, marker)
-    if errors:
-        sys.stderr.write("".join(lines[-300:]))
-        sys.exit("boot validation failed: " + "; ".join(errors))
+    verification = capture_boot(
+        args,
+        verification_iso,
+        "verification",
+        complete_marker_from_output,
+    )
+    try:
+        marker = validate_verification_capture(args, verification)
+    except BootFailure:
+        sys.stderr.write(console_tail(verification.output))
+        raise
     print(MARKER + " ".join("{}={}".format(key, marker[key]) for key in sorted(marker)))
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    try:
+        with interrupt_guard():
+            run(args)
+    except BootInterrupted as error:
+        sys.exit(str(error))
+    except BootFailure as error:
+        sys.exit(str(error))
 
 
 if __name__ == "__main__":

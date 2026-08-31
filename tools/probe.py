@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the dynamic-BuildRequires probes and collect their answers.
 
-Most Fedora specs list their BuildRequires and mean it.  Anything
+Most RPM specs list their BuildRequires and mean it.  Anything
 packaged with rust-packaging, go-rpm-macros or pyproject-rpm-macros does
 not: it computes them from a lockfile in a %generate_buildrequires shell
 block, and repodata carries only the handful of static entries that let
@@ -10,7 +10,7 @@ buildroot that is missing most of what the package needs, and the gap
 does not surface until %build fails somewhere unrecognisable.
 
 The only way to learn the rest is to run the block.  `rpmbuild -br` does
-that and reports what came out, which is what //flavors/fedora:probe-<pkg>
+that and reports what came out, which is what //flavors/<flavor>:probe-<pkg>
 wraps.  This drives one probe per source package and merges the results
 into a single file that solve.py can read.
 
@@ -35,9 +35,9 @@ the second one knows what they asked for.  mock does the same thing at
 build time, installing the static set and then re-running; the difference
 is only that a lockfile has to remember the answer.
 
-`tools/relock.py --probe` runs that whole loop.  This tool is separate so
-the probe can also be run on its own, which is what you want when a
-single package's generator starts asking for something new.
+The RPM-family relock tools run that whole loop with `--probe`. This tool
+is separate so the probe can also be run on its own, which is what you
+want when a single package's generator starts asking for something new.
 """
 
 import argparse
@@ -59,7 +59,7 @@ import solve
 DEFAULT_CONFIG = ["--config-file", "tools/probe.buckconfig"]
 
 
-def probe_targets(lock, release, arch):
+def probe_targets(lock):
     """One target per source package on the build list.
 
     Named from the lockfile rather than discovered with `buck2 targets`,
@@ -68,7 +68,8 @@ def probe_targets(lock, release, arch):
     missing target, which is the correct complaint.
     """
     return [
-        "//flavors/fedora:probe-{}-{}-{}".format(src, release, arch)
+        "//flavors/{}:probe-{}-{}-{}".format(
+            lock["flavor"], src, lock["release"], lock["target_cpu"])
         for src in sorted(lock["solve"]["build"])
     ]
 
@@ -149,7 +150,7 @@ def collect(outputs, cwd):
         packages[name] = {
             k: report[k]
             for k in ("buildrequires", "dynamic", "static", "generated",
-                      "unmet", "spec")
+                      "unmet", "spec", "produces")
             if k in report
         }
     return packages
@@ -178,6 +179,9 @@ def main(argv=None):
                     help="release to probe (repeatable; default: every "
                          "release with a lockfile)")
     ap.add_argument("--arch", default="x86_64", choices=("x86_64", "aarch64"))
+    ap.add_argument("--flavor", default="fedora",
+                    choices=sorted(solve.IMPLICIT_GROUPS),
+                    help="RPM flavor to probe (default: fedora)")
     ap.add_argument("--lock-dir", default=None)
     ap.add_argument("--buck2", default=None,
                     help="buck2 to invoke (default: ./buck2 in the repo, or "
@@ -189,19 +193,27 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     root = relock.repo_root()
-    lock_dir = args.lock_dir or os.path.join(root, "flavors", "fedora", "lock")
+    lock_dir = args.lock_dir or os.path.join(
+        root, "flavors", args.flavor, "lock")
 
     config = list(DEFAULT_CONFIG)
     for flag in args.config:
         config += ["-c", flag]
 
-    releases = args.release or relock.lockfile_releases(lock_dir, args.arch)
+    releases = args.release or relock.lockfile_releases(
+        lock_dir, args.arch, args.flavor)
     for release in releases:
-        write_probe_file(release, args.arch, lock_dir, root, config,
-                         buck2=resolve_buck2(root, args.buck2))
+        lock_path = os.path.join(
+            lock_dir,
+            relock.lockfile_name(args.flavor, release, args.arch),
+        )
+        write_probe_file(
+            lock_path, root, config,
+            buck2=resolve_buck2(root, args.buck2),
+        )
 
 
-def probe_path(lock_dir, release, arch):
+def probe_path(lock_path):
     """Where a release's probe results live.
 
     Beside the lockfile and named for it, because it is the same kind of
@@ -210,17 +222,21 @@ def probe_path(lock_dir, release, arch):
     different machinery -- repodata is fetched, this is executed -- and a
     reviewer reading a lockfile diff should be able to tell which.
     """
-    return os.path.join(lock_dir, "fedora-{}-{}.probe.json".format(release, arch))
+    suffix = ".lock.json"
+    if not lock_path.endswith(suffix):
+        raise ValueError("lockfile must end in {}: {}".format(
+            suffix, lock_path))
+    return lock_path[:-len(suffix)] + ".probe.json"
 
 
-def previous_packages(lock_dir, release, arch):
+def previous_packages(lock_path, lock):
     """What the last probe run recorded, or nothing if there was none.
 
     Tolerant of a file that does not parse or predates the schema: this is
     a cache of answers, and a corrupt one should cost a re-probe rather
     than the run.
     """
-    path = probe_path(lock_dir, release, arch)
+    path = probe_path(lock_path)
     if not os.path.exists(path):
         return {}
     try:
@@ -236,21 +252,33 @@ def previous_packages(lock_dir, release, arch):
                   path, recorded.get("schema"), solve.PROBE_SCHEMA),
               file=sys.stderr)
         return {}
+    identity_errors = solve.probe_identity_errors(
+        recorded,
+        flavor=lock["flavor"],
+        release=lock["release"],
+        target_cpu=lock["target_cpu"],
+    )
+    if identity_errors:
+        print("buckos-distro: {} has mismatched identity ({}); starting "
+              "from an empty probe set".format(
+                  path, "; ".join(identity_errors)), file=sys.stderr)
+        return {}
     return recorded.get("packages", {})
 
 
-def write_probe_file(release, arch, lock_dir, root, config=None, buck2=None):
-    lock_path = os.path.join(lock_dir, "fedora-{}-{}.lock.json".format(release, arch))
+def write_probe_file(lock_path, root, config=None, buck2=None):
     if not os.path.exists(lock_path):
         sys.exit("no lockfile at {}".format(lock_path))
     with open(lock_path) as fh:
         lock = json.load(fh)
+    flavor = lock["flavor"]
+    release = lock["release"]
 
     config = DEFAULT_CONFIG if config is None else config
-    print("fedora {}: probing {} source package(s)".format(
-        release, len(lock["solve"]["build"])), file=sys.stderr)
+    print("{} {}: probing {} source package(s)".format(
+        flavor, release, len(lock["solve"]["build"])), file=sys.stderr)
     outputs = run_probes(resolve_buck2(root, buck2),
-                         probe_targets(lock, release, arch), config, root)
+                         probe_targets(lock), config, root)
 
     # Layered over whatever is already recorded, not written in place of it.
     #
@@ -266,7 +294,7 @@ def write_probe_file(release, arch, lock_dir, root, config=None, buck2=None):
     #
     # A fresh answer always wins, so re-probing still updates.  What this
     # prevents is a *missing* answer counting as a new one.
-    packages = dict(previous_packages(lock_dir, release, arch))
+    packages = dict(previous_packages(lock_path, lock))
     fresh = collect(outputs, root)
     kept = sorted(set(packages) - set(fresh))
     packages.update(fresh)
@@ -275,13 +303,14 @@ def write_probe_file(release, arch, lock_dir, root, config=None, buck2=None):
               "probe this run: {}".format(len(kept), ", ".join(kept)),
               file=sys.stderr)
 
-    out = probe_path(lock_dir, release, arch)
+    out = probe_path(lock_path)
     with open(out, "w") as fh:
         json.dump(
             {
                 "schema": solve.PROBE_SCHEMA,
-                "flavor": "fedora",
+                "flavor": flavor,
                 "release": lock["release"],
+                "target_cpu": lock["target_cpu"],
                 # What the probes were run against.  A probe answer is only
                 # as good as the buildroot that produced it -- a generator
                 # can and does branch on the version of its own toolchain --

@@ -8,13 +8,84 @@ import os
 import shutil
 import sys
 
-from _deb import deb_field, extract_deb, require_tool, run
-from _isolation import require_target_execution, resolve_isolation, run_isolated
+from _deb import (
+    deb_fields,
+    ensure_base_files,
+    extract_deb,
+    fakeroot_command,
+    register_debs,
+    require_tool,
+    run,
+    stage_fakeroot_runtime,
+)
+from _isolation import (
+    require_target_execution,
+    resolve_isolation,
+    run_isolated,
+    sandbox_path,
+)
 from _rpm import make_dirs_writable, overlay_tree, reproducible_env, scratch_dir
+
+BUILD_OPTIONS = {
+    "arch": "-B",
+    "binary": "-b",
+    "indep": "-A",
+}
+
+
+def build_option(build_type: str) -> str:
+    return BUILD_OPTIONS[build_type]
+
+
+def build_environment(
+    source_date_epoch: str,
+    build_options: list[str] | None = None,
+) -> dict[str, str]:
+    env = reproducible_env(source_date_epoch=source_date_epoch)
+    env["FAKEROOTDONTTRYCHOWN"] = "1"
+    # Bubblewrap maps the build user to UID 0 inside its private user
+    # namespace. GNU tar's configure script rejects that safe arrangement
+    # unless the standard container-build override is explicit.
+    env["FORCE_UNSAFE_CONFIGURE"] = "1"
+    # The archive's own `find` calls the system getcwd, on both amd64 and
+    # arm64: getcwd present, lstat, readlink and rewinddir absent.  Left
+    # unpinned this probe sometimes produces the other binary instead --
+    # one Debian never ships -- so letting it run is the deviation from
+    # upstream and pinning it is the fidelity.
+    #
+    # What the pin overrides is a timeout, not a finding.  gnulib decides
+    # whether the system getcwd copes with paths past PATH_MAX by
+    # compiling a probe that mkdir/chdirs a deep chain and calls it there,
+    # and the probe allows itself five seconds -- alarm(5).  Every failing
+    # run measured here died on SIGALRM, exit 142, six of six, none of
+    # them reaching a verdict about getcwd at all.  A "no" here means
+    # could not determine, never determined no.
+    #
+    # And the platform is sound wherever the probe is allowed to finish,
+    # emulation included: tar and cpio completed it and returned yes in
+    # the same builds that timed findutils out.  Nothing anywhere suggests
+    # the system getcwd is inadequate on either architecture.
+    #
+    # The cost of leaving it is that build-farm load picks the binary: a
+    # "no" compiles in gnulib's replacement and `find` gains 1536 bytes of
+    # text, silently, with nothing failing.
+    env["gl_cv_func_getcwd_path_max"] = "yes"
+    if build_options:
+        env["DEB_BUILD_OPTIONS"] = " ".join(dict.fromkeys(build_options))
+    return env
 
 
 def copy_source(src, dst):
-    shutil.copytree(src, dst, symlinks=True)
+    if os.path.isdir(src):
+        shutil.copytree(src, dst, symlinks=True)
+    else:
+        os.makedirs(dst)
+        run([
+            require_tool("tar"),
+            "--extract",
+            "--file", src,
+            "--directory", dst,
+        ])
     if not os.path.isfile(os.path.join(dst, "debian", "rules")):
         sys.exit("source tree has no debian/rules: {}".format(src))
     make_dirs_writable(dst)
@@ -29,6 +100,38 @@ def compose_buildroot(seed_root, dep_roots, dest):
     return dest
 
 
+def refresh_library_cache(sysroot, isolation, work, env):
+    """Rebuild /etc/ld.so.cache for the tree this package builds against.
+
+    The seed buildroot arrives with a cache its own assembler built, and
+    that cache is correct for the seed and stale for this package: the
+    dependency layers overlaid above add libraries it does not mention.
+    A ctypes caller then fails on a library sitting on disk, because
+    ctypes.util.find_library asks `ldconfig -p`.  Measured on
+    xkeyboard-config: cache present, libxkbcommon.so.0 present, zero
+    xkbcommon entries in the cache.
+
+    Stale is worse than absent here.  An absent cache makes the loader
+    fall back to searching; a stale one answers, wrongly.
+
+    The RPM family gets this for free.  Its per-package overlay runs
+    triggers, and glibc's file trigger rebuilds the cache -- the reason
+    triggers are enabled there rather than for the shared base.  The
+    Debian family has no trigger to turn on, so the overlay has to say
+    so itself.
+    """
+    if isolation == "none":
+        return
+    run_isolated(
+        ["/usr/sbin/ldconfig"],
+        isolation,
+        work=work,
+        chdir=work,
+        sysroot=sysroot,
+        env=env,
+    )
+
+
 def host_sysroot_env(sysroot, env, target_cpu="x86_64"):
     root = os.path.abspath(sysroot)
     usr = os.path.join(root, "usr")
@@ -41,7 +144,14 @@ def host_sysroot_env(sysroot, env, target_cpu="x86_64"):
         "PATH": os.pathsep.join([
             os.path.join(usr, "bin"),
             os.path.join(usr, "sbin"),
-            env.get("PATH", "/usr/bin:/bin"),
+            # os.environ rather than the sandbox environment: this is
+            # the host-provenance path, and reaching host tools is the
+            # only thing it exists for.  The declared sandbox PATH is
+            # deliberately narrow and would drop /usr/local/bin here.
+            # Stated rather than inherited, which is the same principle
+            # as the allowlist applied to the one mode that wants the
+            # host.
+            os.environ.get("PATH", "/usr/bin:/bin"),
         ]),
         "PKG_CONFIG_PATH": os.pathsep.join([
             os.path.join(lib, multiarch, "pkgconfig"),
@@ -74,14 +184,41 @@ def collect_debs(parent, out):
     return found
 
 
-def write_manifest(paths, out):
+def select_installroot_debs(
+    paths: list[str],
+    packages: list[str],
+    metadata: dict[str, dict[str, str]] | None = None,
+) -> list[str]:
+    """Select only the declared binary packages for the aggregate prefix."""
+    metadata = metadata or {path: deb_fields(path) for path in paths}
+    wanted = set(packages)
+    selected = []
+    found = set()
+    for path in paths:
+        package = metadata[path]["Package"]
+        if package in wanted:
+            selected.append(path)
+            found.add(package)
+    missing = sorted(wanted - found)
+    if missing:
+        raise ValueError(
+            "dpkg-buildpackage did not produce declared installroot packages: {}".format(
+                ", ".join(missing),
+            )
+        )
+    return selected
+
+
+def write_manifest(paths, out, metadata=None):
+    metadata = metadata or {path: deb_fields(path) for path in paths}
     packages = []
     for path in paths:
+        fields = metadata[path]
         packages.append({
-            "architecture": deb_field(path, "Architecture"),
+            "architecture": fields["Architecture"],
             "file": os.path.basename(path),
-            "package": deb_field(path, "Package"),
-            "version": deb_field(path, "Version"),
+            "package": fields["Package"],
+            "version": fields["Version"],
         })
     with open(out, "w", encoding="utf-8") as stream:
         json.dump({"packages": packages}, stream, indent=2, sort_keys=True)
@@ -96,10 +233,14 @@ def main():
     parser.add_argument("--out-manifest", required=True)
     parser.add_argument("--buildroot-tree", default=None)
     parser.add_argument("--dep-installroot", action="append", default=[])
+    parser.add_argument("--dep-deb", action="append", default=[])
     parser.add_argument("--isolation", choices=("auto", "bwrap", "unshare", "none"), default="auto")
     parser.add_argument("--dpkg-buildpackage", default="dpkg-buildpackage")
     parser.add_argument("--env", action="append", default=[])
     parser.add_argument("--build-profile", action="append", default=[])
+    parser.add_argument("--build-option", action="append", default=[])
+    parser.add_argument("--build-type", choices=sorted(BUILD_OPTIONS), default="binary")
+    parser.add_argument("--install-package", action="append", default=[])
     parser.add_argument("--nocheck", action="store_true")
     parser.add_argument("--source-date-epoch", default="1700000000")
     parser.add_argument("--target-cpu", default="x86_64")
@@ -110,8 +251,11 @@ def main():
     sysroot = os.path.join(work, "sysroot")
     copy_source(args.source, source)
     compose_buildroot(args.buildroot_tree, args.dep_installroot, sysroot)
+    if args.dep_deb:
+        register_debs(args.dep_deb, sysroot)
+    ensure_base_files(sysroot)
 
-    env = reproducible_env(source_date_epoch=args.source_date_epoch)
+    env = build_environment(args.source_date_epoch, args.build_option)
     for item in args.env:
         if "=" not in item:
             sys.exit("--env must be KEY=VALUE: {!r}".format(item))
@@ -132,7 +276,16 @@ def main():
     else:
         env["TMPDIR"] = "/tmp"
 
-    command = [require_tool(args.dpkg_buildpackage), "-b", "-us", "-uc", "-d"]
+    refresh_library_cache(sysroot, isolation, work, env)
+
+    fakeroot = stage_fakeroot_runtime(sysroot, work, isolation)
+    command = fakeroot_command(fakeroot, [
+        require_tool(args.dpkg_buildpackage),
+        build_option(args.build_type),
+        "-us",
+        "-uc",
+        "-d",
+    ])
     run_isolated(
         command,
         isolation,
@@ -143,13 +296,15 @@ def main():
     )
 
     debs = collect_debs(work, os.path.abspath(args.out_debs))
+    metadata = {path: deb_fields(path) for path in debs}
     installroot = os.path.abspath(args.out_installroot)
     shutil.rmtree(installroot, ignore_errors=True)
     os.makedirs(installroot)
-    for path in debs:
+    install_debs = select_installroot_debs(debs, args.install_package, metadata)
+    for path in install_debs:
         extract_deb(path, installroot)
         make_dirs_writable(installroot)
-    write_manifest(debs, os.path.abspath(args.out_manifest))
+    write_manifest(debs, os.path.abspath(args.out_manifest), metadata)
 
 
 if __name__ == "__main__":

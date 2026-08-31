@@ -9,12 +9,16 @@ tested here rather than trusted to a re-solve.
 """
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from solve import (
+    apply_probed_producers,
     BUILDSYS_BUILD,
     CENTOS_BUILDSYS_BUILD,
     IMPLICIT_GROUPS,
@@ -24,12 +28,18 @@ from solve import (
     collect_repos,
     derive_repo_name,
     load_probe,
+    read_probe,
+    merge_fallback_packages,
     merge_packages,
     parse_override,
+    parse_source_exception,
+    probe_identity_errors,
     probed_buildrequires,
+    rpm_source_policy_inputs,
     solve,
     solve_image_sets,
     solve_package_set,
+    source_build_set,
 )
 from depgraph import runtime_closure
 
@@ -41,6 +51,17 @@ class TestOverrideParsing(unittest.TestCase):
             parse_override(expression + "=centos-stream-release", "--override"),
             (expression, "centos-stream-release"),
         )
+
+    def test_source_exception_is_one_json_object(self):
+        self.assertEqual(
+            parse_source_exception(
+                '{"package":"kernel-core","kind":"host-kernel-capability",'
+                '"reason":"Host capability is absent."}'
+            )["package"],
+            "kernel-core",
+        )
+        with self.assertRaisesRegex(ValueError, "must be a JSON object"):
+            parse_source_exception('["kernel-core"]')
 
 
 def binary(name, requires=(), provides=(), source="src-1.fc43.src.rpm",
@@ -126,6 +147,75 @@ class TestImageSets(unittest.TestCase):
         )
         self.assertEqual(closure, ["shell"])
         self.assertEqual(problems[0][2], "buildroot (shell)")
+
+
+class TestSourceBuildSet(unittest.TestCase):
+    def test_derives_source_names_from_the_selected_image_closure(self):
+        self.assertEqual(
+            source_build_set(
+                {
+                    "image-tools": ["xorriso"],
+                    "live": ["bash", "kernel-core", "kernel-modules"],
+                },
+                {
+                    "bash": "bash",
+                    "kernel-core": "kernel",
+                    "kernel-modules": "kernel",
+                    "xorriso": "libisoburn",
+                },
+                ["live"],
+            ),
+            {"bash", "kernel"},
+        )
+
+    def test_explicit_prebuilt_sources_are_removed(self):
+        self.assertEqual(
+            source_build_set(
+                {"live": ["bash", "kernel-core"]},
+                {"bash": "bash", "kernel-core": "kernel"},
+                ["live"],
+                ["kernel"],
+            ),
+            {"bash"},
+        )
+
+    def test_rejects_a_stale_prebuilt_source(self):
+        with self.assertRaisesRegex(
+            ValueError, "do not produce a selected image payload: kernel"
+        ):
+            source_build_set(
+                {"live": ["bash"]},
+                {"bash": "bash"},
+                ["live"],
+                ["kernel"],
+            )
+
+    def test_prebuilt_sources_require_an_image_derived_policy(self):
+        with self.assertRaisesRegex(ValueError, "require --source-image"):
+            source_build_set({}, {}, [], ["kernel"])
+
+    def test_normalizes_policy_inputs_and_effective_producers(self):
+        images, producers = rpm_source_policy_inputs({
+            "solve": {
+                "source_image_sets": ["live"],
+                "prebuilt_sources": ["kernel"],
+            },
+            "image_sets": {
+                "live": [
+                    {"name": "kernel-core", "source": "kernel"},
+                    {"name": "bash", "source": "bash"},
+                ],
+            },
+            "packages": {
+                "bash": {"source": {"name": "bash"}},
+                "kernel": {"source": {"name": "kernel"}},
+            },
+        })
+        self.assertEqual(images, {"live": [
+            {"package": "bash", "source": "bash"},
+            {"package": "kernel-core", "source": "kernel"},
+        ]})
+        self.assertEqual(producers, {"bash"})
 
 
 class TestScopedOverrides(unittest.TestCase):
@@ -315,10 +405,187 @@ class TestProbeFile(unittest.TestCase):
         # buildroot, and the buildroot comes from a solve.
         self.assertEqual(load_probe(None, {"widget"}), {})
 
+    def test_read_probe_is_not_filtered_by_a_build_list(self):
+        # The producer question is asked before a build list exists --
+        # what a spec builds is what decides who lands on the list.  So
+        # read_probe returns every report and leaves filtering to
+        # load_probe, which asks the later question.
+        path = self.write({
+            "schema": PROBE_SCHEMA,
+            "packages": {"widget": {"dynamic": []}, "dropped": {"dynamic": []}},
+        })
+        self.assertEqual(sorted(read_probe(path)), ["dropped", "widget"])
+
+    def test_read_probe_of_nothing_is_empty(self):
+        self.assertEqual(read_probe(None), {})
+
     def test_an_unknown_schema_is_refused(self):
         path = self.write({"schema": PROBE_SCHEMA + 1, "packages": {}})
         with self.assertRaises(SystemExit):
             load_probe(path, {"widget"})
+
+    def test_a_probe_for_another_release_is_refused(self):
+        path = self.write({
+            "schema": PROBE_SCHEMA,
+            "flavor": "fedora",
+            "release": "45",
+            "target_cpu": "x86_64",
+            "packages": {"widget": {"dynamic": []}},
+        })
+        with self.assertRaisesRegex(SystemExit, "release='45', expected '44'"):
+            load_probe(
+                path,
+                {"widget"},
+                flavor="fedora",
+                release="44",
+                target_cpu="x86_64",
+            )
+
+    def test_a_probe_for_another_architecture_is_refused(self):
+        path = self.write({
+            "schema": PROBE_SCHEMA,
+            "flavor": "fedora",
+            "release": "44",
+            "target_cpu": "x86_64",
+            "packages": {"widget": {"dynamic": []}},
+        })
+        with self.assertRaisesRegex(
+            SystemExit, "target_cpu='x86_64', expected 'aarch64'"
+        ):
+            load_probe(
+                path,
+                {"widget"},
+                flavor="fedora",
+                release="44",
+                target_cpu="aarch64",
+            )
+
+    def test_a_probe_stating_no_architecture_is_refused(self):
+        # The rename this exists for: an x86_64 report carrying no
+        # target_cpu, moved to the AArch64 filename.  Its contents are
+        # indistinguishable from a real AArch64 report, so the absence of
+        # the field is the only thing left to refuse on.
+        path = self.write({
+            "schema": PROBE_SCHEMA,
+            "flavor": "fedora",
+            "release": "44",
+            "packages": {"widget": {"dynamic": []}},
+        })
+        with self.assertRaisesRegex(
+            SystemExit, "target_cpu=None, expected 'aarch64'"
+        ):
+            load_probe(
+                path,
+                {"widget"},
+                flavor="fedora",
+                release="44",
+                target_cpu="aarch64",
+            )
+
+    def test_a_probe_stating_no_architecture_is_refused_by_its_own_arch(self):
+        # Not a rename, and still refused: nothing recorded which
+        # architecture produced it, so nothing can confirm it belongs here.
+        self.assertEqual(
+            ["target_cpu=None, expected 'x86_64'"],
+            probe_identity_errors(
+                {"flavor": "fedora", "release": "44"},
+                flavor="fedora",
+                release="44",
+                target_cpu="x86_64",
+            ),
+        )
+
+    def test_an_architecture_is_not_checked_when_the_solve_omits_it(self):
+        # probe.py asks about identities the caller knows.  A caller that
+        # passes no architecture is not asserting one.
+        self.assertEqual(
+            [],
+            probe_identity_errors(
+                {"flavor": "fedora", "release": "44"},
+                flavor="fedora",
+                release="44",
+            ),
+        )
+
+
+class TestProbedProducers(unittest.TestCase):
+    """A source cannot produce a binary its spec does not build here.
+
+    Repodata indexes every architecture's build under one source, so the
+    subpackage list is a union.  The probe asks rpmspec inside the target
+    buildroot, which answers for the architecture being built.
+    """
+
+    def _universe(self):
+        return universe_of(
+            binary("glibc", source="glibc-2.39-137.el10.src.rpm"),
+            binary("sysroot-x86_64-el10-glibc", source="glibc-2.39-137.el10.src.rpm"),
+            binary("sysroot-aarch64-el10-glibc", source="glibc-2.39-137.el10.src.rpm"),
+            binary("cross-gcc-aarch64", source="gcc-14.4.1-3.el10.src.rpm"),
+            binary("gcc", source="gcc-14.4.1-3.el10.src.rpm"),
+        )
+
+    def test_drops_only_what_the_spec_does_not_build(self):
+        probe = {"glibc": {"produces": ["glibc", "sysroot-x86_64-el10-glibc"]}}
+        out = apply_probed_producers(self._universe(), probe)
+
+        self.assertEqual(
+            out["subpackages"]["glibc"],
+            ["glibc", "sysroot-x86_64-el10-glibc"],
+        )
+        self.assertNotIn("sysroot-aarch64-el10-glibc", out["source_of"])
+        self.assertEqual(out["source_of"]["sysroot-x86_64-el10-glibc"], "glibc")
+
+    def test_keeps_a_foreign_arch_name_the_spec_does_build(self):
+        # An x86_64 gcc build really does emit cross-gcc-aarch64.  A rule
+        # keyed on the name would drop it; the spec is the authority.
+        probe = {"gcc": {"produces": ["gcc", "cross-gcc-aarch64"]}}
+        out = apply_probed_producers(self._universe(), probe)
+
+        self.assertIn("cross-gcc-aarch64", out["subpackages"]["gcc"])
+        self.assertEqual(out["source_of"]["cross-gcc-aarch64"], "gcc")
+
+    def test_a_source_with_no_report_is_untouched(self):
+        before = self._universe()
+        out = apply_probed_producers(before, {"glibc": {"produces": ["glibc"]}})
+
+        self.assertEqual(out["subpackages"]["gcc"], before["subpackages"]["gcc"])
+
+    def test_an_absent_produces_field_changes_nothing(self):
+        # A probe file written before this field existed must not be read
+        # as "this source produces nothing".
+        before = self._universe()
+        out = apply_probed_producers(before, {"glibc": {"static": []}})
+
+        self.assertEqual(out["subpackages"], before["subpackages"])
+        self.assertEqual(out["source_of"], before["source_of"])
+
+    def test_no_probe_at_all_changes_nothing(self):
+        before = self._universe()
+        self.assertEqual(apply_probed_producers(before, {}), before)
+
+    def test_reports_the_population_it_consulted_even_when_clean(self):
+        # A pass that checked 114 reports and a pass that checked none
+        # both drop nothing.  Only the count distinguishes them, so the
+        # count is printed whether or not anything was found.
+        probe = {"glibc": {"produces": ["glibc", "sysroot-x86_64-el10-glibc",
+                                        "sysroot-aarch64-el10-glibc"]}}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            apply_probed_producers(self._universe(), probe)
+
+        self.assertIn("consulted 1 of 1", err.getvalue())
+        self.assertIn("dropped 0", err.getvalue())
+
+    def test_reports_a_zero_population_when_no_report_carries_the_field(self):
+        # The Fedora shape: reports exist, none of them carries produces
+        # because they predate the field, nothing is dropped, and without
+        # the denominator the run reads exactly like a clean one.
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            apply_probed_producers(self._universe(), {"glibc": {}, "gcc": {}})
+
+        self.assertIn("consulted 0 of 2", err.getvalue())
 
 
 class TestMergePackages(unittest.TestCase):
@@ -452,6 +719,152 @@ class TestMergePackages(unittest.TestCase):
         self.assertEqual(
             (replaced[0]["from"], replaced[0]["from_repo"]),
             ("1-1.fc43", "releases"),
+        )
+
+
+class TestFallbackPackages(unittest.TestCase):
+    def test_fills_a_missing_name_arch_slot(self):
+        compose = [binary("bash", repo="compose")]
+        combined, added, shadowed, _superseded = merge_fallback_packages(
+            compose,
+            [("koji", [binary("ducktype", repo="koji")])],
+        )
+        self.assertEqual([pkg["name"] for pkg in combined],
+                         ["bash", "ducktype"])
+        self.assertEqual([pkg["repo"] for pkg in added], ["koji"])
+        self.assertEqual(shadowed, [])
+
+    def test_cannot_replace_a_compose_package_with_a_newer_build(self):
+        compose = [binary("openssl", release="1.el10", repo="compose")]
+        combined, added, shadowed, _superseded = merge_fallback_packages(
+            compose,
+            [("koji", [
+                binary("openssl", release="9.el10", repo="koji"),
+            ])],
+        )
+        self.assertEqual(len(combined), 1)
+        self.assertEqual(combined[0]["release"], "1.el10")
+        self.assertEqual(combined[0]["repo"], "compose")
+        self.assertEqual(added, [])
+        self.assertEqual([pkg["repo"] for pkg in shadowed], ["koji"])
+
+    def test_fallback_capabilities_do_not_expand_an_image_closure(self):
+        compose = [binary("app", requires=["fallback-cap"], repo="compose")]
+        combined, _added, _shadowed, _superseded = merge_fallback_packages(
+            compose,
+            [("koji", [
+                binary("fallback-devel", provides=["fallback-cap"],
+                       repo="koji"),
+            ])],
+        )
+        compose_universe = build_universe(compose, [])
+        buildroot_universe = build_universe(combined, [])
+
+        image_sets, problems = solve_image_sets(
+            compose_universe, {"live": ["app"]}
+        )
+        buildroot_closure, buildroot_problems = solve_package_set(
+            buildroot_universe, ["app"], scope="buildroot"
+        )
+
+        self.assertEqual(image_sets["live"], ["app"])
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(buildroot_problems, [])
+        self.assertEqual(buildroot_closure, ["app", "fallback-devel"])
+
+    def test_compose_keeps_the_plain_name_across_architectures(self):
+        compose = [binary("tool", arch="noarch", repo="compose")]
+        combined, _added, _shadowed, _superseded = merge_fallback_packages(
+            compose,
+            [("koji", [
+                binary("tool", arch="x86_64", provides=["build-only-cap"],
+                       repo="koji"),
+            ])],
+        )
+        universe = build_universe(
+            combined, [], fallback_repos={"koji"}
+        )
+        self.assertEqual(universe["binary_index"]["tool"]["repo"], "compose")
+        self.assertEqual(universe["provides"]["build-only-cap"],
+                         ["tool.x86_64"])
+
+    def test_images_use_compose_while_buildrequires_use_fallback(self):
+        compose = [
+            binary("app", source="app-1-1.fc43.src.rpm", arch="noarch",
+                   repo="compose"),
+        ]
+        buildroot = [
+            binary("app", source="app-9-9.fc43.src.rpm",
+                   release="9.fc43", repo="koji"),
+            binary("fallback-devel", requires=["fallback-runtime"],
+                   provides=["fallback-cap"], repo="koji"),
+            binary("fallback-runtime", repo="koji"),
+        ]
+        sources = [source("app", requires=["fallback-cap"])]
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = os.path.join(directory, "lock.json")
+            by_path = {
+                "compose.xml": compose,
+                "buildroot.xml": buildroot,
+                "source.xml": sources,
+            }
+
+            def parse(path, repo=None):
+                return [dict(pkg, repo=repo) for pkg in by_path[path]]
+
+            with (
+                mock.patch("solve.parse_primary", side_effect=parse),
+                mock.patch.dict(IMPLICIT_GROUPS, {"fedora": ()}),
+            ):
+                from solve import main
+                main([
+                    "--binary-primary", "compose.xml",
+                    "--binary-base",
+                    "https://dl.fedoraproject.org/pub/fedora/linux",
+                    "--binary-repo", "compose",
+                    "--buildroot-primary", "buildroot.xml",
+                    "--buildroot-base",
+                    "https://kojihub.stream.centos.org/kojifiles/repos/c10s-build/1/x86_64",
+                    "--buildroot-repo", "koji",
+                    "--source-primary", "source.xml",
+                    "--source-base",
+                    "https://dl.fedoraproject.org/pub/fedora/linux/source",
+                    "--source-repo", "source",
+                    "--image", "live=app",
+                    "--source-image", "live",
+                    "--release", "43",
+                    "--dist-tag", ".fc43",
+                    "--out", output,
+                    "--strict",
+                ])
+
+            with open(output, encoding="utf-8") as stream:
+                lock = json.load(stream)
+
+        self.assertEqual(
+            [(repo["name"], repo["kind"]) for repo in lock["repos"]],
+            [("compose", "binary"), ("koji", "buildroot"),
+             ("source", "source")],
+        )
+        self.assertEqual(
+            [(pkg["name"], pkg["evr"], pkg["arch"], pkg["repo"])
+             for pkg in lock["image_sets"]["live"]],
+            [("app", "1-1.fc43", "noarch", "compose")],
+        )
+        self.assertEqual(lock["source_policy"]["summary"]["live"], {
+            "pinned": 0,
+            "source": 1,
+            "total": 1,
+        })
+        self.assertEqual(lock["packages"]["app"]["source"]["repo"],
+                         "source")
+        self.assertEqual(lock["packages"]["app"]["subpackages"], ["app"])
+        self.assertEqual(
+            [(pkg["name"], pkg["repo"])
+             for pkg in lock["packages"]["app"]["deps_seed"]],
+            [("fallback-devel", "koji"),
+             ("fallback-runtime", "koji")],
         )
 
 
@@ -694,6 +1107,8 @@ class TestRepoTable(unittest.TestCase):
 
     def args(self, **kw):
         base = dict(binary_primary=[], binary_base=[], binary_repo=[],
+                    buildroot_primary=[], buildroot_base=[],
+                    buildroot_repo=[],
                     source_primary=[], source_base=[], source_repo=[])
         base.update(kw)
         return argparse.Namespace(**base)
@@ -748,6 +1163,33 @@ class TestRepoTable(unittest.TestCase):
                          ["binary-releases", "source-releases"])
         self.assertEqual([r["kind"] for r in repos], ["binary", "source"])
 
+    def test_buildroot_triplet_is_parsed_and_named(self):
+        koji = ("https://kojihub.stream.centos.org/kojifiles/repos/"
+                "c10s-build/824779/x86_64")
+        repos = collect_repos(self.args(
+            buildroot_primary=["/tmp/koji/primary.xml.gz"],
+            buildroot_base=[koji],
+            buildroot_repo=["buildroot-koji"],
+        ))
+        self.assertEqual(repos, [{
+            "name": "buildroot-koji",
+            "kind": "buildroot",
+            "base": koji,
+            "primary": "primary.xml.gz",
+            "path": "/tmp/koji/primary.xml.gz",
+        }])
+
+    def test_explicit_repo_names_must_be_unique_across_kinds(self):
+        with self.assertRaisesRegex(SystemExit, "used more than once"):
+            collect_repos(self.args(
+                binary_primary=["/tmp/compose.xml"],
+                binary_base=[self.RELEASES],
+                binary_repo=["packages"],
+                buildroot_primary=["/tmp/buildroot.xml"],
+                buildroot_base=[self.RELEASES],
+                buildroot_repo=["packages"],
+            ))
+
 
 class TestPublicBaseURLs(unittest.TestCase):
     """The base URL recorded in a lockfile is published with it.
@@ -769,6 +1211,8 @@ class TestPublicBaseURLs(unittest.TestCase):
             "https://dl.fedoraproject.org/pub/epel/next/9/Everything/x86_64",
             "https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os",
             "https://mirror.stream.centos.org/10-stream/BaseOS/x86_64/os",
+            "https://kojihub.stream.centos.org/kojifiles/repos/"
+            "c10s-build/824779/x86_64",
         ):
             with self.subTest(url=url):
                 self.assertEqual(check_public_base("--binary-base", url), url)

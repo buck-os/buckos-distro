@@ -2,170 +2,70 @@
 """Assemble a Debian buildroot from SHA-256-pinned binary packages."""
 
 import argparse
-import glob
 import os
 import shutil
-import subprocess
-import tarfile
 import tempfile
 
-from _deb import deb_field, extract_deb, require_tool, run
-from _rpm import make_dirs_writable
-
-
-SKELETON = (
-    "builddir",
-    "dev",
-    "etc",
-    "proc",
-    "sys",
-    "tmp",
-    "var/lib/dpkg/info",
-    "var/tmp",
+from _deb import ensure_base_files, extract_deb, register_debs
+from _isolation import (
+    ISOLATION_MODES,
+    require_target_execution,
+    resolve_isolation,
+    run_isolated,
+    SANDBOX_WORK,
 )
-
-STATUS_FIELDS = (
-    "Package",
-    "Essential",
-    "Status",
-    "Priority",
-    "Section",
-    "Installed-Size",
-    "Maintainer",
-    "Architecture",
-    "Multi-Arch",
-    "Source",
-    "Version",
-    "Replaces",
-    "Provides",
-    "Pre-Depends",
-    "Depends",
-    "Conflicts",
-    "Breaks",
-    "Description",
-)
-
-CONTROL_FILES = (
-    "conffiles",
-    "md5sums",
-    "shlibs",
-    "symbols",
-    "triggers",
-)
+from _rpm import make_dirs_writable, reproducible_env
 
 
-def payload_paths(deb):
-    process = subprocess.Popen(
-        [require_tool("dpkg-deb"), "--fsys-tarfile", deb],
-        stdout=subprocess.PIPE,
-    )
+def _refresh_library_cache(out, isolation, target_cpu, source_date_epoch):
+    """Build the tree's own /etc/ld.so.cache, which dpkg triggers would.
+
+    ldconfig runs from maintainer scripts and dpkg triggers, so a
+    payload-composed buildroot never has a cache.  Most things survive
+    that, because the loader still searches the standard directories; a
+    ctypes caller does not, because ctypes.util.find_library shells out
+    to `ldconfig -p` and reports the library missing when the cache is
+    absent.  xkeyboard-config's generator fails exactly there.
+
+    In the sandbox, not host-side, and that distinction is the whole
+    reason this is not three lines in ensure_base_files.  Running the
+    host's ldconfig with -r against a foreign-architecture tree exits 0
+    and writes a 137-byte cache holding no libraries at all, so the
+    failure would be a cache that exists and answers nothing.  The
+    tree's own ldconfig, reached through the target-architecture binfmt
+    handler, writes a real one.
+    """
+    require_target_execution(target_cpu)
+    work = tempfile.mkdtemp(prefix="buckos-distro-deb-ldconfig-")
     try:
-        with tarfile.open(fileobj=process.stdout, mode="r|") as archive:
-            paths = []
-            for member in archive:
-                name = member.name.removeprefix("./").rstrip("/")
-                if name:
-                    paths.append("/" + name)
+        run_isolated(
+            ["/usr/sbin/ldconfig"],
+            isolation,
+            work=work,
+            chdir=work,
+            sysroot=out,
+            env=reproducible_env(source_date_epoch=source_date_epoch),
+        )
     finally:
-        process.stdout.close()
-    status = process.wait()
-    if status != 0:
-        raise subprocess.CalledProcessError(status, process.args)
-    return sorted(set(paths))
-
-
-def package_key(deb):
-    package = deb_field(deb, "Package")
-    arch = deb_field(deb, "Architecture")
-    multi_arch = deb_field(deb, "Multi-Arch")
-    if multi_arch == "same":
-        return "{}:{}".format(package, arch)
-    return package
-
-
-def extract_control(deb, root):
-    dpkg_deb = require_tool("dpkg-deb")
-    with tempfile.TemporaryDirectory(prefix="buckos-deb-control-") as tmp:
-        run([dpkg_deb, "--control", deb, tmp])
-        key = package_key(deb)
-        info = os.path.join(root, "var", "lib", "dpkg", "info")
-        for name in CONTROL_FILES:
-            source = os.path.join(tmp, name)
-            if os.path.isfile(source):
-                shutil.copy2(source, os.path.join(info, "{}.{}".format(key, name)))
-        with open(os.path.join(info, key + ".list"), "w", encoding="utf-8") as stream:
-            for path in payload_paths(deb):
-                stream.write(path + "\n")
-
-
-def status_paragraph(deb):
-    result = run(
-        [require_tool("dpkg-deb"), "--field", deb],
-        capture_output=True,
-        text=True,
-    )
-    fields = {}
-    current = None
-    for line in result.stdout.splitlines():
-        if line.startswith((" ", "\t")) and current:
-            fields[current] += "\n" + line
-        elif ":" in line:
-            current, value = line.split(":", 1)
-            fields[current] = value.lstrip()
-    fields["Status"] = "install ok installed"
-
-    lines = []
-    for name in STATUS_FIELDS:
-        value = fields.get(name)
-        if value:
-            lines.append("{}: {}".format(name, value))
-    return "\n".join(lines) + "\n"
-
-
-def ensure_base_files(root):
-    for rel in SKELETON:
-        path = os.path.join(root, rel)
-        os.makedirs(path, exist_ok=True)
-    os.chmod(os.path.join(root, "tmp"), 0o1777)
-    os.chmod(os.path.join(root, "var", "tmp"), 0o1777)
-
-    info_format = os.path.join(root, "var", "lib", "dpkg", "info", "format")
-    if not os.path.exists(info_format):
-        with open(info_format, "w", encoding="utf-8") as stream:
-            stream.write("1\n")
-
-    for name, target in (
-        ("bin", "usr/bin"),
-        ("sbin", "usr/sbin"),
-        ("lib", "usr/lib"),
-        ("lib64", "usr/lib64"),
-    ):
-        path = os.path.join(root, name)
-        target_path = os.path.join(root, target)
-        if not os.path.lexists(path) and os.path.exists(target_path):
-            os.symlink(target, path)
-
-    passwd = os.path.join(root, "etc", "passwd")
-    if not os.path.exists(passwd):
-        with open(passwd, "w", encoding="utf-8") as stream:
-            stream.write("root:x:0:0:root:/root:/bin/bash\n")
-    group = os.path.join(root, "etc", "group")
-    if not os.path.exists(group):
-        with open(group, "w", encoding="utf-8") as stream:
-            stream.write("root:x:0:\n")
-
-    bindir = os.path.join(root, "usr", "bin")
-    for name in ("aclocal", "automake"):
-        link = os.path.join(bindir, name)
-        candidates = sorted(glob.glob(link + "-*"))
-        if not os.path.lexists(link) and len(candidates) == 1:
-            os.symlink(os.path.basename(candidates[0]), link)
+        shutil.rmtree(work, ignore_errors=True)
+        # The sandbox has to create its mount point inside the tree, and
+        # the empty directory outlives the namespace the mount died with.
+        # Under a fixed bind that is one known name rather than a chain
+        # ending in mkdtemp's random suffix, so this no longer has to be
+        # computed from the host path -- but it still has to be removed,
+        # or the output differs from one built without a sandbox.
+        shutil.rmtree(os.path.join(out, SANDBOX_WORK.lstrip("/")),
+                      ignore_errors=True)
+        make_dirs_writable(out)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--deb", action="append", default=[])
     parser.add_argument("--out", required=True)
+    parser.add_argument("--isolation", choices=ISOLATION_MODES, default="auto")
+    parser.add_argument("--target-cpu", default="x86_64")
+    parser.add_argument("--source-date-epoch", default="1700000000")
     args = parser.parse_args()
 
     out = os.path.abspath(args.out)
@@ -173,19 +73,18 @@ def main():
     os.makedirs(out)
     ensure_base_files(out)
 
-    paragraphs = []
     for deb in args.deb:
         extract_deb(deb, out)
         make_dirs_writable(out)
-        extract_control(deb, out)
-        paragraphs.append((package_key(deb), status_paragraph(deb)))
 
     ensure_base_files(out)
-    status = os.path.join(out, "var", "lib", "dpkg", "status")
-    with open(status, "w", encoding="utf-8") as stream:
-        for _, paragraph in sorted(paragraphs):
-            stream.write(paragraph)
-            stream.write("\n")
+    register_debs(args.deb, out)
+    _refresh_library_cache(
+        out,
+        resolve_isolation(args.isolation),
+        args.target_cpu,
+        args.source_date_epoch,
+    )
 
 
 if __name__ == "__main__":

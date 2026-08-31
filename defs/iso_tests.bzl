@@ -16,7 +16,7 @@ def live_iso_boot_tests(
         layout = "rpm",
         expect_selinux = False,
         image_variant = None):
-    """Define one instrumented ISO and each applicable firmware test."""
+    """Define one verification ISO and paired production/verification boots."""
     variant_suffix = "-" + image_variant if image_variant else ""
     suffix = "{}{}-{}-{}".format(
         flavor,
@@ -32,9 +32,14 @@ def live_iso_boot_tests(
     rootfs_name = "rootfs-verify-" + suffix
     squashfs_name = "squashfs-verify-" + suffix
     iso_name = "iso-verify-" + suffix
+    production_iso = flavor_package + "iso-live" + image_suffix
+    # Same routing as the production image in defs/rpm_family.bzl, and it
+    # has to stay the same: the verification image is the production one
+    # plus an overlay, so a squashfs written by a different tool would make
+    # the boot pair prove something about two different builds.
     old_squashfs = release == "9" and flavor in ("centos", "centos-hyperscale")
     squashfs_tools = (
-        flavor_package + "buildroot-binary-seed" + release_arch_suffix
+        flavor_package + "buildroot-squashfs-tools" + release_arch_suffix
         if old_squashfs
         else flavor_package + "buildroot-image-tools" + release_arch_suffix
     )
@@ -82,7 +87,9 @@ def live_iso_boot_tests(
     for firmware in firmwares:
         iso_boot_test(
             name = "boot-{}-{}".format(suffix, firmware),
-            iso = ":" + iso_name,
+            production_iso = production_iso,
+            production_milestone = "login:",
+            verification_iso = ":" + iso_name,
             architecture = architecture,
             firmware = firmware,
             expected_flavor = flavor,
@@ -109,7 +116,28 @@ def all_live_iso_boot_tests():
         for release in ("9", "10"):
             for architecture in ("x86_64", "aarch64"):
                 live_iso_boot_tests(flavor, release, architecture, expect_selinux = True)
+                live_iso_boot_tests(
+                    flavor,
+                    release,
+                    architecture,
+                    expect_selinux = True,
+                    image_variant = "prebuilt",
+                )
 
     for architecture in ("x86_64", "aarch64"):
         live_iso_boot_tests("debian", "13", architecture, layout = "debian")
+        live_iso_boot_tests(
+            "debian",
+            "13",
+            architecture,
+            layout = "debian",
+            image_variant = "prebuilt",
+        )
         live_iso_boot_tests("ubuntu", "26.04", architecture, layout = "ubuntu")
+        live_iso_boot_tests(
+            "ubuntu",
+            "26.04",
+            architecture,
+            layout = "ubuntu",
+            image_variant = "prebuilt",
+        )

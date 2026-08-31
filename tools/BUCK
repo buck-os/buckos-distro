@@ -35,6 +35,27 @@ python_library(
     visibility = ["PUBLIC"],
 )
 
+python_library(
+    name = "source_policy",
+    srcs = ["source_policy.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
+python_library(
+    name = "nativelink_config_lib",
+    srcs = ["nativelink_config.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "nativelink_config",
+    main_module = "nativelink_config",
+    deps = [":nativelink_config_lib"],
+    visibility = ["PUBLIC"],
+)
+
 # ── Replay pipeline ──────────────────────────────────────────────────
 
 python_binary(
@@ -95,8 +116,12 @@ python_binary(
 python_binary(
     name = "deb_buildroot_assemble",
     main = "deb_buildroot_assemble.py",
+    # :_isolation because the tree's library cache is written by the
+    # tree's own ldconfig, which means entering it -- see
+    # _refresh_library_cache.
     deps = [
         ":_deb",
+        ":_isolation",
         ":_rpm",
     ],
     visibility = ["PUBLIC"],
@@ -141,6 +166,7 @@ python_binary(
     name = "deb_rootfs_install",
     main = "deb_rootfs_install.py",
     deps = [
+        ":_deb",
         ":_isolation",
         ":_rpm",
     ],
@@ -158,6 +184,7 @@ python_binary(
     name = "initramfs_build",
     main = "initramfs_build.py",
     deps = [
+        ":_deb",
         ":_image",
         ":_isolation",
         ":_rpm",
@@ -173,6 +200,7 @@ python_binary(
     name = "squashfs_build",
     main = "squashfs_build.py",
     deps = [
+        ":_deb",
         ":_isolation",
         ":_rpm",
     ],
@@ -224,10 +252,17 @@ python_test(
 )
 
 python_test(
+    name = "iso_label_test",
+    srcs = ["iso_label_test.py"],
+    base_module = "",
+)
+
+python_test(
     name = "boot_tools_test",
     srcs = [
         "boot_tools_test.py",
         "deb_rootfs_install.py",
+        "initramfs_build.py",
         "iso_build.py",
         "iso_boot_test.py",
         "rootfs_overlay.py",
@@ -235,6 +270,7 @@ python_test(
     ],
     base_module = "",
     deps = [
+        ":_deb",
         ":_image",
         ":_isolation",
         ":_rpm",
@@ -245,6 +281,30 @@ python_test(
     name = "lock_matrix_test",
     srcs = ["lock_matrix_test.py"],
     base_module = "",
+    deps = [
+        ":solve_lib",
+        ":source_policy",
+    ],
+)
+
+python_test(
+    name = "documentation_policy_test",
+    srcs = ["documentation_policy_test.py"],
+    base_module = "",
+)
+
+python_test(
+    name = "source_policy_test",
+    srcs = ["source_policy_test.py"],
+    base_module = "",
+    deps = [":source_policy"],
+)
+
+python_test(
+    name = "nativelink_config_test",
+    srcs = ["nativelink_config_test.py"],
+    base_module = "",
+    deps = [":nativelink_config_lib"],
 )
 
 python_test(
@@ -252,14 +312,18 @@ python_test(
     srcs = [
         "deb_test.py",
         "deb_buildroot_assemble.py",
+        "deb_extract.py",
         "dsc_unpack.py",
         "deb_generate.py",
         "deb_lock.py",
+        "dpkgbuild_replay.py",
     ],
     base_module = "",
     deps = [
         ":_deb",
+        ":_isolation",
         ":_rpm",
+        ":source_policy",
     ],
 )
 
@@ -310,6 +374,7 @@ python_library(
     deps = [
         ":depgraph",
         ":rpmvercmp",
+        ":source_policy",
     ],
 )
 
@@ -323,13 +388,17 @@ python_binary(
 python_binary(
     name = "deb_lock",
     main = "deb_lock.py",
-    deps = [":_deb"],
+    deps = [
+        ":_deb",
+        ":source_policy",
+    ],
     visibility = ["PUBLIC"],
 )
 
 python_binary(
     name = "deb_generate",
     main = "deb_generate.py",
+    deps = [":source_policy"],
     visibility = ["PUBLIC"],
 )
 
@@ -365,19 +434,26 @@ python_binary(
     visibility = ["PUBLIC"],
 )
 
+python_library(
+    name = "rpm_relock_lib",
+    srcs = ["rpm_relock.py"],
+    base_module = "",
+    deps = [":relock_lib"],
+)
+
 python_binary(
     name = "rpm_relock",
-    main = "rpm_relock.py",
-    deps = [":relock_lib"],
+    main_module = "rpm_relock",
+    deps = [":rpm_relock_lib"],
     visibility = ["PUBLIC"],
 )
 
 # Discovering what %generate_buildrequires asks for, by running it.
 #
-#     buck2 run //tools:probe -- --release 44 --arch x86_64
+#     buck2 run //tools:probe -- --flavor fedora --release 44 --arch x86_64
 #
 # Out of the build graph for a stronger reason than relock's: this one
-# *invokes buck2*.  It builds every //flavors/fedora:probe-<pkg> target and
+# *invokes buck2*. It builds every //flavors/<flavor>:probe-<pkg> target and
 # merges the reports, so as an action it would be a build inside a build.
 # The recursion is not incidental either -- the answer only exists once the
 # package's buildroot has been assembled and its %prep has run, which is to
@@ -404,6 +480,16 @@ python_binary(
 )
 
 python_test(
+    name = "hostcheck_test",
+    srcs = [
+        "hostcheck.py",
+        "hostcheck_test.py",
+    ],
+    base_module = "",
+    deps = [":_isolation"],
+)
+
+python_test(
     name = "depgraph_test",
     srcs = ["depgraph_test.py"],
     base_module = "",
@@ -417,6 +503,20 @@ python_test(
 python_test(
     name = "relock_test",
     srcs = ["relock_test.py"],
+    base_module = "",
+    deps = [":relock_lib"],
+)
+
+python_test(
+    name = "rpm_relock_test",
+    srcs = ["rpm_relock_test.py"],
+    base_module = "",
+    deps = [":rpm_relock_lib"],
+)
+
+python_test(
+    name = "generate_test",
+    srcs = ["generate_test.py"],
     base_module = "",
     deps = [":relock_lib"],
 )
@@ -463,9 +563,42 @@ python_test(
 # cannot represent, and putting the tree under buck-out turns that into a
 # build failure that survives deleting the file and re-arms itself on
 # `buck2 kill`.  The module docstring has the whole loop.
+# The environment a sandboxed action runs in.  Its pins were setdefault,
+# so an inherited value won and a daemon started from a shell exporting TZ
+# produced different output with nothing to say so.  See the module
+# docstring for why that outranks the PATH bug beside it.
+python_test(
+    name = "reproducible_env_test",
+    srcs = ["reproducible_env_test.py"],
+    base_module = "",
+    deps = [":_rpm"],
+)
+
 python_test(
     name = "scratch_contract_test",
     srcs = ["scratch_contract_test.py"],
     base_module = "",
     deps = [":_rpm"],
+)
+
+# The escalation itself, shared with the remote-execution tests.  A skip
+# reports as a pass and buck2 counts targets rather than cases, so a lost
+# case is invisible from every summary; this turns an environment-driven
+# skip into a failure when BUCKOS_REQUIRE_FULL_COVERAGE=1.
+python_library(
+    name = "_skips",
+    srcs = ["_skips.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
+# A third source lint.  Enumerates every skip in the tree and requires each
+# to be declared with a classification, so losing a case is a red test
+# rather than a quieter green one.  The module docstring has the incident
+# that motivated it.
+python_test(
+    name = "skip_contract_test",
+    srcs = ["skip_contract_test.py"],
+    base_module = "",
+    deps = [":_skips"],
 )

@@ -19,7 +19,7 @@ load(
     "release_arch_suffix",
     "target_platform",
 )
-load("//defs:releases.bzl", "release_suffix")
+load("//defs:releases.bzl", "iso_volume_label", "release_suffix")
 load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_buildroot")
 load("//defs/rules/srpm.bzl", "prebuilt_rpm")
@@ -80,6 +80,17 @@ _INITRAMFS_MODULES = {
 # initramfs targets it can never satisfy, so the failure would surface as
 # a confusing dracut error rather than as "this set has no kernel".
 _TOOL_SETS = ["image-tools"]
+
+# What mksquashfs needs to compile that @buildsys-build does not already
+# provide.  One entry, and it is the header zstd_wrapper.c includes; see
+# the buildroot-squashfs-tools comment in rpm_buildroots_for.
+#
+# These names come out of the pin table, not out of thin air: the pin
+# exists because something in the build set already build-requires it. If
+# that consumer ever leaves the set the pin goes with it and the buildroot
+# fails at analysis on a missing target, which is the right failure but
+# not an obvious one.
+_SQUASHFS_COMPILE_SEED = {"libzstd-devel": True}
 
 # Every bootable image set is built twice, from the same package list.
 #
@@ -388,6 +399,49 @@ def rpm_buildroots(flavor, release, suffix, platform, exec_constraints, data = N
         visibility = ["PUBLIC"],
     )
 
+    # ── The one buildroot that has to host a compile ─────────────────
+    #
+    # rpm_images routes Enterprise Linux 9's squashfs into a buildroot and
+    # builds mksquashfs from source there, because the packaged tool cannot
+    # write per-file xattrs.  That makes this the only image action whose
+    # buildroot must satisfy a *compile* rather than run a packaged tool,
+    # and nothing in the seed was ever asked to.
+    #
+    # The base carries gcc, make and glibc's headers, so XATTR_SUPPORT is
+    # already satisfied -- squashfs-tools' xattr.c reaches for sys/xattr.h
+    # and nothing outside glibc.  zstd_wrapper.c includes <zstd.h>, and
+    # ZSTD_SUPPORT cannot be turned off: tools/squashfs_build.py compiles
+    # with COMP_DEFAULT=zstd and the images are zstd-compressed, so a tool
+    # without it cannot write them.
+    #
+    # A separate buildroot rather than a wider base.  Putting libzstd-devel
+    # in BASE_SEED would hand a header to every package in the flavor to
+    # serve one compile, which is the union the comment above exists to
+    # prevent.
+    #
+    # Defined for every release, not only the ones that route to it: the
+    # pin is present in all twelve RPM-family locks, and a definition that
+    # appears and disappears with a condition is harder to find than an
+    # unused target is to ignore.
+    compile_seed = seed_rpms
+    if data != None:
+        compile_seed = seed_rpms + [
+            ":" + entry["target"] + suffix
+            for entry in data.SEED_RPMS
+            if entry["name"] in _SQUASHFS_COMPILE_SEED
+        ]
+
+    seeded_buildroot(
+        name = "buildroot-squashfs-tools" + suffix,
+        dist_tag = dist_tag,
+        macros = "//defs:macros.buckos-distro",
+        seed_rpms = compile_seed,
+        target_cpu = target_cpu,
+        default_target_platform = platform,
+        exec_compatible_with = exec_constraints,
+        visibility = ["PUBLIC"],
+    )
+
 def rpm_buildroot_target(flavor, suffix):
     """The buildroot a release's packages build against.
 
@@ -400,6 +454,21 @@ def rpm_buildroot_target(flavor, suffix):
     """
     provenance = read_config("buckos." + flavor, "buildroot", "host")
     return ":buildroot-{}{}".format(provenance, suffix)
+
+def _binary_providers(recipes, skip):
+    """Map binary names to their normal source recipes.
+
+    Version variants are build-dependency-only alternatives. They remain
+    addressable through dep_variants, but must never replace the normal
+    producer selected for an ordinary build dependency or live image.
+    """
+    provider = {}
+    for recipe in recipes:
+        if recipe.get("variant_of") or recipe["name"] in skip:
+            continue
+        for subpackage in recipe["subpackages"]:
+            provider[subpackage] = recipe
+    return provider
 
 def rpm_packages(flavor, data, suffix, platform, exec_constraints):
     """One package() per recipe, staged where the lockfile says to stage.
@@ -456,21 +525,16 @@ def rpm_packages(flavor, data, suffix, platform, exec_constraints):
     skip = {name: True for name in prebuilt}
     if prebuilt:
         print(("buckos-distro: WARNING: {} come from upstream binaries, not " +
-               "from source -- [buckos.{}] prebuilt says this host cannot " +
-               "build them. `buck2 run //tools:hostcheck` says why. The " +
+               "from source -- [buckos.{}] prebuilt selected their pinned " +
+               "providers. The " +
                "image is still complete; its provenance is not.").format(
             ", ".join(prebuilt), flavor))
 
-    provider = {}
+    provider = _binary_providers(data.RECIPES, skip)
     variant_recipe = {}
     for recipe in data.RECIPES:
         if recipe.get("variant_of"):
             variant_recipe[recipe["name"]] = recipe
-            continue
-        if recipe["name"] in skip:
-            continue
-        for sub in recipe["subpackages"]:
-            provider[sub] = recipe
 
     # source -> the variant that ships; and (source, stage) -> its target.
     # Looked up rather than formatted, so the naming stays the solver's to
@@ -592,15 +656,12 @@ def prebuilt_sources(flavor):
     """Source packages to take from upstream instead of building.
 
         [buckos.fedora]
-          prebuilt = kernel, libxcrypt
+          prebuilt = bash
 
-    For a package this host cannot build at all.  `tools/hostcheck.py`
-    probes the capabilities a build reaches for outside the sandbox and
-    prints exactly this stanza; the case it exists for is a kernel without
-    CONFIG_CRYPTO_USER, where libkcapi's sha512hmac cannot look up an
-    algorithm and kernel.spec's FIPS signing step dies an hour into
-    %install.  Unlike a %bcond those specs offer no switch, so the choice
-    is a prebuilt binary or no image at all.
+    A local diagnostic or recovery override for a source recipe already
+    present in the generated graph.  It removes that source from the
+    provider map so consumers use the pinned RPM instead.  It cannot add a
+    recipe that the source policy excluded before generation.
 
     Configuration rather than a committed default, and local rather than
     solved.  The lockfile has to stay host-independent -- it is reviewed as
@@ -608,8 +669,8 @@ def prebuilt_sources(flavor):
     at the build layer, where it changes which target satisfies a
     dependency and nothing about what was pinned.
 
-    Not silent.  Every one of these is a package this repo is supposed to
-    build and did not, so rpm_packages says so on every evaluation.
+    Not silent.  Every selected package comes from upstream rather than the
+    available recipe, so rpm_packages says so on every evaluation.
     """
     raw = read_config("buckos." + flavor, "prebuilt", "")
     return sorted([name.strip() for name in raw.split(",") if name.strip()])
@@ -980,15 +1041,10 @@ def rpm_image_rootfs(flavor, data, suffix, platform, exec_constraints):
     # different compile.
     skip = {name: True for name in prebuilt_sources(flavor)}
     built = {}
-    for recipe in data.RECIPES:
-        if recipe["name"] in skip:
-            # Falls through to the pinned rpm below, which is the whole
-            # mechanism -- see prebuilt_sources.
-            continue
-        for sub in recipe["subpackages"]:
-            built[sub] = subpackage_rpm_target(
-                recipe["name"] + suffix, recipe["source_name"], sub,
-            )
+    for subpackage, recipe in _binary_providers(data.RECIPES, skip).items():
+        built[subpackage] = subpackage_rpm_target(
+            recipe["name"] + suffix, recipe["source_name"], subpackage,
+        )
 
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
@@ -1094,13 +1150,15 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
     argument defs/rules/boot.bzl makes for kernel_image and initramfs.
 
     The ISO runs in the image-tools buildroot.  Squashfs normally does too;
-    Enterprise Linux 9 instead compiles the pinned 4.6.1 source in its
-    binary-seed buildroot because its packaged tool cannot add per-file
-    xattrs, then uses that target-architecture binary for the image.
+    Enterprise Linux 9 instead compiles the pinned 4.6.1 source because its
+    packaged tool cannot add per-file xattrs, then uses that
+    target-architecture binary for the image.  That compile gets its own
+    buildroot -- the binary seed plus the headers it needs, which the seed
+    alone does not carry.
     """
     tools = ":buildroot-image-tools" + suffix
     old_squashfs = release == "9" and flavor in ("centos", "centos-hyperscale")
-    squashfs_tools = ":buildroot-binary-seed" + suffix if old_squashfs else tools
+    squashfs_tools = ":buildroot-squashfs-tools" + suffix if old_squashfs else tools
     squashfs_source = "//tools:squashfs-tools-4.6.1-source" if old_squashfs else None
 
     for name in sorted(data.IMAGE_SETS):
@@ -1132,12 +1190,12 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
             # of these is how you find out which one you burned, and two
             # ISOs claiming the same CDLABEL would have the live root of
             # whichever disc was found first.
-            label = "{}-{}-{}{}".format(
+            label = iso_volume_label("{}-{}-{}{}".format(
                 flavor.upper(),
                 release,
                 name.upper(),
                 variant.upper(),
-            )
+            ))
 
             iso_image(
                 name = "iso-" + name + variant + suffix,

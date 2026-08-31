@@ -106,7 +106,12 @@ def repo_root():
              "--lock-dir".format(" or ".join(seen)))
 
 
-def lockfile_releases(lock_dir, arch="x86_64"):
+def lockfile_name(flavor, release, arch):
+    """Canonical RPM-family lockfile name."""
+    return "{}-{}-{}.lock.json".format(flavor, release, arch)
+
+
+def lockfile_releases(lock_dir, arch="x86_64", flavor="fedora"):
     """Every release that has been solved at least once.
 
     Shared with tools/probe.py, which needs the same default and must not
@@ -115,9 +120,10 @@ def lockfile_releases(lock_dir, arch="x86_64"):
     and not the other, silently.
     """
     return sorted(
-        name[len("fedora-"):-len("-{}.lock.json".format(arch))]
+        name[len(flavor + "-"):-len("-{}.lock.json".format(arch))]
         for name in os.listdir(lock_dir)
-        if name.startswith("fedora-") and name.endswith("-{}.lock.json".format(arch))
+        if name.startswith(flavor + "-")
+        and name.endswith("-{}.lock.json".format(arch))
     )
 
 
@@ -155,8 +161,10 @@ def local_primary(dest_dir):
     """Whatever primary.xml a previous sync left in this repo's directory."""
     if not os.path.isdir(dest_dir):
         return None
-    found = sorted(n for n in os.listdir(dest_dir)
-                   if n.endswith("-primary.xml.zst"))
+    found = sorted(
+        name for name in os.listdir(dest_dir)
+        if name == "primary.xml" or "-primary.xml." in name
+    )
     return os.path.join(dest_dir, found[0]) if found else None
 
 
@@ -199,7 +207,8 @@ def sync_repo(fetch_base, dest_dir, name):
     # behind. Harmless but confusing: two primary.xml files in a directory
     # and nothing saying which the lockfile was solved from.
     for stale in os.listdir(dest_dir):
-        if stale.endswith("-primary.xml.zst") and stale != os.path.basename(path):
+        is_primary = stale == "primary.xml" or "-primary.xml." in stale
+        if is_primary and stale != os.path.basename(path):
             os.remove(os.path.join(dest_dir, stale))
     return path
 
@@ -255,17 +264,27 @@ def solve_argv(lock, repos, out, probe=None):
     # rather than quietly, which is the only reason this was survivable.
     if recorded.get("seed_only"):
         argv.append("--seed-only")
-    for flag, key in (("--build", "build"), ("--override", "overrides"),
+    builds = recorded.get("explicit_build")
+    if builds is None:
+        builds = [] if recorded.get("source_image_sets") else recorded.get("build", [])
+    for item in builds:
+        argv += ["--build", item]
+    for exception in recorded.get("source_exceptions", []):
+        argv += ["--source-exception", json.dumps(
+            exception, sort_keys=True, separators=(",", ":"))]
+    for flag, key in (("--override", "overrides"),
                       ("--image", "images"),
                       ("--image-override", "image_overrides"),
                       ("--seed-package", "seed_packages"),
-                      ("--source-variant", "source_variants")):
+                      ("--source-variant", "source_variants"),
+                      ("--source-image", "source_image_sets"),
+                      ("--prebuilt-source", "prebuilt_sources")):
         for item in recorded.get(key, []):
             argv += [flag, item]
     return argv
 
 
-def repo_list(release, args, offline=False):
+def repo_list(release, args, offline=False, recorded_repos=()):
     """The repos to solve from, synced unless told otherwise.
 
     `offline` is separate from args.offline because the two mean different
@@ -278,6 +297,7 @@ def repo_list(release, args, offline=False):
     repos = []
     table = (FEDORA_BRANCHED_REPOS if str(release) in args.branched
              else FEDORA_REPOS)
+    specs = []
     for name, kind, template in table:
         tail = template.format(release=release, arch=args.arch)
         # The canonical URL is what gets recorded; the mirror, if any, is
@@ -286,6 +306,20 @@ def repo_list(release, args, offline=False):
         base = "{}/{}".format(UPSTREAM, tail)
         fetch_base = ("{}/{}".format(args.mirror.rstrip("/"), tail)
                       if args.mirror else base)
+        specs.append((name, kind, base, fetch_base))
+
+    seen = {name for name, _kind, _base, _fetch_base in specs}
+    for repo in recorded_repos:
+        if repo.get("kind") != "buildroot":
+            continue
+        name = repo["name"]
+        if name in seen:
+            sys.exit("recorded buildroot repo name collides with a compose "
+                     "repo: {}".format(name))
+        seen.add(name)
+        specs.append((name, "buildroot", repo["base"], repo["base"]))
+
+    for name, kind, base, fetch_base in specs:
         # Named for the repo, so the directory a primary.xml sits in matches
         # the `repo` field every pin that came from it carries.
         dest = os.path.join(args.lock_dir, "repodata", str(release), name)
@@ -313,8 +347,10 @@ def repo_list(release, args, offline=False):
 
 
 def read_lock(release, args):
-    lock_path = os.path.join(args.lock_dir,
-                             "fedora-{}-{}.lock.json".format(release, args.arch))
+    lock_path = os.path.join(
+        args.lock_dir,
+        lockfile_name("fedora", release, args.arch),
+    )
     if not os.path.exists(lock_path):
         sys.exit("no lockfile at {}: a release has to be solved by hand once "
                  "before it can be refreshed, because its overrides and image "
@@ -327,7 +363,7 @@ def relock(release, args):
     lock_path, lock = read_lock(release, args)
 
     print("fedora {}:".format(release), file=sys.stderr)
-    repos = repo_list(release, args)
+    repos = repo_list(release, args, recorded_repos=lock.get("repos", []))
 
     if args.dry_run or args.fetch_only:
         return
@@ -378,7 +414,8 @@ def main(argv=None):
     if args.lock_dir is None:
         args.lock_dir = os.path.join(root, "flavors", "fedora", "lock")
 
-    releases = args.release or lockfile_releases(args.lock_dir, args.arch)
+    releases = args.release or lockfile_releases(
+        args.lock_dir, args.arch, flavor="fedora")
     if not releases:
         sys.exit("no lockfiles in {}".format(args.lock_dir))
 
@@ -395,7 +432,7 @@ def main(argv=None):
 
 def regenerate(releases, args, root):
     generate.main(
-        [os.path.join(args.lock_dir, "fedora-{}-{}.lock.json".format(r, args.arch))
+        [os.path.join(args.lock_dir, lockfile_name("fedora", r, args.arch))
          for r in releases]
         + ["--out-dir", os.path.join(root, "flavors", "fedora", "generated")]
     )
@@ -423,14 +460,21 @@ def probe_pass(releases, args, root):
 
     for release in releases:
         lock_path, lock = read_lock(release, args)
-        probe_mod.write_probe_file(release, args.arch, args.lock_dir, root)
+        probe_mod.write_probe_file(lock_path, root)
         # offline: the repodata was synced minutes ago by the first solve,
         # and a second fetch could pick up an upstream push, which would
         # make these two lockfiles differ by more than the probe results --
         # the one thing this pass is meant to isolate.
         solve.main(solve_argv(
-            lock, repo_list(release, args, offline=True), lock_path,
-            probe_mod.probe_path(args.lock_dir, release, args.arch),
+            lock,
+            repo_list(
+                release,
+                args,
+                offline=True,
+                recorded_repos=lock.get("repos", []),
+            ),
+            lock_path,
+            probe_mod.probe_path(lock_path),
         ))
     regenerate(releases, args, root)
 

@@ -1,0 +1,82 @@
+{
+  "stores": [
+    {
+      "name": "REMOTE_CAS",
+      "grpc": {
+        "instance_name": "main",
+        "endpoints": [
+          {
+            "address": "grpc://${NATIVELINK_REAPI_ADDRESS:-127.0.0.1}:50051"
+          }
+        ],
+        "store_type": "cas"
+      }
+    },
+    {
+      "name": "REMOTE_AC",
+      "grpc": {
+        "instance_name": "main",
+        "endpoints": [
+          {
+            "address": "grpc://${NATIVELINK_REAPI_ADDRESS:-127.0.0.1}:50051"
+          }
+        ],
+        "store_type": "ac"
+      }
+    },
+    {
+      "name": "WORKER_CAS",
+      "fast_slow": {
+        "fast": {
+          "filesystem": {
+            "content_path": "/var/lib/nativelink/worker-x86_64/cas",
+            "temp_path": "/var/lib/nativelink/worker-x86_64/tmp",
+            "eviction_policy": {
+              "max_bytes": "${NATIVELINK_WORKER_CAS_MAX_BYTES:-10000000000}"
+            }
+          }
+        },
+        "fast_direction": "get",
+        "slow": {
+          "ref_store": {
+            "name": "REMOTE_CAS"
+          }
+        }
+      }
+    }
+  ],
+  "workers": [
+    {
+      "local": {
+        "name": "worker-x86_64",
+        "worker_api_endpoint": {
+          "uri": "grpc://${NATIVELINK_WORKER_API_ADDRESS:-127.0.0.1}:50061"
+        },
+        "max_inflight_tasks": 1,
+        "cas_fast_slow_store": "WORKER_CAS",
+        "upload_action_result": {
+          "ac_store": "REMOTE_AC"
+        },
+        "work_directory": "/var/lib/nativelink/worker-x86_64/work",
+        "platform_properties": {
+          "platform.OSFamily": {
+            "values": [
+              "linux"
+            ]
+          },
+          "platform.arch": {
+            "values": [
+              "x86_64"
+            ]
+          }
+        },
+        "use_namespaces": false,
+        "use_mount_namespace": false
+      }
+    }
+  ],
+  "servers": [],
+  "global": {
+    "max_open_files": 524288
+  }
+}

@@ -19,23 +19,20 @@ decides.  Two properties matter:
     that claims a feature and refuses it is exactly the case worth
     catching.
 
-  * A missing capability produces configuration, not a failure.  The
-    packages that need it fall back to the pinned upstream binary, the
-    build completes, and what was lost is stated rather than discovered.
-    That is the honest trade: this repo exists to build from source, and a
-    host that cannot build one package should still produce an image.
+  * A missing capability produces a valid %bcond override when the spec
+    offers one.  A required capability with no such fallback makes the
+    check fail before a build starts.
 
 Nothing here runs in the build graph.  It writes advice for
-.buckconfig.local, which is a human's file, and the committed
-configuration assumes a capable host -- so a clone on a normal machine
-builds everything from source without consulting this at all.
+.buckconfig.local, which is a human's file.  Source-policy exceptions are
+already represented in the generated graph; local configuration cannot
+add a source recipe that policy excluded.
 """
 
 import argparse
 import os
 import shutil
 import socket
-import subprocess
 import sys
 
 # Linux's netlink protocol number for the crypto user API, from
@@ -107,36 +104,25 @@ def _probe_tool(name):
     return probe
 
 
-# What the build needs from the host, and who needs it.
-#
-# `prebuilt` names source packages that cannot be built at all without the
-# capability -- their specs call the tool unconditionally, so there is no
-# switch to turn off and the only option is the pinned upstream binary.
-#
-# `bcond` names packages that *can* be built without it, because their
-# spec guards the tool behind a %bcond.  Turning the bcond off is strictly
-# better than falling back to a prebuilt binary: the package is still
-# built from source, and only the guarded feature is missing.
+# What the build needs from the host, and which guarded features can be
+# disabled when it is absent.  A %bcond keeps the package building from
+# source and drops only the guarded feature.
 CAPABILITIES = [
     {
         "name": "netlink-crypto",
         "summary": "kernel crypto user API (CONFIG_CRYPTO_USER)",
         "probe": _probe_netlink_crypto,
-        "prebuilt": ["kernel", "libxcrypt"],
         "bcond": {"gmp": "fips", "nettle": "fipshmac"},
         "why": (
             "libkcapi's sha512hmac and fipshmac open a NETLINK_CRYPTO "
-            "socket to look up an algorithm.  kernel.spec calls "
-            "sha512hmac in %install to sign vmlinuz for FIPS, and "
-            "libxcrypt calls fipshmac from %__spec_install_post; neither "
-            "is guarded by a bcond.  gmp and nettle guard theirs."
+            "socket to look up an algorithm.  gmp and nettle guard "
+            "their use with bconds."
         ),
     },
     {
         "name": "af-alg",
         "summary": "kernel crypto sockets (CONFIG_CRYPTO_USER_API_HASH)",
         "probe": _probe_af_alg,
-        "prebuilt": [],
         "bcond": {},
         "why": "The digest itself is computed through an AF_ALG socket.",
     },
@@ -144,7 +130,6 @@ CAPABILITIES = [
         "name": "user-namespaces",
         "summary": "unprivileged user namespaces with a subordinate id range",
         "probe": _probe_user_namespaces,
-        "prebuilt": [],
         "bcond": {},
         "why": (
             "Every build stage runs in one, and rpm needs more than a "
@@ -159,7 +144,6 @@ CAPABILITIES += [
         "name": "tool:" + tool,
         "summary": tool,
         "probe": _probe_tool(tool),
-        "prebuilt": [],
         "bcond": {},
         "why": why,
     }
@@ -183,22 +167,18 @@ def run_checks():
 
 def advice(results, flavor="fedora"):
     """The .buckconfig.local lines a host with gaps should carry."""
-    prebuilt, bconds = [], []
+    bconds = []
     for cap, ok, _ in results:
         if ok:
             continue
-        prebuilt.extend(cap["prebuilt"])
         bconds.extend(
             "{}:{}".format(pkg, bcond)
             for pkg, bcond in sorted(cap["bcond"].items())
         )
     lines = []
-    if prebuilt or bconds:
-        lines.append("[buckos.{}]".format(flavor))
     if bconds:
+        lines.append("[buckos.{}]".format(flavor))
         lines.append("  without = " + ", ".join(sorted(bconds)))
-    if prebuilt:
-        lines.append("  prebuilt = " + ", ".join(sorted(set(prebuilt))))
     return lines
 
 
@@ -220,26 +200,22 @@ def main(argv=None):
         gaps = [(c, d) for c, ok, d in results if not ok]
         print()
         if not gaps:
-            print("This host can build every package from source.")
+            print("This host satisfies every probed build capability.")
             return 0
         for cap, _ in gaps:
             print("{}: {}".format(cap["name"], cap["why"]))
             if cap["bcond"]:
                 print("  buildable with a feature disabled: {}".format(
                     ", ".join(sorted(cap["bcond"]))))
-            if cap["prebuilt"]:
-                print("  not buildable here, use the pinned binary: {}".format(
-                    ", ".join(sorted(cap["prebuilt"]))))
-            if not cap["bcond"] and not cap["prebuilt"]:
+            if not cap["bcond"]:
                 print("  no fallback: this one is required.")
             print()
 
     for line in lines:
         print(line)
     # Non-zero only when something has no fallback, so this is usable as a
-    # gate in CI without failing every host that merely needs a prebuilt.
-    fatal = [c for c, ok, _ in results
-             if not ok and not c["prebuilt"] and not c["bcond"]]
+    # gate in CI without rejecting valid %bcond advice.
+    fatal = [c for c, ok, _ in results if not ok and not c["bcond"]]
     return 1 if fatal else 0
 
 

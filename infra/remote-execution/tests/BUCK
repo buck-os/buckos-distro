@@ -1,0 +1,16 @@
+python_test(
+    name = "smoke_test_test",
+    srcs = ["smoke_test_test.py"],
+    base_module = "",
+    resources = {
+        "reapi_readiness.py": "//infra/remote-execution/scripts:reapi-readiness-source",
+        "smoke-test.sh": "//infra/remote-execution/scripts:smoke-test-script",
+        "what_ran_evidence.py": "//infra/remote-execution/scripts:what-ran-evidence-source",
+    },
+)
+
+python_test(
+    name = "pinned_mtls_regression_test",
+    srcs = ["pinned_mtls_regression_test.py"],
+    base_module = "",
+)

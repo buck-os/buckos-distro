@@ -43,10 +43,11 @@
 #   cas_address          = <host:port>
 #   instance_name        = <pool>
 #   tls                  = true
+#   tls_ca_certs         = </absolute/path/control-ca.pem>
+#   tls_client_cert      = </absolute/path/combined-client-identity.pem>
 #
-# See README.md "Remote execution" for what is known to block a green
-# remote build; the short version is that //defs/rules:rootfs needs
-# unprivileged user namespaces and /etc/subuid on the worker.
+# See REMOTE_EXECUTION.md for the reference deployment, worker preflight,
+# cache policy, rollout sequence, and acceptance gates.
 
 [parser]
   target_platform_detector_spec = target:buckos//...->buckos//platforms:linux-x86_64 target:toolchains//...->buckos//platforms:linux-x86_64

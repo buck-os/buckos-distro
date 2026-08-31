@@ -9,11 +9,18 @@ import sys
 
 from _isolation import (
     ISOLATION_MODES,
+    fabricated_mount_components,
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    sandbox_path,
 )
-from _rpm import make_dirs_writable, reproducible_env, scratch_dir
+from _deb import fakeroot_command, stage_fakeroot_runtime
+from _rpm import (
+    make_dirs_writable,
+    reproducible_env,
+    scratch_dir,
+)
 
 
 def collect_debs(paths):
@@ -112,16 +119,30 @@ def transaction_script(staging):
         "rm -f /usr/sbin/policy-rc.d",
         "rm -f /boot/initrd.img-* /etc/ssh/ssh_host_* /var/lib/systemd/random-seed",
         ": > /etc/machine-id",
+        # dpkg and update-alternatives stamp wall-clock time into their logs,
+        # and ldconfig's cache records per-file inode data.  Pinning mtimes
+        # does not reach content, so these three differ on every build.
+        ": > /var/log/dpkg.log",
+        ": > /var/log/alternatives.log",
+        "rm -f /var/cache/ldconfig/aux-cache",
         "test -x /usr/lib/systemd/systemd",
     ])
 
 
-def archive_script(target, tarball, source_date_epoch):
+def archive_script(target, tarball, source_date_epoch, fabricated):
     quoted_target = shlex.quote(target)
     return "\n".join([
         "set -e",
+        # Deepest first, so each is empty by the time it is removed.
+        "\n".join(
+            "rm -rf {}".format(shlex.quote(path)) for path in fabricated
+        ) or ":",
+        # posix extended headers carry atime and ctime at nanosecond
+        # precision, which --mtime does not pin and no input determines, so
+        # the archive differs on every build until they are dropped.
         "tar --create --numeric-owner --sort=name --xattrs --xattrs-include='*'"
-        " --acls --format=posix --mtime=@{epoch} --file {tarball}"
+        " --acls --format=posix --pax-option=delete=atime,delete=ctime"
+        " --mtime=@{epoch} --file {tarball}"
         " --directory {target} .".format(
             epoch=shlex.quote(source_date_epoch),
             tarball=shlex.quote(tarball),
@@ -153,7 +174,9 @@ def main():
         sys.exit("Debian-family rootfs assembly requires an isolated binary-seed buildroot")
 
     debs = collect_debs(args.deb)
-    work = os.path.abspath(args.work) if args.work else scratch_dir("buckos-distro-deb-rootfs-")
+    work = (os.path.abspath(args.work) if args.work else
+            scratch_dir("buckos-distro-deb-rootfs-",
+                        key=os.path.abspath(args.out)))
     if args.work:
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work)
@@ -165,20 +188,42 @@ def main():
     stage_debs(debs, staging)
     shutil.copytree(args.buildroot_tree, sysroot, symlinks=True, dirs_exist_ok=True)
     make_dirs_writable(sysroot)
+    fakeroot = stage_fakeroot_runtime(sysroot, work, isolation)
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
+    env["FAKEROOTDONTTRYCHOWN"] = "1"
+
+    def inside(path):
+        return sandbox_path(path, work, isolation)
+
+    # The scripts run in the sandbox and name these by their address
+    # there; `target` and `tarball` keep their host spelling above and
+    # below, where this process opens them.
+    in_target = inside(target)
+    in_staging = inside(staging)
     try:
         try:
             run_isolated(
-                ["/bin/sh", "-c", bootstrap_script(target, staging)],
+                fakeroot_command(
+                    fakeroot,
+                    ["/bin/sh", "-c", bootstrap_script(in_target, in_staging)],
+                ),
                 isolation,
                 work,
                 work,
                 sysroot,
                 env=env,
             )
+            # Against `target` because that is the tree this one mounts at
+            # /, and the paths it returns are pruned from it out here --
+            # so they stay host-side, unlike everything else in this block.
+            fabricated = fabricated_mount_components(target)
             run_isolated(
-                ["/bin/sh", "-c", transaction_script(staging)],
+                fakeroot_command(
+                    fakeroot,
+                    ["/bin/sh", "-c", transaction_script(in_staging)],
+                    load=True,
+                ),
                 isolation,
                 work,
                 work,
@@ -186,7 +231,11 @@ def main():
                 env=env,
             )
             run_isolated(
-                ["/bin/sh", "-c", normalize_merged_usr_script(target)],
+                fakeroot_command(
+                    fakeroot,
+                    ["/bin/sh", "-c", normalize_merged_usr_script(in_target)],
+                    load=True,
+                ),
                 isolation,
                 work,
                 work,
@@ -194,11 +243,16 @@ def main():
                 env=env,
             )
             run_isolated(
-                ["/bin/sh", "-c", archive_script(
-                    target,
-                    tarball,
-                    args.source_date_epoch,
-                )],
+                fakeroot_command(
+                    fakeroot,
+                    ["/bin/sh", "-c", archive_script(
+                        in_target,
+                        inside(tarball),
+                        args.source_date_epoch,
+                        [inside(path) for path in fabricated],
+                    )],
+                    load=True,
+                ),
                 isolation,
                 work,
                 work,
@@ -207,7 +261,7 @@ def main():
             )
         finally:
             run_isolated(
-                ["/bin/sh", "-c", cleanup_script(target)],
+                ["/bin/sh", "-c", cleanup_script(in_target)],
                 isolation,
                 work,
                 work,

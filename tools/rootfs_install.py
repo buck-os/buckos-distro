@@ -64,15 +64,20 @@ from _isolation import (
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    sandbox_path,
 )
 from _rpm import (
     make_dirs_writable,
     reproducible_env,
+    resolve_in_buildroot,
     scratch_dir,
     stage_rpms,
 )
 
 _SELINUX_MODULES = "selinux-modules"
+# semodule was already resolved against both locations here; chroot was not,
+# and EL10 keeps it in /usr/sbin, which the buildroot's PATH does not carry.
+_CHROOT_CANDIDATES = ("/usr/sbin/chroot", "/usr/bin/chroot")
 
 
 def collect_rpms(paths):
@@ -226,11 +231,23 @@ def _install(args, isolation, rpms, work, out):
         file=sys.stderr,
         flush=True,
     )
+
+    def inside(path):
+        return sandbox_path(path, work, isolation)
+
+    # rpm resolves all four inside; `target` and `tarball` stay host-side
+    # above and below, where this process checks and copies them.
     run_isolated(
         [
             "/bin/sh",
             "-c",
-            _transaction_script(args, staging, target, tarball, modules),
+            _transaction_script(
+                args,
+                inside(staging),
+                inside(target),
+                inside(tarball),
+                inside(modules) if modules else None,
+            ),
         ],
         isolation, work, work, sysroot,
         env=_transaction_env(args),
@@ -387,14 +404,37 @@ def _transaction_script(args, staging, target, tarball, modules=None):
                 quoted_target,
                 quoted_target,
             ),
+            resolve_in_buildroot("CHROOT", _CHROOT_CANDIDATES),
             "for module in {}/*.cil; do"
-            " chroot {} \"$SEMODULE\" -N -i"
+            " \"$CHROOT\" {} \"$SEMODULE\" -N -i"
             " \"/usr/share/selinux/packages/buckos/$(basename \"$module\")\";"
             " done".format(installed_modules, quoted_target),
         ]
     lines += [
+        # Three things in the installed tree record this build rather than
+        # its inputs.  systemd wants an empty machine-id in an image so the
+        # first boot generates one, which is what the Debian path already
+        # ships; ldconfig's cache records per-file inode data; and sqlite's
+        # side files are transient coordination state.  rpmdb.sqlite itself
+        # is deterministic and is kept.
+        ": > {}/etc/machine-id".format(quoted_target),
+        "rm -f {}/var/cache/ldconfig/aux-cache".format(quoted_target),
+        # -shm is shared memory and holds no database content, so it always
+        # goes.  An empty -wal is the residue of a clean close; a non-empty
+        # one would hold committed frames, so it stays and shows up rather
+        # than being silently discarded.
+        "for rpmdb in {0}/usr/lib/sysimage/rpm {0}/var/lib/rpm; do"
+        " rm -f \"$rpmdb\"/rpmdb.sqlite-shm;"
+        " if [ -f \"$rpmdb\"/rpmdb.sqlite-wal ] &&"
+        " [ ! -s \"$rpmdb\"/rpmdb.sqlite-wal ]; then"
+        " rm -f \"$rpmdb\"/rpmdb.sqlite-wal; fi;"
+        " done".format(quoted_target),
+        # posix extended headers carry atime and ctime at nanosecond
+        # precision, which --mtime does not pin and no input determines, so
+        # the archive differs on every build until they are dropped.
         "tar --create --numeric-owner --sort=name"
         " --xattrs --xattrs-include='*' --acls --format=posix"
+        " --pax-option=delete=atime,delete=ctime"
         " --mtime=@{epoch}"
         " --file {tarball} --directory {target} .".format(
             epoch=shlex.quote(args.source_date_epoch),

@@ -6,6 +6,7 @@ reimplement rpm semantics -- see SPEC.md section 1.
 
 import hashlib
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -53,26 +54,43 @@ _DEFAULT_SCRATCH_ROOT = "/var/tmp"
 def scratch_dir(prefix, key=None, remove=None):
     """A private scratch directory for a tree Buck must not walk.
 
-    `key` makes the name a function of the action instead of random, and
-    that is a reproducibility fix, not a tidiness one.  The work area is
-    bound into the sandbox at its own absolute path (see _isolation.py),
-    so it *is* %_topdir, so it lands in every DW_AT_comp_dir the compiler
-    emits.  ld then hashes the linked output -- debug sections included --
-    into the GNU build-id.  find-debuginfo runs debugedit afterwards,
-    which rewrites those paths to /usr/src/debug and leaves the note
-    alone, so the path vanishes from the output while its fingerprint
-    stays behind in 20 bytes that differ on every build.
+    `key` makes the name a function of the action instead of random.  It
+    was a reproducibility fix: the work area used to be bound into the
+    sandbox at its own absolute path, so it *was* %_topdir, so it landed
+    in every DW_AT_comp_dir the compiler emitted, and from there in the
+    GNU build-id -- which meant two builds of identical sources in
+    differently-named scratch directories produced different bytes.
 
-    That is invisible in the obvious places: nothing greps out of the
-    rpm, the DWARF is byte-identical, and the diff is a build-id plus the
-    two things derived from it (.gnu_debuglink's CRC and the
-    xz-compressed .gnu_debugdata, which carries its own copy of the
-    note).  mkdtemp's suffix is even fixed-length, so the binaries do not
-    change size.
+    That reason is gone.  The bind is at _isolation.SANDBOX_WORK now, a
+    constant, and every path handed to a tool inside is translated to it,
+    so the scratch directory's name no longer reaches a compiler at all.
+    The fix is in the bind rather than in the name.
 
-    So: pass something that identifies the action and is stable across
-    runs of it -- an output path is both.  Callers that only need a
-    private directory can leave it None and keep mkdtemp semantics.
+    One observation from that era is worth keeping, because it is about
+    how a path difference *presents* rather than about where the path
+    comes from, and it misleads in a direction that looks like good news.
+    A path-only difference is nearly invisible: nothing greps out of the
+    rpm, the DWARF is byte-identical after debugedit rewrites it, and what
+    is left is a build-id plus the two things derived from it --
+    .gnu_debuglink's CRC and the xz-compressed .gnu_debugdata, which
+    carries its own copy of the note.  The suffixes involved are
+    fixed-length, so **the binaries do not change size**.
+
+    Which means identical size, and an identical symbol table, are the
+    *expected signature* of a pure path difference rather than evidence
+    against one.  Anything comparing two builds has to read that the right
+    way round: those two agreeing is what a path difference looks like,
+    not what near-identity looks like.
+
+    What `key` is still for is narrower and worth keeping.  A name derived
+    from the action is a name this process can predict on its *next* run,
+    which is what lets the block below delete a previous run's leftovers:
+    mkdtemp cannot, because it never produces the same name twice, so an
+    action killed mid-build strands its tree under the scratch root
+    forever.  These trees are whole buildroots.  Pass something that
+    identifies the action and is stable across runs of it -- an output
+    path is both.  Callers that only need a private directory can leave it
+    None and keep mkdtemp semantics.
 
     `remove` overrides how a leftover from a previous run is deleted, and
     a caller that ran an rpm transaction in here has to supply one.  The
@@ -563,15 +581,54 @@ def rpm_package_filename(path):
     return name
 
 
+# The sandbox's PATH, and the whole of it.  See reproducible_env.
+SANDBOX_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
+SANDBOX_HOME = "/builddir"
+
+# Variables this module guarantees.  A caller may add others; it may not
+# move these, or the guarantee becomes a function of the call site.
+PINNED_ENV = frozenset(
+    ("PATH", "HOME", "SOURCE_DATE_EPOCH", "LC_ALL", "LANG", "TZ",
+     "RPM_BUILD_HOST")
+)
+
+
 def reproducible_env(env=None, source_date_epoch="1700000000"):
     """Return an env dict with the usual reproducibility knobs pinned.
+
+    The environment is built here in full rather than inherited from the
+    process.  Everything a sandboxed action sees is on this list, so a
+    build does not depend on who started the Buck daemon or from which
+    shell.  A survey of every os.environ read in the action drivers found
+    nothing inside a sandbox needs an inherited variable: each knob
+    already arrives as an explicit argument.
 
     SOURCE_DATE_EPOCH is honoured by rpm >= 4.14 for file mtimes and by
     most build systems.  Without it, replayed builds are not cacheable
     across machines in any meaningful way.
     """
-    out = dict(env or os.environ)
-    out.setdefault("SOURCE_DATE_EPOCH", source_date_epoch)
+    out = {
+        # Declared, not inherited.  /usr/sbin first because EL keeps it a
+        # real directory -- 136 binaries on the release 10 image-tools
+        # buildroot live there and nowhere else -- while Fedora has merged
+        # it into bin, where the entry is a harmless duplicate.  Order is
+        # immaterial in both: the only two names present in both
+        # directories on EL are udevadm, byte-identical, and pidof, a
+        # symlink to the copy in bin.
+        "PATH": SANDBOX_PATH,
+        # Declared here rather than left to the sandbox, because only the
+        # Bubblewrap path set it (--setenv HOME /builddir) and the unshare
+        # path inherited the launcher's.  One of those is a build that
+        # differs by which user started it.
+        "HOME": SANDBOX_HOME,
+    }
+    # Assigned rather than setdefault, and the difference is the whole
+    # point of the function.  With setdefault an inherited value won, so a
+    # daemon started from a shell exporting TZ produced different output
+    # and nothing said so -- and SOURCE_DATE_EPOCH was worse still,
+    # because an inherited one silently discarded the argument the caller
+    # passed.  A pin that the environment can override is not a pin.
+    out["SOURCE_DATE_EPOCH"] = source_date_epoch
     # C.UTF-8 rather than C, and the difference is not cosmetic.  Plain C
     # implies a US-ASCII charset, and a tool that takes its encoding from
     # the locale then cannot read a UTF-8 source file:
@@ -590,9 +647,44 @@ def reproducible_env(env=None, source_date_epoch="1700000000"):
     # codepoint order, no locale data consulted -- and only changes the
     # charset.  glibc has provided it unconditionally since 2.35, so it
     # needs no langpack in the buildroot.
-    out.setdefault("LC_ALL", "C.UTF-8")
-    out.setdefault("LANG", "C.UTF-8")
-    out.setdefault("TZ", "UTC")
+    out["LC_ALL"] = "C.UTF-8"
+    out["LANG"] = "C.UTF-8"
+    out["TZ"] = "UTC"
     # rpm bakes the build host into package metadata; pin it.
-    out.setdefault("RPM_BUILD_HOST", "buckos-distro")
+    out["RPM_BUILD_HOST"] = "buckos-distro"
+    # A caller may add a variable the action needs -- HOME, a fakeroot
+    # switch -- but may not move a pin, because then the guarantee depends
+    # on the call site again and there is no single answer to what the
+    # sandbox environment is.
+    for name, value in (env or {}).items():
+        if name in PINNED_ENV:
+            raise ValueError(
+                "{} is pinned by reproducible_env and cannot be "
+                "overridden by a caller".format(name)
+            )
+        out[name] = value
     return out
+
+
+def resolve_in_buildroot(var, candidates):
+    """Shell that sets `var` to the first candidate present, or fails.
+
+    Which of /usr/sbin and /usr/bin a tool lives in depends on the release:
+    Fedora 42 merged them and the EL releases have not.  PATH cannot settle
+    it, because `run()` replaces the environment wholesale and the PATH that
+    survives is the host's rather than the buildroot's, so a bare command
+    name resolves against the wrong tree or not at all.  Resolving in the
+    script means the answer comes from the tree actually mounted at `/`.
+    """
+    return "\n".join([
+        "{}=".format(var),
+        'for _c in {}; do'.format(" ".join(shlex.quote(c) for c in candidates)),
+        '  if [ -x "$_c" ]; then {}="$_c"; break; fi'.format(var),
+        "done",
+        'if [ -z "${}" ]; then'.format(var),
+        '  echo "buckos-distro: none of {} in the buildroot" >&2'.format(
+            " ".join(candidates)
+        ),
+        "  exit 1",
+        "fi",
+    ])

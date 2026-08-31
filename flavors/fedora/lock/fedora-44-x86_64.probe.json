@@ -1,7 +1,95 @@
 {
-  "buildroot": "--config-file tools/probe.buckconfig",
+  "buildroot": "--config-file tools/probe.buckconfig -c buckos.remote_execution=false -c buckos.remote_cache=false",
   "flavor": "fedora",
   "packages": {
+    "NetworkManager": {
+      "buildrequires": [
+        "/usr/bin/dbus-launch",
+        "/usr/bin/valac",
+        "ModemManager-glib-devel >= 1.0",
+        "audit-libs-devel",
+        "bluez-libs-devel",
+        "dbus-devel >= 1.9.18",
+        "firewalld-filesystem",
+        "gcc",
+        "gettext-devel >= 0.19.8",
+        "glib2-devel >= 2.40.0",
+        "gnutls-devel >= 2.12",
+        "gobject-introspection-devel >= 0.10.3",
+        "gtk-doc",
+        "iproute",
+        "iproute-tc",
+        "jansson-devel",
+        "libcurl-devel",
+        "libndp-devel >= 1.0",
+        "libnvme-devel >= 1.5",
+        "libpsl-devel >= 0.1",
+        "libselinux-devel",
+        "libtool",
+        "libudev-devel",
+        "libuuid-devel",
+        "libxslt",
+        "meson",
+        "mobile-broadband-provider-info-devel",
+        "newt-devel",
+        "pkgconfig",
+        "polkit-devel",
+        "ppp-devel >= 2.4.5",
+        "python3",
+        "python3-dbus",
+        "python3-gobject-base",
+        "python3-pexpect",
+        "readline-devel",
+        "systemd >= 200-3",
+        "systemd-devel",
+        "teamd-devel"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "NetworkManager.spec",
+      "static": [
+        "/usr/bin/dbus-launch",
+        "/usr/bin/valac",
+        "ModemManager-glib-devel >= 1.0",
+        "audit-libs-devel",
+        "bluez-libs-devel",
+        "dbus-devel >= 1.9.18",
+        "firewalld-filesystem",
+        "gcc",
+        "gettext-devel >= 0.19.8",
+        "glib2-devel >= 2.40.0",
+        "gnutls-devel >= 2.12",
+        "gobject-introspection-devel >= 0.10.3",
+        "gtk-doc",
+        "iproute",
+        "iproute-tc",
+        "jansson-devel",
+        "libcurl-devel",
+        "libndp-devel >= 1.0",
+        "libnvme-devel >= 1.5",
+        "libpsl-devel >= 0.1",
+        "libselinux-devel",
+        "libtool",
+        "libudev-devel",
+        "libuuid-devel",
+        "libxslt",
+        "meson",
+        "mobile-broadband-provider-info-devel",
+        "newt-devel",
+        "pkgconfig",
+        "polkit-devel",
+        "ppp-devel >= 2.4.5",
+        "python3",
+        "python3-dbus",
+        "python3-gobject-base",
+        "python3-pexpect",
+        "readline-devel",
+        "systemd >= 200-3",
+        "systemd-devel",
+        "teamd-devel"
+      ],
+      "unmet": false
+    },
     "acl": {
       "buildrequires": [
         "gawk",
@@ -534,7 +622,7 @@
         "valgrind",
         "zlib-devel"
       ],
-      "unmet": true
+      "unmet": false
     },
     "cyrus-sasl": {
       "buildrequires": [
@@ -800,6 +888,58 @@
       ],
       "unmet": false
     },
+    "dosfstools": {
+      "buildrequires": [
+        "gcc",
+        "make",
+        "xxd"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "dosfstools.spec",
+      "static": [
+        "gcc",
+        "make",
+        "xxd"
+      ],
+      "unmet": false
+    },
+    "dracut": {
+      "buildrequires": [
+        "asciidoctor",
+        "bash",
+        "bash-completion",
+        "cargo",
+        "docbook-dtds",
+        "docbook-style-xsl",
+        "gcc",
+        "git-core",
+        "libxslt",
+        "openssl-devel",
+        "pkgconfig",
+        "pkgconfig(libkmod) >= 23",
+        "systemd"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "dracut.spec",
+      "static": [
+        "asciidoctor",
+        "bash",
+        "bash-completion",
+        "cargo",
+        "docbook-dtds",
+        "docbook-style-xsl",
+        "gcc",
+        "git-core",
+        "libxslt",
+        "openssl-devel",
+        "pkgconfig",
+        "pkgconfig(libkmod) >= 23",
+        "systemd"
+      ],
+      "unmet": false
+    },
     "e2fsprogs": {
       "buildrequires": [
         "fuse3-devel",
@@ -1026,6 +1166,30 @@
       ],
       "unmet": false
     },
+    "fuse": {
+      "buildrequires": [
+        "autoconf",
+        "automake",
+        "gettext-devel",
+        "libselinux-devel",
+        "libtool",
+        "make",
+        "systemd-udev"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "fuse.spec",
+      "static": [
+        "autoconf",
+        "automake",
+        "gettext-devel",
+        "libselinux-devel",
+        "libtool",
+        "make",
+        "systemd-udev"
+      ],
+      "unmet": false
+    },
     "fuse3": {
       "buildrequires": [
         "gcc",
@@ -1188,7 +1352,7 @@
         "xz",
         "zlib-devel"
       ],
-      "unmet": true
+      "unmet": false
     },
     "gdbm": {
       "buildrequires": [
@@ -1400,22 +1564,6 @@
         "libzstd-devel",
         "make",
         "meson",
-        "mingw32-cpp",
-        "mingw32-filesystem >= 95",
-        "mingw32-gcc",
-        "mingw32-gcc-c++",
-        "mingw32-libtasn1 >= 4.3",
-        "mingw32-nettle >= 3.6",
-        "mingw32-readline",
-        "mingw32-zlib",
-        "mingw64-cpp",
-        "mingw64-filesystem >= 95",
-        "mingw64-gcc",
-        "mingw64-gcc-c++",
-        "mingw64-libtasn1 >= 4.3",
-        "mingw64-nettle >= 3.6",
-        "mingw64-readline",
-        "mingw64-zlib",
         "net-tools",
         "nettle-devel >= 3.10.1",
         "p11-kit-devel >= 0.21.3",
@@ -1451,22 +1599,6 @@
         "libzstd-devel",
         "make",
         "meson",
-        "mingw32-cpp",
-        "mingw32-filesystem >= 95",
-        "mingw32-gcc",
-        "mingw32-gcc-c++",
-        "mingw32-libtasn1 >= 4.3",
-        "mingw32-nettle >= 3.6",
-        "mingw32-readline",
-        "mingw32-zlib",
-        "mingw64-cpp",
-        "mingw64-filesystem >= 95",
-        "mingw64-gcc",
-        "mingw64-gcc-c++",
-        "mingw64-libtasn1 >= 4.3",
-        "mingw64-nettle >= 3.6",
-        "mingw64-readline",
-        "mingw64-zlib",
         "net-tools",
         "nettle-devel >= 3.10.1",
         "p11-kit-devel >= 0.21.3",
@@ -1567,6 +1699,36 @@
         "linux-atm-libs-devel",
         "make",
         "pkgconfig"
+      ],
+      "unmet": false
+    },
+    "iputils": {
+      "buildrequires": [
+        "docbook5-style-xsl",
+        "gcc",
+        "gettext",
+        "glibc-kernheaders >= 2.4-8.19",
+        "iproute",
+        "libcap-devel",
+        "libidn2-devel",
+        "libxslt",
+        "meson",
+        "systemd"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "iputils.spec",
+      "static": [
+        "docbook5-style-xsl",
+        "gcc",
+        "gettext",
+        "glibc-kernheaders >= 2.4-8.19",
+        "iproute",
+        "libcap-devel",
+        "libidn2-devel",
+        "libxslt",
+        "meson",
+        "systemd"
       ],
       "unmet": false
     },
@@ -1926,7 +2088,7 @@
         "python3-devel",
         "swig"
       ],
-      "unmet": true
+      "unmet": false
     },
     "libeconf": {
       "buildrequires": [
@@ -2097,6 +2259,20 @@
         "python3-devel",
         "python3-gobject-base",
         "rpm-devel"
+      ],
+      "unmet": false
+    },
+    "libndp": {
+      "buildrequires": [
+        "gcc",
+        "make"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "libndp.spec",
+      "static": [
+        "gcc",
+        "make"
       ],
       "unmet": false
     },
@@ -2866,6 +3042,30 @@
       ],
       "unmet": false
     },
+    "ntfs-3g": {
+      "buildrequires": [
+        "gnutls-devel",
+        "libattr-devel",
+        "libconfig-devel",
+        "libgcrypt-devel",
+        "libtool",
+        "libuuid-devel",
+        "make"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "ntfs-3g.spec",
+      "static": [
+        "gnutls-devel",
+        "libattr-devel",
+        "libconfig-devel",
+        "libgcrypt-devel",
+        "libtool",
+        "libuuid-devel",
+        "make"
+      ],
+      "unmet": false
+    },
     "oniguruma": {
       "buildrequires": [
         "gcc",
@@ -3174,6 +3374,62 @@
       ],
       "unmet": false
     },
+    "parted": {
+      "buildrequires": [
+        "autoconf",
+        "automake",
+        "bc",
+        "check-devel",
+        "device-mapper-devel",
+        "dosfstools",
+        "e2fsprogs",
+        "e2fsprogs-devel",
+        "gcc",
+        "gettext-devel",
+        "git",
+        "gnupg2",
+        "gperf",
+        "libblkid-devel >= 2.17",
+        "libtool",
+        "libuuid-devel",
+        "make",
+        "ncurses-devel",
+        "perl-Digest-CRC",
+        "python3",
+        "readline-devel",
+        "texinfo",
+        "xfsprogs"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "parted.spec",
+      "static": [
+        "autoconf",
+        "automake",
+        "bc",
+        "check-devel",
+        "device-mapper-devel",
+        "dosfstools",
+        "e2fsprogs",
+        "e2fsprogs-devel",
+        "gcc",
+        "gettext-devel",
+        "git",
+        "gnupg2",
+        "gperf",
+        "libblkid-devel >= 2.17",
+        "libtool",
+        "libuuid-devel",
+        "make",
+        "ncurses-devel",
+        "perl-Digest-CRC",
+        "python3",
+        "readline-devel",
+        "texinfo",
+        "xfsprogs"
+      ],
+      "unmet": false
+    },
     "pcre2": {
       "buildrequires": [
         "autoconf",
@@ -3377,6 +3633,18 @@
         "gcc",
         "make",
         "ncurses-devel"
+      ],
+      "unmet": false
+    },
+    "rootfiles": {
+      "buildrequires": [
+        "systemd-rpm-macros"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "rootfiles.spec",
+      "static": [
+        "systemd-rpm-macros"
       ],
       "unmet": false
     },
@@ -3689,6 +3957,74 @@
       ],
       "unmet": false
     },
+    "squashfs-tools": {
+      "buildrequires": [
+        "gcc",
+        "help2man",
+        "libattr-devel",
+        "libzstd-devel",
+        "lz4-devel",
+        "lzo-devel",
+        "make",
+        "xz-devel",
+        "zlib-devel"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "squashfs-tools.spec",
+      "static": [
+        "gcc",
+        "help2man",
+        "libattr-devel",
+        "libzstd-devel",
+        "lz4-devel",
+        "lzo-devel",
+        "make",
+        "xz-devel",
+        "zlib-devel"
+      ],
+      "unmet": false
+    },
+    "sudo": {
+      "buildrequires": [
+        "audit-libs-devel",
+        "bison",
+        "flex",
+        "gettext",
+        "groff",
+        "libcap-devel",
+        "libselinux-devel",
+        "libtool",
+        "make",
+        "openldap-devel",
+        "openssl-devel",
+        "pam-devel",
+        "python3-devel",
+        "systemd-rpm-macros",
+        "zlib-devel"
+      ],
+      "dynamic": [],
+      "generated": false,
+      "spec": "sudo.spec",
+      "static": [
+        "audit-libs-devel",
+        "bison",
+        "flex",
+        "gettext",
+        "groff",
+        "libcap-devel",
+        "libselinux-devel",
+        "libtool",
+        "make",
+        "openldap-devel",
+        "openssl-devel",
+        "pam-devel",
+        "python3-devel",
+        "systemd-rpm-macros",
+        "zlib-devel"
+      ],
+      "unmet": false
+    },
     "systemd": {
       "buildrequires": [
         "acl",
@@ -3837,7 +4173,7 @@
         "xz",
         "xz-devel"
       ],
-      "unmet": true
+      "unmet": false
     },
     "tar": {
       "buildrequires": [
@@ -3869,7 +4205,7 @@
         "policycoreutils",
         "texinfo"
       ],
-      "unmet": true
+      "unmet": false
     },
     "tzdata": {
       "buildrequires": [
@@ -4127,5 +4463,6 @@
     }
   },
   "release": "44",
-  "schema": 1
+  "schema": 1,
+  "target_cpu": "x86_64"
 }

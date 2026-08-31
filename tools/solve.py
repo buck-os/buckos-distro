@@ -10,6 +10,10 @@ Inputs are the binary and source primary.xml files RPM repositories publish:
     binary primary.xml   Provides, Requires, and <rpm:sourcerpm> for every
                          binary package.  Gives the capability map and the
                          binary -> source mapping.
+    buildroot primary.xml
+                         Binary packages absent from the compose that may
+                         satisfy build-only dependencies without replacing
+                         compose packages.
     source primary.xml   the src.rpm entries.  For a source package the
                          <rpm:requires> ARE its BuildRequires, plus
                          <location> and <checksum> for lazy fetching.
@@ -41,6 +45,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 
 from rpmvercmp import package_is_newer
+from source_policy import SourcePolicyError, build_source_policy
 
 from depgraph import (
     AmbiguousProvider,
@@ -98,6 +103,7 @@ PUBLIC_BASE_HOSTS = (
     "download.fedoraproject.org",
     "archives.fedoraproject.org",
     "kojipkgs.fedoraproject.org",
+    "kojihub.stream.centos.org",
     "mirror.stream.centos.org",
 )
 
@@ -178,6 +184,9 @@ def collect_repos(args):
     repos = []
     for kind, primaries, bases, names in (
         ("binary", args.binary_primary, args.binary_base, args.binary_repo),
+        ("buildroot", getattr(args, "buildroot_primary", []),
+         getattr(args, "buildroot_base", []),
+         getattr(args, "buildroot_repo", [])),
         ("source", args.source_primary, args.source_base, args.source_repo),
     ):
         if bases and len(bases) != len(primaries):
@@ -199,6 +208,9 @@ def collect_repos(args):
                 "--{}-base".format(kind), bases[i] if bases else ""
             )
             name = names[i] if names else derive_repo_name(kind, base, taken)
+            if name in taken:
+                sys.exit("repository name {!r} is used more than once".format(
+                    name))
             taken.add(name)
             repos.append({
                 "name": name,
@@ -367,6 +379,38 @@ def merge_packages(groups):
                 continue
             superseded.setdefault(key, {})[_evr_string(pkg)] = pkg
     return [index[key] for key in sorted(index)], replacements, superseded
+
+
+def merge_fallback_packages(compose_packages, fallback_groups):
+    """Add buildroot packages only where the compose has no matching key.
+
+    Build tags often contain newer builds of packages already shipped by a
+    compose. Those are useful for satisfying build-only gaps, but letting
+    them participate in the ordinary newest-wins merge would silently move
+    image payloads away from the reviewed compose. The boundary is the RPM
+    identity slot, ``(name, arch)``: fallback repositories may fill an empty
+    slot and may never replace an occupied one.
+    """
+    fallback, _replacements, superseded = merge_packages(fallback_groups)
+    compose_keys = {(pkg["name"], pkg["arch"]) for pkg in compose_packages}
+    added = [
+        pkg for pkg in fallback
+        if (pkg["name"], pkg["arch"]) not in compose_keys
+    ]
+    shadowed = [
+        pkg for pkg in fallback
+        if (pkg["name"], pkg["arch"]) in compose_keys
+    ]
+    added_keys = {(pkg["name"], pkg["arch"]) for pkg in added}
+    fallback_superseded = {
+        key: versions for key, versions in superseded.items()
+        if key in added_keys
+    }
+    combined = sorted(
+        list(compose_packages) + added,
+        key=lambda pkg: (pkg["name"], pkg["arch"]),
+    )
+    return combined, added, shadowed, fallback_superseded
 
 
 def _evr_string(pkg):
@@ -646,22 +690,29 @@ def constrained_requires(pkg):
 
 
 def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
-                   superseded=None):
+                   superseded=None, fallback_repos=()):
     """Index the repodata into the maps depgraph needs.
 
     Collapses the arch dimension: callers work in package names, so of the
     several builds that can share one name exactly one has to win. Arch
     preference decides first and version only breaks ties within an arch,
     because a newer i686 build is still the wrong answer for an x86_64
-    closure.
+    closure. Compose packages also win the plain name over fallback packages
+    on another architecture; the fallback remains available through its
+    arch-qualified identity and capabilities.
     """
     provides = {}
     provide_evr = {}
     requires = {}
     source_of = {}
     subpackages = {}
+    fallback_repos = set(fallback_repos)
 
     def better(candidate, incumbent):
+        candidate_fallback = candidate.get("repo") in fallback_repos
+        incumbent_fallback = incumbent.get("repo") in fallback_repos
+        if candidate_fallback != incumbent_fallback:
+            return not candidate_fallback
         rank_new = _arch_rank(candidate["arch"], target_cpu)
         rank_old = _arch_rank(incumbent["arch"], target_cpu)
         if rank_new != rank_old:
@@ -718,23 +769,28 @@ def build_universe(binary_pkgs, source_pkgs, target_cpu="x86_64",
     # unsatisfiable and gcc could not be built.
     #
     # These builds get an arch-qualified identity, `glibc-devel.i686`,
-    # spelled the way rpm and every Fedora bug report spell it.  Their
-    # Requires go into the shared map under that key, where no plain
-    # package name can collide, so the ordinary closure walks a 32-bit
-    # package's dependencies like anything else's.
+    # spelled the way rpm and every Fedora bug report spell it. A fallback
+    # package that loses the plain name to a compose package on another
+    # architecture takes the same path. Their Requires go into the shared
+    # map under that key, where no plain package name can collide, so the
+    # ordinary closure walks the package's dependencies like anything else.
     #
     # Their Provides are the delicate half, and the rule is below: a
     # capability is registered only where the collapsed universe has no
     # answer at all.
     foreign_index = {}
     for pkg in binary_pkgs:
-        if _arch_rank(pkg["arch"], target_cpu) != _FOREIGN_RANK:
+        winner = binary_index.get(pkg["name"])
+        fallback_alternative = (
+            pkg.get("repo") in fallback_repos and winner is not pkg
+        )
+        if (_arch_rank(pkg["arch"], target_cpu) != _FOREIGN_RANK
+                and not fallback_alternative):
             continue
         # A package that exists *only* in this arch already won the
         # collapse and is addressable by its plain name; a second entry for
         # it would make `lrmi(x86-32)` ambiguous between `lrmi` and
         # `lrmi.i686`, which are the same rpm.  Six packages in Fedora 43.
-        winner = binary_index.get(pkg["name"])
         if winner is not None and winner["arch"] == pkg["arch"]:
             continue
         key = arch_qualified(pkg["name"], pkg["arch"])
@@ -978,7 +1034,62 @@ def probed_buildrequires(report, implicit=BUILDSYS_BUILD):
     return list(implicit) + declared
 
 
-def load_probe(path, build_set):
+def probe_identity_errors(data, flavor=None, release=None, target_cpu=None):
+    """Return mismatches between a probe and the solve consuming it.
+
+    A probe must state every identity the solve reading it asserts,
+    ``target_cpu`` included.  Nothing in a report's contents names an
+    architecture -- the capabilities are the same strings either way -- so
+    a file that omits the field cannot be shown to belong to the lock that
+    names it, and copying an x86_64 report to the AArch64 filename would
+    otherwise be accepted in silence.  A probe run writes the field, so the
+    only files this refuses are ones whose architecture nothing recorded.
+    """
+    errors = []
+    expected = {
+        "flavor": flavor,
+        "release": release,
+        "target_cpu": target_cpu,
+    }
+    for field, wanted in expected.items():
+        if wanted is None:
+            continue
+        actual = data.get(field)
+        if str(actual) != str(wanted):
+            errors.append("{}={!r}, expected {!r}".format(
+                field, actual, wanted
+            ))
+    return errors
+
+
+def read_probe(path, flavor=None, release=None, target_cpu=None):
+    """Read and validate a probe file, before any build list exists.
+
+    Split out of load_probe because the two things a probe answers are
+    needed at opposite ends of the solve.  What a spec *produces* has to
+    be known before the universe is consumed, since it decides which
+    source is the producer of a binary and therefore what lands on the
+    build list at all.  What a spec *requires* is needed much later, once
+    that build list is settled.  One read, validated once, used twice.
+    """
+    if not path:
+        return {}
+    with open(path) as fh:
+        data = json.load(fh)
+    if data.get("schema") != PROBE_SCHEMA:
+        sys.exit("{}: probe schema {} not understood (this solver reads {})"
+                 .format(path, data.get("schema"), PROBE_SCHEMA))
+    identity_errors = probe_identity_errors(
+        data, flavor=flavor, release=release, target_cpu=target_cpu
+    )
+    if identity_errors:
+        sys.exit("{}: probe identity mismatch: {}".format(
+            path, "; ".join(identity_errors)
+        ))
+    return data.get("packages", {})
+
+
+def load_probe(path, build_set, flavor=None, release=None, target_cpu=None):
     """Read a probe file, keeping only the packages being solved.
 
     Filtered against build_set because a probe file outlives the build
@@ -991,12 +1102,9 @@ def load_probe(path, build_set):
     """
     if not path:
         return {}
-    with open(path) as fh:
-        data = json.load(fh)
-    if data.get("schema") != PROBE_SCHEMA:
-        sys.exit("{}: probe schema {} not understood (this solver reads {})"
-                 .format(path, data.get("schema"), PROBE_SCHEMA))
-    packages = data.get("packages", {})
+    packages = read_probe(
+        path, flavor=flavor, release=release, target_cpu=target_cpu
+    )
     known = {k: v for k, v in packages.items() if k in build_set}
     stale = sorted(set(packages) - set(known))
     print("probe: {} of {} package(s) from {}{}".format(
@@ -1004,6 +1112,81 @@ def load_probe(path, build_set):
         " (ignoring {})".format(", ".join(stale)) if stale else "",
     ), file=sys.stderr)
     return known
+
+
+def apply_probed_producers(universe, probe):
+    """Drop subpackages a source's build cannot emit on this architecture.
+
+    Repodata indexes a binary package under the source that built it, but
+    the index is a union in two directions, and both produce false claims.
+
+    Across architectures: glibc looks like it produces
+    sysroot-{x86_64,aarch64,ppc64le,s390x}-el10-glibc, when the spec
+    derives that name from %{_arch} and any one build produces exactly
+    one.
+
+    Across time: a repo keeps the rpms of source versions it no longer
+    ships.  crypto-policies-pq-preview is in appstream, built from
+    crypto-policies-20250404; the pinned source is 20260811, whose spec
+    stopped building it.  Matching on source *name* attributes an rpm from
+    an eighteen-month-old spec to today's.
+
+    Either way the lock was describing the archive rather than describing
+    what this build can emit.
+
+    Left alone that is latent: a name nothing consumes.  A probe turns it
+    into an edge, because `rpmbuild -br` reports gcc's real BuildRequires
+    and they include the three foreign sysroots -- so the solver wires a
+    consumer to a projection of a subpackage that can never be built, and
+    the failure surfaces only at the ISO.
+
+    Only the probe knows.  It runs rpmspec against the spec inside the
+    target buildroot, so it answers for the architecture being built.  A
+    source with no report is left exactly as repodata described it, which
+    is what keeps an unprobed lock unchanged.
+
+    Deliberately no name-based fallback.  "The name embeds a foreign
+    architecture" is false inside the very source this exists for: an
+    x86_64 gcc build really does produce cross-gcc-aarch64.  The spec is
+    the authority and a name check beside it would suggest otherwise.
+    """
+    if not probe:
+        return universe
+    subpackages = dict(universe["subpackages"])
+    source_of = dict(universe["source_of"])
+    dropped = {}
+    for src, report in sorted(probe.items()):
+        produced = report.get("produces")
+        if not produced:
+            continue
+        allowed = set(produced)
+        keep = [b for b in subpackages.get(src, ()) if b in allowed]
+        gone = [b for b in subpackages.get(src, ()) if b not in allowed]
+        if not gone:
+            continue
+        subpackages[src] = keep
+        for binary in gone:
+            if source_of.get(binary) == src:
+                del source_of[binary]
+        dropped[src] = gone
+    # Printed even when every number is zero.  "Checked everything, found
+    # nothing wrong" and "checked nothing" produce the same silence, and
+    # the second is the one worth knowing about: it means no spec was
+    # consulted and every repodata claim stood unchecked.  Reporting the
+    # population beside the result is what tells the two apart without
+    # anyone having to remember to ask.
+    consulted = sum(1 for r in probe.values() if r.get("produces"))
+    total = sum(len(v) for v in dropped.values())
+    print(
+        "probe: consulted {} of {} source report(s) for what the spec "
+        "builds here; dropped {} binary package claim(s)".format(
+            consulted, len(probe), total
+        ),
+        file=sys.stderr,
+    )
+    for src, gone in sorted(dropped.items()):
+        print("  {}: {}".format(src, ", ".join(gone)), file=sys.stderr)
+    return dict(universe, subpackages=subpackages, source_of=source_of)
 
 
 def solve(universe, build_set, overrides=None, strict=False, probe=None,
@@ -1015,6 +1198,11 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None,
     """
     overrides = overrides or {}
     probe = probe or {}
+    # Note: the producer filter is NOT applied here.  It has to run on the
+    # universe before source_build_set and add_source_variants read
+    # source_of, and before the lockfile writer reads subpackages -- all
+    # of which happen in main() ahead of this call.  Filtering here would
+    # rebind a local name and change nothing anyone can see.
     build_deps = {}
     resolutions = {}
     dynamic = {}
@@ -1227,6 +1415,88 @@ def solve_image_sets(universe, image_roots, overrides=None,
     return sets, problems
 
 
+def source_build_set(image_sets, source_of, selected_image_sets,
+                     prebuilt_sources=()):
+    """Derive source producers from selected binary image closures.
+
+    The image closure is the product boundary. Keeping a second handwritten
+    source list beside it lets the two drift while both remain internally
+    valid, so source selection starts from the binary packages the image
+    actually installs and follows their recorded source identities.
+    """
+    selected = sorted(set(selected_image_sets))
+    prebuilt = set(prebuilt_sources)
+    if not selected:
+        if prebuilt:
+            raise ValueError("prebuilt sources require --source-image: {}".format(
+                ", ".join(sorted(prebuilt))))
+        return set()
+
+    missing_sets = sorted(set(selected) - set(image_sets))
+    if missing_sets:
+        raise ValueError("source build selects missing image set(s): {}".format(
+            ", ".join(missing_sets)))
+
+    sources = set()
+    missing_sources = []
+    for image_name in selected:
+        for package in image_sets[image_name]:
+            source = source_of.get(package)
+            if source:
+                sources.add(source)
+            else:
+                missing_sources.append("{}:{}".format(image_name, package))
+    if missing_sources:
+        raise ValueError("image payloads have no source identity: {}".format(
+            ", ".join(sorted(missing_sources))))
+
+    stale = sorted(prebuilt - sources)
+    if stale:
+        raise ValueError(
+            "prebuilt sources do not produce a selected image payload: {}"
+            .format(", ".join(stale))
+        )
+    return sources - prebuilt
+
+
+def rpm_source_policy_inputs(lock):
+    """Return normalized payload records and effective source producers.
+
+    This is the RPM adapter for tools/source_policy.py. It deliberately does
+    not encode the shared policy schema; it only translates RPM lock records
+    into the common ``{package, source}`` vocabulary and source-name keys.
+    """
+    selected = lock.get("solve", {}).get("source_image_sets", [])
+    images = {
+        name: [
+            {"package": entry["name"], "source": entry.get("source")}
+            for entry in sorted(
+                lock.get("image_sets", {}).get(name, []),
+                key=lambda entry: entry["name"],
+            )
+        ]
+        for name in sorted(set(selected))
+    }
+    producers = {
+        package["source"].get("source_name") or package["source"]["name"]
+        for package in lock.get("packages", {}).values()
+    }
+    producers -= set(lock.get("solve", {}).get("prebuilt_sources", []))
+    return images, producers
+
+
+def parse_source_exception(value):
+    """Parse one reviewed JSON exception from the command line."""
+    try:
+        exception = json.loads(value)
+    except ValueError as exc:
+        raise ValueError("--source-exception is not valid JSON: {}".format(
+            exc)) from exc
+    if not isinstance(exception, dict):
+        raise ValueError("--source-exception must be a JSON object")
+    return exception
+
+
 def _count_pins_by_repo(lock):
     """How many pinned entries each repo accounts for.
 
@@ -1269,14 +1539,15 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
                   dynamic, plan, depth, image_sets, seed_packages,
                   replacements, base_closure, args,
                   variant_subpackages=None, variant_routes=None,
-                  binary_superseded=None):
+                  binary_superseded=None, image_universe=None):
     """Produce the lockfile. Every entry is pinned by checksum."""
     variant_subpackages = variant_subpackages or {}
     variant_routes = variant_routes or {}
     binary_superseded = binary_superseded or {}
+    image_universe = image_universe or universe
 
-    def pin_binary(name):
-        pkg = universe["binary_index"].get(name)
+    def pin_binary(name, selected_universe=universe):
+        pkg = selected_universe["binary_index"].get(name)
         if not pkg:
             return {"name": name, "unresolved": True}
         return {
@@ -1293,8 +1564,9 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
             # `glibc-devel.i686`, which source_of does not carry -- that map
             # feeds `subpackages`, and glibc's recipe does not emit an i686
             # build.  The attribution is still real and worth recording.
-            "source": (universe["source_of"].get(name)
-                       or universe.get("foreign_source_of", {}).get(name)),
+            "source": (selected_universe["source_of"].get(name)
+                       or selected_universe.get(
+                           "foreign_source_of", {}).get(name)),
             # Which repo's base URL `location` hangs off. Per package, not
             # per release: once updates/ is layered over releases/ a closure
             # legitimately spans both, and a single base would be wrong for
@@ -1430,6 +1702,9 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
         # history.
         "solve": {
             "build": sorted(build_set),
+            "explicit_build": sorted(args.explicit_build),
+            "source_image_sets": sorted(set(args.source_image)),
+            "prebuilt_sources": sorted(set(args.prebuilt_source)),
             "overrides": sorted(args.override),
             "implicit_group": list(args.implicit_group),
             "seed_only": args.seed_only,
@@ -1495,7 +1770,7 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
         # consumed by a different rule; an image that happened to equal the
         # build closure would still be a coincidence, not a shared list.
         "image_sets": {
-            name: [pin_binary(p) for p in members]
+            name: [pin_binary(p, image_universe) for p in members]
             for name, members in sorted(image_sets.items())
         },
         "build_order": plan["order"],
@@ -1507,6 +1782,16 @@ def emit_lockfile(universe, build_set, build_deps, resolutions, problems,
         ],
     }
     lock["summary"]["pins_by_repo"] = _count_pins_by_repo(lock)
+    if args.source_image:
+        images, producers = rpm_source_policy_inputs(lock)
+        lock["source_policy"] = build_source_policy(
+            images,
+            producers,
+            args.source_exception,
+            args.source_image,
+        )
+        lock["solve"]["source_exceptions"] = \
+            lock["source_policy"]["exceptions"]
     return lock
 
 
@@ -1541,6 +1826,9 @@ def main(argv=None):
     ap.add_argument("--source-primary", action="append", default=[],
                     metavar="PATH",
                     help="source primary.xml (repeatable, layered in order)")
+    ap.add_argument("--buildroot-primary", action="append", default=[],
+                    metavar="PATH",
+                    help="fallback-only buildroot primary.xml (repeatable)")
     ap.add_argument("--binary-base", action="append", default=[],
                     metavar="URL",
                     help="upstream URL the Nth --binary-primary's `location` "
@@ -1549,6 +1837,10 @@ def main(argv=None):
                     metavar="URL",
                     help="upstream URL the Nth --source-primary's `location` "
                          "paths are relative to")
+    ap.add_argument("--buildroot-base", action="append", default=[],
+                    metavar="URL",
+                    help="upstream URL the Nth --buildroot-primary's "
+                         "`location` paths are relative to")
     ap.add_argument("--binary-repo", action="append", default=[],
                     metavar="NAME",
                     help="name for the Nth binary repo, used to attribute "
@@ -1557,10 +1849,26 @@ def main(argv=None):
                     metavar="NAME",
                     help="name for the Nth source repo "
                          "(default: derived from its URL)")
+    ap.add_argument("--buildroot-repo", action="append", default=[],
+                    metavar="NAME",
+                    help="name for the Nth fallback-only buildroot repo "
+                         "(default: derived from its URL)")
     ap.add_argument("--build", action="append", default=[],
                     help="source package to build from source (repeatable)")
     ap.add_argument("--build-list", default=None,
                     help="file with one source package name per line")
+    ap.add_argument("--source-image", action="append", default=[],
+                    metavar="NAME",
+                    help="derive source producers from this image closure "
+                         "(repeatable)")
+    ap.add_argument("--prebuilt-source", action="append", default=[],
+                    metavar="SOURCE",
+                    help="source selected by --source-image that remains "
+                         "pinned (repeatable)")
+    ap.add_argument("--source-exception", action="append", default=[],
+                    metavar="JSON",
+                    help="approved per-payload source exception as one JSON "
+                         "object (repeatable)")
     ap.add_argument("--flavor", choices=sorted(IMPLICIT_GROUPS),
                     default="fedora")
     ap.add_argument("--seed-only", action="store_true",
@@ -1600,6 +1908,12 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
     args.implicit_group = IMPLICIT_GROUPS[args.flavor]
+    try:
+        args.source_exception = [
+            parse_source_exception(value) for value in args.source_exception
+        ]
+    except ValueError as exc:
+        sys.exit(str(exc))
 
     # Before the solve, not after: a solve is minutes of work and a
     # mispaired repo list is worth reporting before spending them.
@@ -1612,11 +1926,19 @@ def main(argv=None):
                 line.strip() for line in fh
                 if line.strip() and not line.startswith("#")
             }
-    if not build_set and not args.seed_only and not args.seed_package:
-        sys.exit("nothing to solve: pass --build, --build-list, --seed-only, "
-                 "or --seed-package")
-    if build_set and not args.source_primary:
+    args.explicit_build = set(build_set)
+    if (not build_set and not args.source_image and not args.seed_only
+            and not args.seed_package):
+        sys.exit("nothing to solve: pass --build, --build-list, "
+                 "--source-image, --seed-only, or --seed-package")
+    if (build_set or args.source_image) and not args.source_primary:
         sys.exit("source builds require at least one --source-primary")
+    overlap = sorted(build_set & set(args.prebuilt_source))
+    if overlap:
+        sys.exit("source packages cannot be both explicitly built and "
+                 "prebuilt: {}".format(", ".join(overlap)))
+    if args.source_exception and not args.source_image:
+        sys.exit("--source-exception requires --source-image")
 
     overrides = {}
     for item in args.override:
@@ -1657,7 +1979,7 @@ def main(argv=None):
                          name, ", ".join(sorted(image_roots)) or "none"))
         image_overrides.setdefault(name, {})[cap] = pkg
 
-    groups = {"binary": [], "source": []}
+    groups = {"binary": [], "buildroot": [], "source": []}
     for repo in args.repos:
         print("parsing {} repodata ({})...".format(repo["name"], repo["primary"]),
               file=sys.stderr)
@@ -1667,6 +1989,9 @@ def main(argv=None):
 
     binary_pkgs, binary_updates, binary_superseded = merge_packages(
         groups["binary"])
+    combined_binary_pkgs, fallback_added, fallback_shadowed, \
+        buildroot_superseded = merge_fallback_packages(
+            binary_pkgs, groups["buildroot"])
     source_pkgs, source_updates, source_superseded = merge_packages(
         groups["source"])
     replacements = binary_updates + source_updates
@@ -1678,17 +2003,83 @@ def main(argv=None):
         ),
         file=sys.stderr,
     )
+    if groups["buildroot"]:
+        print(
+            "  buildroot fallback: {} package(s) added, {} compose "
+            "package(s) kept".format(
+                len(fallback_added), len(fallback_shadowed)
+            ),
+            file=sys.stderr,
+        )
 
-    universe = build_universe(binary_pkgs, source_pkgs,
-                              target_cpu=args.target_cpu,
-                              superseded=binary_superseded)
+    combined_superseded = dict(binary_superseded)
+    combined_superseded.update(buildroot_superseded)
+    universe = build_universe(
+        combined_binary_pkgs,
+        source_pkgs,
+        target_cpu=args.target_cpu,
+        superseded=combined_superseded,
+        fallback_repos={repo["name"] for repo in args.repos
+                        if repo["kind"] == "buildroot"},
+    )
+    compose_universe = (
+        build_universe(
+            binary_pkgs,
+            source_pkgs,
+            target_cpu=args.target_cpu,
+            superseded=binary_superseded,
+        )
+        if groups["buildroot"]
+        else universe
+    )
+
+    # Before anything reads source_of or subpackages.  Both universes,
+    # because source_build_set reads the compose one and the lockfile
+    # writer reads the other; a claim dropped from only one of them would
+    # leave the two disagreeing about who produces what.
+    probed_producers = read_probe(
+        args.probe, flavor=args.flavor, release=args.release,
+        target_cpu=args.target_cpu,
+    )
+    shared_universe = compose_universe is universe
+    universe = apply_probed_producers(universe, probed_producers)
+    compose_universe = (
+        universe if shared_universe
+        else apply_probed_producers(compose_universe, probed_producers)
+    )
+
+    image_sets, image_problems = solve_image_sets(
+        compose_universe, image_roots, overrides, image_overrides
+    )
+    if args.strict and image_problems:
+        for kind, detail, who in image_problems:
+            print("solve error [{}] {}: {}".format(kind, who, detail), file=sys.stderr)
+        sys.exit("solve failed with {} unresolved image item(s)".format(
+            len(image_problems)))
+
+    try:
+        build_set |= source_build_set(
+            image_sets,
+            compose_universe["source_of"],
+            args.source_image,
+            args.prebuilt_source,
+        )
+    except ValueError as exc:
+        sys.exit(str(exc))
+
     variant_problems, variant_subpackages, variant_routes = \
         add_source_variants(source_variants, universe, source_superseded,
-                            binary_superseded, build_set)
+                            combined_superseded, build_set)
 
     build_deps, resolutions, problems, dynamic, base_closure = solve(
         universe, build_set, overrides, strict=args.strict,
-        probe=load_probe(args.probe, build_set),
+        probe=load_probe(
+            args.probe,
+            build_set,
+            flavor=args.flavor,
+            release=args.release,
+            target_cpu=args.target_cpu,
+        ),
         implicit=args.implicit_group,
     )
     # A rotted pin is reported with everything else rather than fatally:
@@ -1702,15 +2093,7 @@ def main(argv=None):
     depth = bootstrap_depth(build_deps, universe["source_of"], build_set,
                             routes=variant_routes)
 
-    image_sets, image_problems = solve_image_sets(
-        universe, image_roots, overrides, image_overrides
-    )
     problems.extend(image_problems)
-    if args.strict and image_problems:
-        for kind, detail, who in image_problems:
-            print("solve error [{}] {}: {}".format(kind, who, detail), file=sys.stderr)
-        sys.exit("solve failed with {} unresolved image item(s)".format(
-            len(image_problems)))
 
     seed_roots = set(args.seed_package)
     if args.seed_only:
@@ -1726,14 +2109,18 @@ def main(argv=None):
         sys.exit("solve failed with {} unresolved buildroot item(s)".format(
             len(seed_problems)))
 
-    lock = emit_lockfile(
-        universe, build_set, build_deps, resolutions, problems,
-        dynamic, plan, depth, image_sets, seed_packages, replacements,
-        base_closure, args,
-        variant_subpackages=variant_subpackages,
-        variant_routes=variant_routes,
-        binary_superseded=binary_superseded,
-    )
+    try:
+        lock = emit_lockfile(
+            universe, build_set, build_deps, resolutions, problems,
+            dynamic, plan, depth, image_sets, seed_packages, replacements,
+            base_closure, args,
+            variant_subpackages=variant_subpackages,
+            variant_routes=variant_routes,
+            binary_superseded=combined_superseded,
+            image_universe=compose_universe,
+        )
+    except SourcePolicyError as exc:
+        sys.exit("source policy: {}".format(exc))
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w") as fh:
@@ -1747,7 +2134,7 @@ def main(argv=None):
         "  build deps from source: {} ({:.1%})\n"
         "  build deps from seed  : {}\n"
         "  cycles                : {} ({} staged targets)\n"
-        "  dynamic BuildRequires : {} probed, {} unprobed\n"
+        "  dynamic BuildRequires : {} probed, {} unprobed, {} unmet\n"
         "  unresolved            : {}".format(
             args.out,
             s["source_packages_built"],
@@ -1758,6 +2145,7 @@ def main(argv=None):
             s["staged_targets"],
             s["dynamic_buildrequires"],
             s["dynamic_unprobed"],
+            s["dynamic_unmet"],
             s["problems"],
         ),
         file=sys.stderr,

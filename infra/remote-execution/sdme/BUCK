@@ -1,0 +1,11 @@
+export_file(
+    name = "worker-preflight",
+    src = "worker-preflight.conf",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "worker-rootfs",
+    src = "worker-rootfs.sdme",
+    visibility = ["PUBLIC"],
+)

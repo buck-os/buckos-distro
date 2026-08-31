@@ -91,6 +91,20 @@ Fedora, CentOS Stream, CentOS Hyperscale, Debian, and Ubuntu define a buildroot 
 
 Tree artifacts are passed as complete hidden inputs when a command also references projected paths. This ensures remote workers materialize the libraries and data required by tools inside the tree.
 
+## Sandbox environment
+
+A sandboxed action's environment is declared in full rather than inherited from the process that started the Buck daemon. `reproducible_env` builds a dictionary from nothing; it does not derive from `os.environ`. A build therefore does not depend on who launched the daemon or from which shell.
+
+Seven variables are guaranteed: `PATH`, `HOME`, `SOURCE_DATE_EPOCH`, `LC_ALL`, `LANG`, `TZ`, and `RPM_BUILD_HOST`. They are assigned rather than defaulted. A caller may add variables and may not replace these, because a pin the caller can override is a property of the call site rather than of the build.
+
+`PATH` is `/usr/sbin:/usr/bin:/sbin:/bin`. `/usr/sbin` comes first because Enterprise Linux buildroots keep it a real directory holding binaries that appear nowhere else, while Fedora has merged it into `bin`, where the entry is a harmless duplicate. Order is otherwise immaterial: the only names present in both directories on a measured EL buildroot are `udevadm`, byte-identical, and `pidof`, a symlink.
+
+`HOME` is `/builddir`. It is declared here rather than left to the sandbox because only the Bubblewrap path set it, while the unshare path inherited the launcher's, which is a build that differs by which user started it.
+
+`TMPDIR`, `TMP` and `TEMP` are set by the isolation layer, not by `reproducible_env`, because they name a path under the action's own work area and only that layer knows it. The sandbox `/tmp` is a tmpfs, so a tool falling back to it charges its temporaries to memory; the work area is the sandbox's only writable disk. These three are defaulted rather than assigned, which is the opposite of the rule above and safe for the opposite reason: `reproducible_env` refuses inherited values that no caller chose, while here any value already present was placed deliberately by a driver. `rpmbuild_replay` points at its own `topdir` so the variable agrees with rpm's `%_tmppath`.
+
+The `host` provenance is the exception. Its composed `PATH` reads `os.environ` deliberately, because reaching host tools is the only thing that mode exists for and the declared sandbox `PATH` is too narrow for it. That dependency is stated at the call site rather than arrived at by inheritance.
+
 ## Fedora release graph
 
 `[buckos.fedora] releases` is a comma-separated list. Each release receives suffixed download, buildroot, package, rootfs, boot, and image targets. The selected default release also receives unsuffixed copies.
@@ -107,13 +121,13 @@ SELinux-labelled live images require squashfs-tools 4.6 or newer for pseudo-file
 
 ## CentOS Stream release graph
 
-`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. Release 9 layers CentOS Stream BaseOS, AppStream, and CRB with EPEL and EPEL Next. Its buildroot includes the EPEL RPM macros, and its live image installs the EPEL and EPEL Next release packages without forcing an unrelated EPEL Next workload package. Release 10 retains its BaseOS, AppStream, and CRB graph and remains the default.
+`[buckos.centos] releases` uses the same release expansion and RPM-family rules as Fedora. Release 9 layers CentOS Stream BaseOS, AppStream, CRB, and Extras Common with EPEL and EPEL Next, plus a `buildroot-koji` repository used only for build dependencies. Its buildroot includes the EPEL RPM macros, and its live image installs the EPEL and EPEL Next release packages without forcing an unrelated EPEL Next workload package. Release 10 layers the same set with EPEL but without EPEL Next, and remains the default.
 
 Both CentOS releases pin the build-system package group, live root filesystem, and image toolchain for x86_64 and AArch64. Their source replay targets build the checked-in SRPM fixture with the target release's compiler and `.el9` or `.el10` macros. x86_64 images are hybrid BIOS/UEFI media; AArch64 images use UEFI.
 
 ## CentOS Hyperscale release graph
 
-`[buckos.centos-hyperscale] releases` is independent of the CentOS Stream release graph so both variants can coexist at releases 9 and 10. Hyperscale layers the SIG's `main` repository and `centos-release-hyperscale` from CentOS Extras on the corresponding CentOS Stream BaseOS, AppStream, and CRB repositories. Release 9 also uses EPEL and EPEL Next; its release package requires both. Release 10 uses EPEL, and its release package requires only `epel-release`.
+`[buckos.centos-hyperscale] releases` is independent of the CentOS Stream release graph so both variants can coexist at releases 9 and 10. Hyperscale layers the SIG's `main` repository and `centos-release-hyperscale` from CentOS Extras on the corresponding CentOS Stream BaseOS, AppStream, CRB, and Extras Common repositories, plus a `koji-buildroot` repository used only for build dependencies. That repository is a numbered Koji build tag rather than a released compose, and upstream does not promise to retain those, so a from-scratch re-solve can fail on a dead URL even though every cached object still verifies against its recorded digest. CentOS Stream carries the same arrangement as `buildroot-koji`. Release 9 also uses EPEL and EPEL Next; its release package requires both. Release 10 uses EPEL, and its release package requires only `epel-release`.
 
 Hyperscale inherits the CentOS build-system package group, adds the release's EPEL RPM macros to the binary seed, and uses `.hs.el9` or `.hs.el10` for source replay. Its image closures install the Hyperscale release package, select newer Hyperscale replacements by RPM version, and explicitly resolve the split `systemd-sysusers` provider used by Hyperscale systemd. EPEL 10's rich release dependency is pinned to `centos-stream-release` by an explicit solver override.
 
@@ -121,7 +135,7 @@ The Hyperscale live rootfs also installs a narrow SELinux compatibility module f
 
 ## Debian-family release graphs
 
-`[buckos.debian] releases` and `[buckos.ubuntu] releases` use the same release-and-architecture expansion as Fedora. The checked-in Debian 13 (`trixie`) and Ubuntu 26.04 (`resolute`) data pin the GNU hello source set, complete binary buildroot closures, native live stacks, and image tools for x86_64 and AArch64. Debian boots with live-boot/live-config; Ubuntu boots with casper. Package downloads support the same content-addressed `package_url_template` placeholders as Fedora.
+`[buckos.debian] releases` and `[buckos.ubuntu] releases` use the same release-and-architecture expansion as Fedora. The checked-in Debian 13 (`trixie`) and Ubuntu 26.04 (`resolute`) data pin 86 and 114 source recipes respectively, complete binary buildroot closures, native live stacks, and image tools for x86_64 and AArch64. Debian resolves 127 of its 129 live payload packages from source and Ubuntu 175 of 197. Debian boots with live-boot/live-config; Ubuntu boots with casper. Package downloads support the same content-addressed `package_url_template` placeholders as Fedora.
 
 ## Root filesystem and media pipeline
 
@@ -148,6 +162,8 @@ The execution platform reads `buckos.remote_execution` and `buckos.remote_cache`
 Rules that consume a buildroot derive `local_only` and cache-upload permission from `BuildrootInfo.hermetic`. Buildroot-independent actions declare that property directly. `tools/re_contract_test.py` checks these requirements in the rule source.
 
 The repository does not provide service addresses or credentials for a remote backend. A configured worker must support the Linux isolation and scratch-space requirements used by the same actions locally.
+
+`REMOTE_EXECUTION.md` defines the reference NativeLink topology, the boundary between tracked graph policy and deployment-owned configuration, mandatory worker preflight checks, staged rollout, cache operations, and acceptance criteria.
 
 ## Source layout
 

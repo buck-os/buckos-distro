@@ -60,8 +60,14 @@ from _isolation import (
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    sandbox_path,
 )
-from _rpm import make_dirs_writable, reproducible_env, scratch_dir
+from _rpm import (
+    make_dirs_writable,
+    reproducible_env,
+    resolve_in_buildroot,
+    scratch_dir,
+)
 
 _ISO_ROOT = "iso"
 _OUT = "out.iso"
@@ -84,6 +90,20 @@ _GRUB_MODULES = (
     "png reboot regexp search search_fs_file search_fs_uuid search_label "
     "serial sleep syslinuxcfg test video xfs zstd"
 ).split()
+
+# run() replaces the environment wholesale, so the PATH inside the sandbox
+# is the host's rather than the buildroot's.  A bare tool name therefore
+# resolves only when the two layouts happen to agree, and mkfs.vfat is the
+# one that does not: dosfstools puts it in /usr/sbin, which is on some
+# operators' PATH and not others'.  Every EL ISO target was a coin flip on
+# whose shell started the build.  Resolve them in the script instead.
+_FAT_TOOLS = {
+    "MKFSVFAT": ("/usr/sbin/mkfs.vfat", "/usr/bin/mkfs.vfat"),
+    "MMD": ("/usr/bin/mmd", "/usr/sbin/mmd"),
+    "MCOPY": ("/usr/bin/mcopy", "/usr/sbin/mcopy"),
+    "MLABEL": ("/usr/bin/mlabel", "/usr/sbin/mlabel"),
+}
+_XORRISO_CANDIDATES = ("/usr/bin/xorriso", "/usr/sbin/xorriso")
 
 _EFI_ARCH = {
     "x86_64": ("x86_64-efi", "BOOTX64.EFI"),
@@ -211,7 +231,17 @@ def _write_md5sums(iso_root):
     )
 
 
-def _efi_script(iso_root, target_cpu):
+def _fat_volume_id(source_date_epoch):
+    """The FAT volume serial, as a function of the build's declared epoch.
+
+    mkfs.vfat's own default is the current time, which is the last thing in
+    an image that still moves between two builds of the same inputs.  Eight
+    hex digits is the whole field.
+    """
+    return "{:08X}".format(int(source_date_epoch) & 0xFFFFFFFF)
+
+
+def _efi_script(iso_root, target_cpu, source_date_epoch):
     """Build the removable-media EFI loader and its El Torito FAT image."""
     efi_dir = os.path.join(iso_root, "EFI", "BOOT")
     images = os.path.join(iso_root, "images")
@@ -244,6 +274,10 @@ def _efi_script(iso_root, target_cpu):
         # is resolved against whatever $root is at startup -- the FAT
         # image.  That is why grub.cfg is copied into efiboot.img below
         # and not merely onto the ISO.
+        resolve_in_buildroot("MKFSVFAT", _FAT_TOOLS["MKFSVFAT"]),
+        resolve_in_buildroot("MMD", _FAT_TOOLS["MMD"]),
+        resolve_in_buildroot("MCOPY", _FAT_TOOLS["MCOPY"]),
+        resolve_in_buildroot("MLABEL", _FAT_TOOLS["MLABEL"]),
         'GRUB_MKIMAGE=',
         'for _candidate in /usr/bin/grub2-mkimage /usr/bin/grub-mkimage; do',
         '  if [ -x "$_candidate" ]; then GRUB_MKIMAGE="$_candidate"; break; fi',
@@ -264,15 +298,29 @@ def _efi_script(iso_root, target_cpu):
         'if [ "$SIZE" -lt 8192 ]; then SIZE=8192; fi',
         'rm -f "$EFIBOOT"',
         'dd if=/dev/zero of="$EFIBOOT" bs=1024 count="$SIZE" status=none',
-        'mkfs.vfat -F 16 -s 1 -n {} "$EFIBOOT" >/dev/null'.format(
-            # FAT labels are 11 characters, uppercase, and mkfs.vfat warns
-            # and truncates rather than failing.  Fixed rather than
-            # derived from the volume id for that reason: nothing reads
-            # this label, so a stable one is better than a mangled one.
-            shlex.quote("EFIBOOT")
+        # -i, and no -n, and the label applied afterwards instead.  Both
+        # halves are about the clock, and they are split because the two
+        # tools disagree about SOURCE_DATE_EPOCH.
+        #
+        # dosfstools here ignores it and derives the volume serial from the
+        # current time, so -i pins the serial explicitly.  It has no option
+        # for the other half: `-n` writes a volume label *directory entry*,
+        # and that record carries a creation time and a write time taken
+        # from the clock, which nothing on the mkfs.vfat command line
+        # controls.  mtools does honour SOURCE_DATE_EPOCH, so mlabel writes
+        # the same record with pinned timestamps.
+        #
+        # Do not fold the label back into -n.  It reads like the obvious
+        # simplification and it silently reintroduces two moving bytes.
+        '"$MKFSVFAT" -F 16 -s 1 -i {} "$EFIBOOT" >/dev/null'.format(
+            shlex.quote(_fat_volume_id(source_date_epoch))
         ),
-        'mmd -i "$EFIBOOT" ::/EFI ::/EFI/BOOT',
-        'mcopy -i "$EFIBOOT" -s "$EFIDIR"/* ::/EFI/BOOT/',
+        '"$MMD" -i "$EFIBOOT" ::/EFI ::/EFI/BOOT',
+        '"$MCOPY" -i "$EFIBOOT" -s "$EFIDIR"/* ::/EFI/BOOT/',
+        # FAT labels are 11 characters, uppercase, and mtools truncates
+        # rather than failing.  Fixed rather than derived from anything, so
+        # a stable one is better than a mangled one; nothing reads it.
+        '"$MLABEL" -i "$EFIBOOT" ::{}'.format(shlex.quote("EFIBOOT")),
         'test -s "$EFIBOOT"',
     ])
 
@@ -316,7 +364,7 @@ def _bios_script(iso_root):
 def _xorriso_script(args, iso_root, out, timestamp):
     """The mkisofs emulation, with whichever El Torito entries apply."""
     cmd = [
-        "xorriso", "-as", "mkisofs",
+        "-as", "mkisofs",
         "-o", out,
         "-V", args.volume_label,
         # Rock Ridge with ownership rationalised to root, and Joliet for
@@ -356,7 +404,8 @@ def _xorriso_script(args, iso_root, out, timestamp):
     # there is no eval and no second layer.
     lines = [
         "set -e",
-        "set -- " + " ".join(shlex.quote(part) for part in cmd),
+        resolve_in_buildroot("XORRISO", _XORRISO_CANDIDATES),
+        'set -- "$XORRISO" ' + " ".join(shlex.quote(part) for part in cmd),
     ]
 
     # isohybrid is what makes the ISO also work written raw to a USB
@@ -377,6 +426,24 @@ def _xorriso_script(args, iso_root, out, timestamp):
 
     lines.append('exec "$@" {}'.format(shlex.quote(iso_root)))
     return "\n".join(lines)
+
+
+def _pin_tree_times(iso_root, epoch):
+    """Stamp the staged tree so the directory records are an input function.
+
+    `--modification-date` reaches the volume descriptors and nothing else.
+    Every ISO9660 directory record carries its own recording time, and
+    xorriso takes that from the staged entry's mtime, so a tree left at
+    whatever time it happened to be written puts the build's wall clock into
+    the image.  Bottom up, because the entries have to be stamped before the
+    directory holding them.
+    """
+    stamp = int(epoch)
+    for root, dirs, names in os.walk(iso_root, topdown=False):
+        for name in names + dirs:
+            os.utime(os.path.join(root, name), (stamp, stamp),
+                     follow_symlinks=False)
+    os.utime(iso_root, (stamp, stamp))
 
 
 def _iso_timestamp(epoch):
@@ -463,6 +530,12 @@ def _build(args, isolation, label, work, out):
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
 
+    # The scripts name their paths as the sandbox sees them; `iso_root`
+    # and `image` keep their host spelling here, where this process stages
+    # the payloads in and copies the ISO out.
+    def inside(path):
+        return sandbox_path(path, work, isolation)
+
     # The three big inputs, plus the two configs.  Written from out here
     # rather than inside the sandbox because nothing about them needs the
     # target's tools -- they are bytes Buck already produced and two text
@@ -489,18 +562,23 @@ def _build(args, isolation, label, work, out):
     )
 
     if args.boot_mode in ("hybrid", "bios"):
-        run_isolated(["/bin/sh", "-c", _bios_script(iso_root)],
+        run_isolated(["/bin/sh", "-c", _bios_script(inside(iso_root))],
                      isolation, work, work, sysroot, env=env)
     if args.boot_mode in ("hybrid", "uefi"):
-        run_isolated(["/bin/sh", "-c", _efi_script(iso_root, args.target_cpu)],
+        run_isolated(["/bin/sh", "-c", _efi_script(inside(iso_root),
+                                                   args.target_cpu,
+                                                   args.source_date_epoch)],
                      isolation, work, work, sysroot, env=env)
 
     if args.layout == "ubuntu":
         _write_md5sums(iso_root)
 
+    _pin_tree_times(iso_root, args.source_date_epoch)
+
     timestamp = _iso_timestamp(args.source_date_epoch)
     run_isolated(
-        ["/bin/sh", "-c", _xorriso_script(args, iso_root, image, timestamp)],
+        ["/bin/sh", "-c", _xorriso_script(
+            args, inside(iso_root), inside(image), timestamp)],
         isolation, work, work, sysroot, env=env,
     )
 

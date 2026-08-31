@@ -1,0 +1,60 @@
+[Unit]
+Description=NativeLink remote execution service
+Documentation=https://github.com/TraceMachina/nativelink/releases/tag/v1.6.6
+Wants=network-online.target
+After=network-online.target local-fs.target
+RequiresMountsFor=/var/lib/nativelink
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+User=nativelink
+Group=nativelink
+Environment=NATIVELINK_CONFIG=/etc/nativelink/control.json5
+Environment=NL_LOG=json
+Environment=RUST_LOG=info
+Environment=OTEL_METRIC_EXPORT_INTERVAL=60000
+EnvironmentFile=-/etc/nativelink/nativelink.env
+ExecStartPre=/usr/bin/test -r ${NATIVELINK_CONFIG}
+ExecStart=/usr/bin/nativelink ${NATIVELINK_CONFIG}
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=120s
+KillMode=control-group
+
+StateDirectory=nativelink
+StateDirectoryMode=0750
+RuntimeDirectory=nativelink
+RuntimeDirectoryMode=0750
+UMask=0027
+
+LimitNOFILE=524288
+LimitCORE=0
+TasksMax=65536
+
+PrivateTmp=yes
+PrivateIPC=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/nativelink
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+LockPersonality=yes
+RestrictRealtime=yes
+# Bubblewrap needs route netlink to configure loopback in its network namespace.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RemoveIPC=yes
+
+# Worker actions create their own user and mount namespaces and use the setuid
+# newuidmap/newgidmap helpers. Do not enable NoNewPrivileges, PrivateUsers,
+# RestrictNamespaces, RestrictSUIDSGID, or an empty capability bounding set
+# without revalidating the BuckOS worker isolation path.
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,4457 @@
+#!/usr/bin/env python3
+
+import hashlib
+import io
+import json
+import os
+import platform
+import secrets
+import signal
+import shlex
+import shutil
+import subprocess
+import tarfile
+import tempfile
+import time
+import unittest
+
+from _skiploader import load_skips
+
+environmental_skip = load_skips().environmental_skip
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import oci_archive
+
+
+TEST_ROOT = Path(__file__).resolve().parent
+REPOSITORY_ROOT = TEST_ROOT.parents[2]
+
+
+def test_resource(name: str, checkout_path: str) -> Path:
+    packaged = TEST_ROOT / name
+    if packaged.is_file():
+        return packaged
+    return REPOSITORY_ROOT / checkout_path
+
+
+SCRIPT = test_resource(
+    "sdme-provision.sh", "infra/remote-execution/scripts/sdme-provision.sh"
+)
+ROOTFS = test_resource(
+    "worker-rootfs.sdme", "infra/remote-execution/sdme/worker-rootfs.sdme"
+)
+DROP_IN = test_resource(
+    "worker-preflight.conf", "infra/remote-execution/sdme/worker-preflight.conf"
+)
+ADDRESS_SELECTOR = test_resource(
+    "sdme_select_address.py",
+    "infra/remote-execution/scripts/sdme_select_address.py",
+)
+TLS_HELPER = test_resource(
+    "sdme_tls.py",
+    "infra/remote-execution/scripts/sdme_tls.py",
+)
+RUNTIME_FS = "buckos-re-runtime-5c2e6eca51c6"
+FAKE_SERVICE_UID = 42000
+FAKE_SERVICE_GID = 42001
+ARCHIVE_TOOL = test_resource(
+    "oci_archive.py", "infra/remote-execution/scripts/oci_archive.py"
+)
+UBUNTU_REFERENCE = "docker.io/library/ubuntu@sha256:" + "2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b"
+NATIVELINK_REFERENCE = "ghcr.io/tracemachina/nativelink@sha256:" + "5c2e6eca51c6d3ac40b94f703e08a243fd036cc136cc858a99040ca90fa57d61"
+_UNSET = object()
+MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
+CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
+LAYER_MEDIA_TYPE = "application/vnd.oci.image.layer.v1.tar"
+
+
+def tree_digest(path: Path) -> str:
+    command = [
+        "tar",
+        "--sort=name",
+        "--mtime=UTC 1970-01-01",
+        "--owner=0",
+        "--group=0",
+        "--numeric-owner",
+        "--format=posix",
+        "--pax-option=delete=atime,delete=ctime",
+        "-C",
+        str(path),
+        "-cf",
+        "-",
+        ".",
+    ]
+    result = subprocess.run(command, check=True, stdout=subprocess.PIPE)
+    return hashlib.sha256(result.stdout).hexdigest()
+
+
+def json_bytes(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def sha256_digest(value: bytes) -> str:
+    return "sha256:" + hashlib.sha256(value).hexdigest()
+
+
+def add_tar_file(archive: tarfile.TarFile, name: str, value: bytes) -> None:
+    info = tarfile.TarInfo(name)
+    info.size = len(value)
+    info.mtime = 0
+    info.uid = 0
+    info.gid = 0
+    info.mode = 0o644
+    archive.addfile(info, io.BytesIO(value))
+
+
+def image_payload(image: str, architecture: str) -> dict[str, object]:
+    layer = "{} {} test layer".format(image, architecture).encode("utf-8")
+    config = json_bytes({"architecture": architecture, "os": "linux"})
+    manifest = json_bytes(
+        {
+            "config": {
+                "digest": sha256_digest(config),
+                "mediaType": CONFIG_MEDIA_TYPE,
+                "size": len(config),
+            },
+            "layers": [
+                {
+                    "digest": sha256_digest(layer),
+                    "mediaType": LAYER_MEDIA_TYPE,
+                    "size": len(layer),
+                }
+            ],
+            "mediaType": MANIFEST_MEDIA_TYPE,
+            "schemaVersion": 2,
+        }
+    )
+    descriptor = {
+        "digest": sha256_digest(manifest),
+        "mediaType": MANIFEST_MEDIA_TYPE,
+        "platform": {"architecture": architecture, "os": "linux"},
+        "size": len(manifest),
+    }
+    return {
+        "config": config,
+        "descriptor": descriptor,
+        "layer": layer,
+        "manifest": manifest,
+    }
+
+
+def write_oci_archive(
+    path: Path,
+    payload: dict[str, object],
+    parent: bytes,
+    reference: str,
+    *,
+    preserve_parent: bool,
+) -> dict[str, object]:
+    selected = payload["descriptor"]
+    if preserve_parent:
+        root = {
+            "annotations": {"org.opencontainers.image.ref.name": reference},
+            "digest": sha256_digest(parent),
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "size": len(parent),
+        }
+    else:
+        root = selected
+    index = json_bytes(
+        {
+            "manifests": [root],
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "schemaVersion": 2,
+        }
+    )
+    manifest = payload["manifest"]
+    config = payload["config"]
+    layer = payload["layer"]
+    assert isinstance(manifest, bytes)
+    assert isinstance(config, bytes)
+    assert isinstance(layer, bytes)
+    with tarfile.open(path, "w") as archive:
+        add_tar_file(archive, "oci-layout", json_bytes({"imageLayoutVersion": "1.0.0"}))
+        add_tar_file(archive, "index.json", index)
+        add_tar_file(
+            archive,
+            "blobs/sha256/" + sha256_digest(parent).split(":")[1],
+            parent,
+        )
+        add_tar_file(archive, "blobs/sha256/" + sha256_digest(manifest).split(":")[1], manifest)
+        add_tar_file(archive, "blobs/sha256/" + sha256_digest(config).split(":")[1], config)
+        add_tar_file(archive, "blobs/sha256/" + sha256_digest(layer).split(":")[1], layer)
+    return {
+        "manifest": {
+            "digest": sha256_digest(manifest),
+            "media_type": MANIFEST_MEDIA_TYPE,
+            "size": len(manifest),
+        },
+        "archive": {
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "size": path.stat().st_size,
+        },
+        "reference": reference,
+    }
+
+
+class ProvisionPlanTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        base = Path(self.temporary.name)
+        self.repo = base / "repo"
+        self.external = base / "external"
+        scripts = self.repo / "infra/remote-execution/scripts"
+        sdme = self.repo / "infra/remote-execution/sdme"
+        nativelink = self.repo / "infra/remote-execution/nativelink"
+        tools = self.repo / "tools"
+        for directory in (scripts, sdme, nativelink, tools, self.external):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        shutil.copy2(SCRIPT, scripts / SCRIPT.name)
+        shutil.copy2(ROOTFS, sdme / ROOTFS.name)
+        shutil.copy2(DROP_IN, sdme / DROP_IN.name)
+        shutil.copy2(ADDRESS_SELECTOR, scripts / ADDRESS_SELECTOR.name)
+        shutil.copy2(TLS_HELPER, scripts / TLS_HELPER.name)
+        shutil.copy2(ARCHIVE_TOOL, scripts / ARCHIVE_TOOL.name)
+        for name in (
+            "control.json5",
+            "control-mtls.json5",
+            "worker-x86_64.json5",
+            "worker-x86_64-mtls.json5",
+            "worker-aarch64.json5",
+            "worker-aarch64-mtls.json5",
+        ):
+            (nativelink / name).write_text("{}\n", encoding="utf-8")
+        (nativelink / "nativelink.service").write_text("[Service]\n", encoding="utf-8")
+        self.archives: dict[str, dict[str, Path]] = {}
+        self.references: dict[str, str] = {}
+        images = {}
+        for image, stem in (
+            ("ubuntu", "ubuntu-2604"),
+            ("nativelink", "nativelink-166"),
+        ):
+            self.archives[image] = {}
+            payloads = {
+                target: image_payload(image, oci_architecture)
+                for target, oci_architecture in (
+                    ("x86_64", "amd64"),
+                    ("aarch64", "arm64"),
+                )
+            }
+            parent = json_bytes(
+                {
+                    "manifests": [
+                        payloads["x86_64"]["descriptor"],
+                        payloads["aarch64"]["descriptor"],
+                    ],
+                    "mediaType": "application/vnd.oci.image.index.v1+json",
+                    "schemaVersion": 2,
+                }
+            )
+            reference = "registry.example/{}@{}".format(image, sha256_digest(parent))
+            self.references[image] = reference
+            platforms = {}
+            for target, oci_architecture in (("x86_64", "amd64"), ("aarch64", "arm64")):
+                archive = self.external / "{}-{}.oci.tar".format(stem, target)
+                self.archives[image][target] = archive
+                archive_record = write_oci_archive(
+                    archive,
+                    payloads[target],
+                    parent,
+                    reference,
+                    preserve_parent=target == "x86_64",
+                )
+                platforms[target] = {
+                    "os": "linux",
+                    "architecture": oci_architecture,
+                    "manifest": archive_record["manifest"],
+                    "archive": {
+                        "filename": "{}-{}.oci.tar".format(stem, target),
+                        **archive_record["archive"],
+                    },
+                }
+            images[image] = {"reference": reference, "platforms": platforms}
+        self.ubuntu_reference = self.references["ubuntu"]
+        self.nativelink_reference = self.references["nativelink"]
+        self.ubuntu_archive = self.archives["ubuntu"]["x86_64"]
+        self.nativelink_archive = self.archives["nativelink"]["x86_64"]
+        (sdme / "offline-oci-archives.json").write_text(
+            json.dumps({"schema_version": 1, "images": images}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self.deployment_metadata = nativelink / "deployment.json"
+        self.write_deployment_metadata()
+        (scripts / "preflight-worker.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+        (scripts / "preflight-worker.sh").chmod(0o755)
+        (scripts / "preflight_worker.py").write_text("# probe\n", encoding="utf-8")
+        (tools / "_isolation.py").write_text("# isolation\n", encoding="utf-8")
+        (tools / "_rpm.py").write_text("# rpm\n", encoding="utf-8")
+        (tools / "nativelink_config.py").write_text("# validator\n", encoding="utf-8")
+        self.script = scripts / SCRIPT.name
+        script = self.script.read_text(encoding="utf-8")
+        self.script.write_text(
+            script.replace(UBUNTU_REFERENCE, self.ubuntu_reference).replace(
+                NATIVELINK_REFERENCE, self.nativelink_reference
+            ),
+            encoding="utf-8",
+        )
+        self.script.chmod(0o755)
+
+        self.probe = self.external / "probe"
+        for name in ("proc", "dev", "tmp", "usr/bin"):
+            (self.probe / name).mkdir(parents=True, exist_ok=True)
+        (self.probe / "usr/bin/python3").write_bytes(b"probe-python")
+        (self.probe / "usr/bin/python3").chmod(0o755)
+        self.digest = tree_digest(self.probe)
+        self._pki: Optional[Dict[str, Path]] = None
+
+    def default_config_mapping(self) -> dict[str, object]:
+        return {
+            "control": "control.json5",
+            "workers": {
+                "x86_64": "worker-x86_64.json5",
+                "aarch64": "worker-aarch64.json5",
+            },
+            "mtls": {
+                "control": "control-mtls.json5",
+                "workers": {
+                    "x86_64": "worker-x86_64-mtls.json5",
+                    "aarch64": "worker-aarch64-mtls.json5",
+                },
+            },
+            "systemd_unit": "nativelink.service",
+        }
+
+    def write_deployment_metadata(self, configs: object = _UNSET) -> None:
+        record: dict[str, object] = {
+            "image": {
+                "version": "v1.6.6",
+                "reference": self.nativelink_reference,
+            }
+        }
+        if configs is _UNSET:
+            record["configs"] = self.default_config_mapping()
+        elif configs is not None:
+            record["configs"] = configs
+        self.deployment_metadata.write_text(
+            json.dumps(record, indent=2) + "\n", encoding="utf-8"
+        )
+
+    def script_environment(self, overrides: dict[str, str] | None = None) -> dict[str, str]:
+        environment = os.environ.copy()
+        for name in (
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+            "no_proxy",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "NO_PROXY",
+        ):
+            environment.pop(name, None)
+        if overrides:
+            environment.update(overrides)
+        return environment
+
+    def run_script(
+        self, *arguments: str, environment: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(self.script), *arguments],
+            check=False,
+            env=self.script_environment(environment),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def pki_material(self) -> Dict[str, Path]:
+        if self._pki is not None:
+            return self._pki
+        if os.geteuid() != 0:
+            environmental_skip("mTLS provisioner tests require root")
+        openssl = shutil.which("openssl")
+        if openssl is None:
+            environmental_skip("openssl is unavailable")
+        temporary = tempfile.TemporaryDirectory(
+            prefix="buckos-sdme-provision-pki-", dir="/var/lib"
+        )
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        serial = 1
+
+        def run_openssl(*arguments: str) -> None:
+            subprocess.run(
+                [openssl, *arguments],
+                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+        def make_ca(name: str) -> tuple[Path, Path]:
+            certificate = root / "{}.pem".format(name)
+            key = root / "{}.key".format(name)
+            run_openssl(
+                "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", str(key), "-out", str(certificate), "-days", "2",
+                "-subj", "/CN={}".format(name),
+                "-addext", "basicConstraints=critical,CA:TRUE",
+                "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+            )
+            certificate.chmod(0o600)
+            key.chmod(0o600)
+            return certificate, key
+
+        def make_leaf(
+            name: str,
+            ca: tuple[Path, Path],
+            purpose: str,
+            san: Optional[str] = None,
+        ) -> tuple[Path, Path]:
+            nonlocal serial
+            certificate = root / "{}.pem".format(name)
+            key = root / "{}.key".format(name)
+            request = root / "{}.csr".format(name)
+            extensions = root / "{}.ext".format(name)
+            lines = [
+                "basicConstraints=critical,CA:FALSE",
+                "keyUsage=critical,digitalSignature",
+                "extendedKeyUsage={}".format(purpose),
+            ]
+            if san:
+                lines.append("subjectAltName={}".format(san))
+            extensions.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            run_openssl(
+                "req", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key),
+                "-out", str(request), "-subj", "/CN={}".format(name),
+            )
+            run_openssl(
+                "x509", "-req", "-in", str(request), "-CA", str(ca[0]),
+                "-CAkey", str(ca[1]), "-set_serial", str(serial), "-days", "2",
+                "-out", str(certificate), "-extfile", str(extensions),
+            )
+            serial += 1
+            certificate.chmod(0o600)
+            key.chmod(0o600)
+            request.unlink()
+            extensions.unlink()
+            return certificate, key
+
+        control_ca = make_ca("control-ca")
+        worker_ca = make_ca("worker-ca")
+        buck_ca = make_ca("buck-ca")
+        control_chain, control_key = make_leaf(
+            "control", control_ca, "serverAuth", "DNS:control.internal"
+        )
+        worker_chain, worker_key = make_leaf("worker", worker_ca, "clientAuth")
+        reapi_ca = root / "reapi-client-ca.pem"
+        reapi_ca.write_bytes(buck_ca[0].read_bytes() + worker_ca[0].read_bytes())
+        reapi_ca.chmod(0o600)
+        self._pki = {
+            "control_ca": control_ca[0],
+            "control_chain": control_chain,
+            "control_key": control_key,
+            "extra_ca": buck_ca[0],
+            "reapi_client_ca": reapi_ca,
+            "root": root,
+            "worker_client_ca": worker_ca[0],
+            "worker_chain": worker_chain,
+            "worker_key": worker_key,
+            "worker_issuer_ca": worker_ca[0],
+        }
+        return self._pki
+
+    def widened_trust_anchor(self, name: str, *certificates: Path) -> Path:
+        """A CA bundle that still trusts the same leaf but is not the same set."""
+        pki = self.pki_material()
+        root = pki["root"]
+        assert isinstance(root, Path)
+        path = root / "{}.pem".format(name)
+        path.write_bytes(b"".join(item.read_bytes() for item in certificates))
+        path.chmod(0o600)
+        return path
+
+    def mtls_control_options(self) -> List[str]:
+        pki = self.pki_material()
+        return [
+            "--security-mode", "mtls",
+            "--control-dns", "control.internal",
+            "--tls-control-chain", str(pki["control_chain"]),
+            "--tls-control-key", str(pki["control_key"]),
+            "--tls-control-ca", str(pki["control_ca"]),
+            "--tls-reapi-client-ca", str(pki["reapi_client_ca"]),
+            "--tls-worker-client-ca", str(pki["worker_client_ca"]),
+        ]
+
+    def mtls_worker_options(self) -> List[str]:
+        pki = self.pki_material()
+        return [
+            "--security-mode", "mtls",
+            "--control-dns", "control.internal",
+            "--tls-control-ca", str(pki["control_ca"]),
+            "--tls-worker-chain", str(pki["worker_chain"]),
+            "--tls-worker-key", str(pki["worker_key"]),
+            "--tls-worker-issuer-ca", str(pki["worker_issuer_ca"]),
+        ]
+
+    @staticmethod
+    def process_group_exists(process_group: int) -> bool:
+        try:
+            os.killpg(process_group, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    @staticmethod
+    def process_exists(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    @staticmethod
+    def process_session_groups(session: int) -> set[int]:
+        groups = set()
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdecimal():
+                continue
+            try:
+                record = (entry / "stat").read_text(encoding="utf-8")
+                fields = record[record.rfind(")") + 2 :].split()
+                process_group = int(fields[2])
+                process_session = int(fields[3])
+            except (FileNotFoundError, IndexError, OSError, ValueError):
+                continue
+            if process_session == session:
+                groups.add(process_group)
+        return groups
+
+    def terminate_and_reap_process_group(
+        self,
+        process: subprocess.Popen[str],
+        markers: tuple[Path, ...] = (),
+        timeout: float = 3.0,
+    ) -> None:
+        deadline = time.monotonic() + timeout
+
+        def signal_session(selected_signal: signal.Signals) -> None:
+            groups = self.process_session_groups(process.pid)
+            groups.add(process.pid)
+            for process_group in groups:
+                try:
+                    os.killpg(process_group, selected_signal)
+                except ProcessLookupError:
+                    pass
+
+        try:
+            signal_session(signal.SIGTERM)
+            graceful_deadline = min(deadline, time.monotonic() + 1.0)
+            try:
+                process.wait(timeout=max(0.01, graceful_deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                pass
+            while (
+                self.process_session_groups(process.pid)
+                and time.monotonic() < graceful_deadline
+            ):
+                time.sleep(0.01)
+
+            if process.poll() is None or self.process_session_groups(process.pid):
+                signal_session(signal.SIGKILL)
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=max(0.01, deadline - time.monotonic()))
+            for stream in (process.stdout, process.stderr):
+                if stream is not None and not stream.closed:
+                    stream.close()
+            while self.process_session_groups(process.pid):
+                if time.monotonic() >= deadline:
+                    raise AssertionError("test process session did not terminate")
+                time.sleep(0.01)
+            if process.poll() is None:
+                raise AssertionError("test process was not reaped")
+        finally:
+            for marker in markers:
+                marker.unlink(missing_ok=True)
+
+    def wait_for_process_marker(
+        self,
+        process: subprocess.Popen[str],
+        marker: Path,
+        timeout: float,
+    ) -> int:
+        marker_deadline = time.monotonic() + timeout
+        while not marker.exists() and time.monotonic() < marker_deadline:
+            if process.poll() is not None:
+                break
+            time.sleep(0.01)
+        if not marker.exists():
+            raise AssertionError("test process did not reach its marker")
+        try:
+            pid = int(marker.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError) as error:
+            raise AssertionError("test process marker is invalid") from error
+        if pid <= 0:
+            raise AssertionError("test process marker PID is invalid")
+        return pid
+
+    def communicate_after_marker(
+        self,
+        process: subprocess.Popen[str],
+        marker: Path,
+        *,
+        marker_timeout: float = 10.0,
+        communicate_timeout: float = 3.0,
+    ) -> tuple[str, str, float]:
+        try:
+            self.wait_for_process_marker(process, marker, marker_timeout)
+
+            started = time.monotonic()
+            stdout, stderr = process.communicate(timeout=communicate_timeout)
+            return stdout, stderr, time.monotonic() - started
+        finally:
+            self.terminate_and_reap_process_group(process, (marker,))
+
+    def safe_runtime_data_root(self) -> Path:
+        temporary = tempfile.TemporaryDirectory(
+            prefix="buckos-sdme-test-", dir="/var/lib"
+        )
+        self.addCleanup(temporary.cleanup)
+        return Path(temporary.name) / "data"
+
+    def install_fake_runtime_tools(
+        self,
+        architecture: str,
+        *,
+        fail_archive_publish: bool = False,
+        fail_image_provenance: bool = False,
+        fail_runtime_provenance: bool = False,
+        fail_runtime_build: bool = False,
+        fail_after_runtime_provenance: bool = False,
+        leak_after_runtime_provenance: bool = False,
+        fail_container_copy: bool = False,
+    ) -> Path:
+        fake_bin = self.external / "fake-bin"
+        fake_bin.mkdir(mode=0o755)
+        log = self.external / "commands.log"
+        state = self.external / "fake-sdme-state"
+        state.mkdir(mode=0o700)
+        quoted_log = shlex.quote(str(log))
+        quoted_state = shlex.quote(str(state))
+        managed_paths = state / "managed-paths.tsv"
+        quoted_ubuntu = shlex.quote(str(self.archives["ubuntu"][architecture]))
+        quoted_nativelink = shlex.quote(str(self.archives["nativelink"][architecture]))
+        quoted_image_failure = shlex.quote(str(self.external / "image-provenance-failed"))
+        quoted_runtime_failure = shlex.quote(str(self.external / "runtime-provenance-failed"))
+        quoted_build_failure = shlex.quote(str(self.external / "runtime-build-failed"))
+        quoted_post_provenance_failure = shlex.quote(
+            str(self.external / "post-runtime-provenance-failed")
+        )
+        quoted_container_copy_failure = shlex.quote(
+            str(self.external / "container-copy-failed")
+        )
+        (fake_bin / "sdme").write_text(
+            """#!/bin/sh
+set -eu
+printf 'sdme %s\\n' "$*" >> {log}
+if [ -n "${{FAKE_SDME_BLOCK_READY:-}}" ] && [ ! -e "$FAKE_SDME_BLOCK_READY" ]; then
+  : > "$FAKE_SDME_BLOCK_READY"
+  while [ ! -e "$FAKE_SDME_BLOCK_RELEASE" ]; do /bin/sleep 0.05; done
+fi
+if [ "$1" = ps ] && [ "$2" = --json ]; then
+  if [ ! -e {state}/container.json ] && [ ! -d {state}/containers ]; then
+    printf '[]\n'
+    exit 0
+  fi
+  counter={state}/ps-count
+  count=0
+  if [ -e "$counter" ]; then count=$(cat "$counter"); fi
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$counter"
+  if [ "${{FAKE_SDME_PS_HANG_AT:-0}}" -eq "$count" ]; then
+    if [ -n "${{FAKE_SDME_PS_HANG_READY:-}}" ]; then
+      printf '%s\n' "$$" > "$FAKE_SDME_PS_HANG_READY"
+    fi
+    exec /bin/sleep 10
+  fi
+  if [ "${{FAKE_SDME_PS_FAIL_AT:-0}}" -eq "$count" ]; then exit 1; fi
+  if [ "${{FAKE_SDME_PS_INVALID_JSON_AT:-0}}" -eq "$count" ]; then
+    printf '{{\n'
+    exit 0
+  fi
+  if [ "${{FAKE_SDME_CONTAINER_DISAPPEAR_AT:-0}}" -eq "$count" ]; then
+    printf '[]\n'
+    exit 0
+  fi
+  python3 - {state} "$count" <<'PY'
+import json
+import os
+import pathlib
+import sys
+
+state_path, count_text = sys.argv[1:]
+count = int(count_text)
+state = pathlib.Path(state_path)
+paths = []
+current = state / "container.json"
+if current.is_file():
+    paths.append(current)
+stored = state / "containers"
+if stored.is_dir():
+    paths.extend(sorted(stored.glob("*.json")))
+records = []
+seen = set()
+for path in paths:
+    with open(path, encoding="utf-8") as stream:
+        record = json.load(stream)
+    if record.get("name") in seen:
+        continue
+    seen.add(record.get("name"))
+    if count == int(os.environ.get("FAKE_SDME_BAD_ADDRESSES_AT", "0")):
+        record["addresses"] = "invalid"
+    elif count == int(os.environ.get("FAKE_SDME_MALFORMED_ADDRESS_AT", "0")):
+        record["addresses"] = ["not-an-ip"]
+    elif count > int(os.environ.get("FAKE_SDME_ADDRESS_READY_AFTER", "0")):
+        configured = os.environ.get("FAKE_SDME_ADDRESSES")
+        record["addresses"] = (
+            json.loads(configured)
+            if configured
+            else [os.environ.get("FAKE_SDME_ADDRESS", "169.254.42.8")]
+        )
+    else:
+        record["addresses"] = []
+    records.append(record)
+print(json.dumps(records, sort_keys=True))
+PY
+elif [ "$1" = fs ] && [ "$2" = ls ]; then
+  first=1
+  printf '['
+  for record in {state}/*.fs; do
+    [ -e "$record" ] || continue
+    name=$(basename "$record" .fs)
+    if [ "$first" -eq 0 ]; then printf ','; fi
+    printf '{{"name":"%s"}}' "$name"
+    first=0
+  done
+  printf ']\\n'
+elif [ "$1" = fs ] && [ "$2" = export ]; then
+  if [ "${{FAKE_INSPECTION_ERROR:-0}}" -eq 1 ]; then exit 1; fi
+  name=${{3#fs:}}
+  output=$4
+  export_root={state}/export-root.$$
+  /bin/rm -rf "$export_root"
+  mkdir -p "$export_root/etc"
+  if [ -e {state}/"$name".proxy-path ]; then
+    cp {state}/"$name".proxy-path "$export_root/etc/buckos-re-build-proxy.env"
+  fi
+  if [ -e {state}/"$name".proxy-sentinel ]; then
+    mkdir -p "$export_root/opt/unexpected"
+    cp {state}/"$name".proxy-sentinel "$export_root/opt/unexpected/build-note"
+  fi
+  /bin/tar -cf "$output" -C "$export_root" .
+  /bin/rm -rf "$export_root"
+elif [ "$1" = fs ] && [ "$2" = import ]; then
+  name=
+  shift 2
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = --name ]; then
+      shift
+      name=$1
+    fi
+    shift
+  done
+  : > {state}/"$name".fs
+elif [ "$1" = fs ] && [ "$2" = rm ]; then
+  name=
+  for argument in "$@"; do name=$argument; done
+  /bin/rm -f {state}/"$name".*
+elif [ "$1" = fs ] && [ "$2" = build ]; then
+  name=$3
+  build_config=$4
+  case " $* " in
+    *" --no-cache "*) /bin/rm -f {state}/"$name".proxy-path {state}/"$name".proxy-sentinel ;;
+  esac
+  if [ -n "${{FAKE_EXPECT_PROXY_SECRET:-}}" ]; then
+    proxy_source=$(awk '$1 == "COPY" && $3 == "/etc/buckos-re-build-proxy.env" {{ print $2 }}' "$build_config")
+    [ -n "$proxy_source" ]
+    case "$proxy_source" in */provision/transactions/*) ;; *) exit 2 ;; esac
+    [ -f "$proxy_source" ] && [ ! -L "$proxy_source" ]
+    [ "$(stat -c '%a' "$proxy_source")" = 600 ]
+    [ "$(stat -c '%a' "$build_config")" = 600 ]
+    [ "$(stat -c '%a' "$(dirname "$proxy_source")")" = 700 ]
+    [ "$(stat -c '%u' "$proxy_source")" = 0 ]
+    [ "$(stat -c '%u' "$build_config")" = 0 ]
+    python3 - "$proxy_source" "$build_config" <<'PY'
+import json
+import os
+import shlex
+import sys
+
+proxy_path, build_path = sys.argv[1:]
+values = {{}}
+with open(proxy_path, encoding="utf-8") as stream:
+    for line in stream:
+        if line.startswith("#"):
+            continue
+        item = shlex.split(line)[0]
+        name, separator, value = item.partition("=")
+        if not separator:
+            raise SystemExit(2)
+        values[name] = value
+expected_name = os.environ.get("FAKE_EXPECT_PROXY_NAME")
+expected_value = os.environ["FAKE_EXPECT_PROXY_SECRET"]
+expected_names = set(filter(None, os.environ.get("FAKE_EXPECT_PROXY_NAMES", "").split(",")))
+expected_values = os.environ.get("FAKE_EXPECT_PROXY_VALUES")
+if expected_value not in values.values():
+    raise SystemExit(2)
+if expected_name and values.get(expected_name) != expected_value:
+    raise SystemExit(2)
+if expected_names and set(values) != expected_names:
+    raise SystemExit(2)
+if expected_values and values != json.loads(expected_values):
+    raise SystemExit(2)
+if os.environ.get("FAKE_UNRELATED_SECRET") in values.values():
+    raise SystemExit(2)
+if expected_value.encode() in open(build_path, "rb").read():
+    raise SystemExit(2)
+PY
+    case "${{FAKE_BUILD_LEAK_PROXY:-}}" in
+      known) cp "$proxy_source" {state}/"$name".proxy-path ;;
+      unexpected) cp "$proxy_source" {state}/"$name".proxy-sentinel ;;
+      value) printf '%s\\n' "$FAKE_EXPECT_PROXY_SECRET" > {state}/"$name".proxy-sentinel ;;
+    esac
+  fi
+  if [ -n "${{FAKE_SDME_BLOCK_BUILD_READY:-}}" ] && \
+     [ ! -e "$FAKE_SDME_BLOCK_BUILD_READY" ]; then
+    : > "$FAKE_SDME_BLOCK_BUILD_READY"
+    while [ ! -e "$FAKE_SDME_BLOCK_BUILD_RELEASE" ]; do /bin/sleep 0.05; done
+  fi
+  if [ {fail_runtime_build} -eq 1 ] && [ ! -e {build_failure} ]; then
+    : > {build_failure}
+    exit 1
+  fi
+  : > {state}/"$name".fs
+  printf '%s\\n' \\
+    'ubuntu_image={ubuntu_reference}' \\
+    'nativelink_image={nativelink_reference}' \\
+    'architecture={architecture}' > {state}/"$name".runtime-images
+  printf '%s\\n' \\
+    'nativelink:x:{service_uid}:{service_gid}:NativeLink:/var/lib/nativelink:/usr/sbin/nologin' \\
+    > {state}/"$name".passwd
+  printf '%s\\n' 'nativelink:x:{service_gid}:' > {state}/"$name".group
+elif [ "$1" = create ]; then
+  if [ -e {state}/container.json ]; then
+    old_name=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' {state}/container.json)
+    mkdir -p {state}/containers
+    cp {state}/container.json {state}/containers/"$old_name".json
+  fi
+  python3 - {state}/container.json "$@" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+arguments = sys.argv[2:]
+
+def values(option):
+    return [
+        arguments[index + 1]
+        for index, argument in enumerate(arguments[:-1])
+        if argument == option
+    ]
+
+def value(option):
+    selected = values(option)
+    if not selected:
+        raise SystemExit("missing fake create option: {{}}".format(option))
+    return selected[-1]
+
+record = dict(
+    addresses=[],
+    binds=[
+        item if item.rsplit(":", 1)[-1] in ("ro", "rw") else item + ":rw"
+        for item in values("--bind")
+    ],
+    enabled="--enable" in arguments,
+    limits=dict(cpus=value("--cpus"), memory=value("--memory")),
+    name=value("--name"),
+    network=dict(
+        network_bridge=None,
+        network_zone=value("--network-zone"),
+        oci_pod=False,
+        pod=False,
+        ports=values("--port"),
+        private_network=True,
+    ),
+    rootfs=value("--fs"),
+    status="running",
+    userns=True,
+)
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(record, stream, sort_keys=True)
+PY
+  name=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' {state}/container.json)
+  mkdir -p {state}/container-files/"$name"/etc/nativelink
+  mkdir -p {state}/container-files/"$name"/etc/systemd/system/nativelink.service.d
+  mkdir -p {state}/container-files/"$name"/usr/local/libexec/buckos-re/tools
+elif [ "$1" = exec ]; then
+  python3 - {state}/container.json {state}/managed-paths.tsv {state} "$@" <<'PY'
+import json
+import os
+import pathlib
+import shutil
+import sys
+
+container_path, ownership_path, state_path, *arguments = sys.argv[1:]
+container_name = arguments[1]
+try:
+    separator = arguments.index("--")
+except ValueError:
+    raise SystemExit(0)
+command = arguments[separator + 1 :]
+state = pathlib.Path(state_path)
+
+
+def load_container(name):
+    paths = [pathlib.Path(container_path), state / "containers" / (name + ".json")]
+    for path in paths:
+        if not path.is_file():
+            continue
+        with open(path, encoding="utf-8") as stream:
+            record = json.load(stream)
+        if record.get("name") == name:
+            return record
+    raise SystemExit(1)
+
+
+container = load_container(container_name)
+container_root = state / "container-files" / container_name
+container_root.mkdir(parents=True, exist_ok=True)
+
+
+def internal(path):
+    if not path.startswith("/"):
+        raise SystemExit(2)
+    return container_root / path.lstrip("/")
+
+
+def service_identity():
+    runtime = container["rootfs"]
+    passwd = pathlib.Path(state_path, runtime + ".passwd").read_text(encoding="utf-8")
+    group = pathlib.Path(state_path, runtime + ".group").read_text(encoding="utf-8")
+    user_record = next(line for line in passwd.splitlines() if line.startswith("nativelink:"))
+    group_record = next(line for line in group.splitlines() if line.startswith("nativelink:"))
+    return int(user_record.split(":")[2]), int(group_record.split(":")[2])
+
+
+storage_prefix = [
+    "install",
+    "-d",
+    "-m",
+    "0750",
+    "-o",
+    "nativelink",
+    "-g",
+    "nativelink",
+]
+if command[:8] == storage_prefix:
+    targets = set(command[8:])
+    uid, gid = service_identity()
+    try:
+        with open(ownership_path, encoding="utf-8") as stream:
+            ownership = {{
+                fields[0]: {{"uid": int(fields[1]), "gid": int(fields[2]), "mode": fields[3]}}
+                for line in stream
+                if len(fields := line.rstrip("\\n").split("\\t")) == 4
+            }}
+    except FileNotFoundError:
+        ownership = {{}}
+    binds = [bind.rsplit(":", 2) for bind in container["binds"]]
+    for target in targets:
+        candidates = [
+            (source, mount)
+            for source, mount, access in binds
+            if access == "rw" and (target == mount or target.startswith(mount + "/"))
+        ]
+        if candidates:
+            source, mount = max(candidates, key=lambda item: len(item[1]))
+            managed_path = pathlib.Path(source)
+            if target != mount:
+                managed_path /= target[len(mount) + 1 :]
+            managed_path.mkdir(parents=True, exist_ok=True)
+            managed_path.chmod(0o750)
+            ownership[str(managed_path)] = {{"gid": gid, "mode": "750", "uid": uid}}
+        else:
+            managed_path = internal(target)
+            managed_path.mkdir(parents=True, exist_ok=True)
+            managed_path.chmod(0o750)
+            os.chown(managed_path, uid, gid)
+    with open(ownership_path, "w", encoding="utf-8") as stream:
+        for source, record in sorted(ownership.items()):
+            stream.write("{{}}\\t{{}}\\t{{}}\\t{{}}\\n".format(
+                source, record["uid"], record["gid"], record["mode"]
+            ))
+elif command[:2] == ["install", "-d"]:
+    mode = int(command[command.index("-m") + 1], 8)
+    owner = command[command.index("-o") + 1]
+    group_name = command[command.index("-g") + 1]
+    uid, gid = service_identity()
+    selected_uid = 0 if owner == "root" else uid
+    selected_gid = 0 if group_name == "root" else gid
+    first_target = command.index("-g") + 2
+    for target in command[first_target:]:
+        path = internal(target)
+        path.mkdir(parents=True, exist_ok=True)
+        path.chmod(mode)
+        os.chown(path, selected_uid, selected_gid)
+elif command and command[0] == "chown":
+    owner, group_name = command[1].split(":", 1)
+    uid, gid = service_identity()
+    selected_uid = 0 if owner == "root" else uid
+    selected_gid = 0 if group_name == "root" else gid
+    for target in command[2:]:
+        os.chown(internal(target), selected_uid, selected_gid)
+elif command and command[0] == "chmod":
+    mode = int(command[1], 8)
+    for target in command[2:]:
+        internal(target).chmod(mode)
+elif command[:2] in (["rm", "-rf"], ["rm", "-f"]):
+    targets = [item for item in command[2:] if item != "--"]
+    for target in targets:
+        path = internal(target)
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+elif command[:3] == ["test", "!", "-e"]:
+    raise SystemExit(0 if not internal(command[3]).exists() else 1)
+elif command and command[0] == "mv":
+    operands = [item for item in command[1:] if item not in ("-T", "--")]
+    if len(operands) != 2:
+        raise SystemExit(2)
+    os.replace(internal(operands[0]), internal(operands[1]))
+elif command[:2] == ["systemctl", "enable"]:
+    (container_root / "service-enabled").touch()
+    wants = internal("/etc/systemd/system/multi-user.target.wants")
+    wants.mkdir(parents=True, exist_ok=True)
+    link = wants / "nativelink.service"
+    if not link.is_symlink():
+        link.symlink_to("/etc/systemd/system/nativelink.service")
+elif command[:2] == ["systemctl", "restart"]:
+    (container_root / "service-enabled").touch()
+    (container_root / "service-active").touch()
+elif command[:2] == ["systemctl", "is-active"]:
+    print("active" if (container_root / "service-active").exists() else "inactive")
+elif command[:2] == ["systemctl", "is-enabled"]:
+    print("enabled" if (container_root / "service-enabled").exists() else "disabled")
+PY
+elif [ "$1" = cp ]; then
+  source=$2
+  destination=$3
+  case "$source" in
+    fs:*)
+      remote=$(printf '%s' "$source" | cut -c4-)
+      fs=$(printf '%s' "$remote" | cut -d: -f1)
+      path=$(printf '%s' "$remote" | cut -d: -f2-)
+      base=$(basename "$path")
+      cp {state}/"$fs.$base" "$destination/$base"
+      ;;
+    *:*)
+      container=${{source%%:*}}
+      path=${{source#*:}}
+      source_path={state}/container-files/"$container"/"${{path#/}}"
+      [ -e "$source_path" ] || exit 1
+      case "$path" in
+        /etc/nativelink/tls-*.tmp)
+          if [ -n "${{FAKE_TLS_STAGE_MUTATION:-}}" ] && \
+             [ ! -e {tls_mutation_marker} ]; then
+            : > {tls_mutation_marker}
+            python3 - "$source_path" "$FAKE_TLS_STAGE_MUTATION" <<'PY'
+import os
+import pathlib
+import sys
+
+stage_path, mutation = sys.argv[1:]
+stage = pathlib.Path(stage_path)
+entries = sorted(entry for entry in stage.iterdir())
+target = entries[0]
+gid = target.stat().st_gid
+if mutation == "corrupt":
+    with open(target, "ab") as stream:
+        stream.write(b"substituted")
+elif mutation == "mode":
+    target.chmod(0o640)
+elif mutation == "owner":
+    os.chown(target, 0, 0)
+elif mutation == "extra":
+    unexpected = stage / "unexpected.pem"
+    unexpected.write_bytes(b"")
+    os.chown(unexpected, 0, gid)
+    unexpected.chmod(0o440)
+elif mutation == "symlink":
+    target.unlink()
+    target.symlink_to(entries[-1])
+elif mutation == "directory-mode":
+    stage.chmod(0o770)
+else:
+    raise SystemExit(2)
+PY
+          fi
+          ;;
+      esac
+      cp -a "$source_path" "$destination"
+      ;;
+    *)
+      case "$destination" in
+        fs:*)
+          remote=$(printf '%s' "$destination" | cut -c4-)
+          fs=$(printf '%s' "$remote" | cut -d: -f1)
+          path=$(printf '%s' "$remote" | cut -d: -f2-)
+          base=$(basename "$path")
+          if [ "$base" = buckos-re-image-provenance.json ] && \
+             [ {fail_image_provenance} -eq 1 ] && [ ! -e {image_failure} ]; then
+            : > {image_failure}
+            exit 1
+          fi
+          if [ "$base" = buckos-re-runtime-provenance.json ] && \
+             [ {fail_runtime_provenance} -eq 1 ] && [ ! -e {runtime_failure} ]; then
+            : > {runtime_failure}
+            exit 1
+          fi
+          cp "$source" {state}/"$fs.$base"
+          if [ "$base" = buckos-re-runtime-provenance.json ] && \
+             [ {fail_after_runtime_provenance} -eq 1 ] && \
+             [ ! -e {post_provenance_failure} ]; then
+            : > {post_provenance_failure}
+            exit 1
+          fi
+          if [ "$base" = buckos-re-runtime-provenance.json ] && \
+             [ {leak_after_runtime_provenance} -eq 1 ] && \
+             [ ! -e {post_provenance_failure} ]; then
+            printf '%s\\n' buckos-sdme-proxy-transport-v1 > {state}/"$fs".proxy-sentinel
+            : > {post_provenance_failure}
+            exit 1
+          fi
+          ;;
+        *:*)
+          if [ {fail_container_copy} -eq 1 ] && [ ! -e {container_copy_failure} ]; then
+            : > {container_copy_failure}
+            exit 1
+          fi
+          container=${{destination%%:*}}
+          path=${{destination#*:}}
+          destination_path={state}/container-files/"$container"/"${{path#/}}"
+          mkdir -p "$(dirname "$destination_path")"
+          cp -a "$source" "$destination_path"
+          ;;
+        *)
+          if [ {fail_container_copy} -eq 1 ] && [ ! -e {container_copy_failure} ]; then
+            : > {container_copy_failure}
+            exit 1
+          fi
+          ;;
+      esac
+      ;;
+  esac
+fi
+""".format(
+                log=quoted_log,
+                state=quoted_state,
+                architecture=architecture,
+                service_uid=FAKE_SERVICE_UID,
+                service_gid=FAKE_SERVICE_GID,
+                ubuntu_reference=self.ubuntu_reference,
+                nativelink_reference=self.nativelink_reference,
+                fail_image_provenance=int(fail_image_provenance),
+                fail_runtime_provenance=int(fail_runtime_provenance),
+                fail_runtime_build=int(fail_runtime_build),
+                image_failure=quoted_image_failure,
+                runtime_failure=quoted_runtime_failure,
+                build_failure=quoted_build_failure,
+                fail_after_runtime_provenance=int(fail_after_runtime_provenance),
+                leak_after_runtime_provenance=int(leak_after_runtime_provenance),
+                post_provenance_failure=quoted_post_provenance_failure,
+                fail_container_copy=int(fail_container_copy),
+                container_copy_failure=quoted_container_copy_failure,
+                tls_mutation_marker=shlex.quote(
+                    str(self.external / "tls-stage-mutated")
+                ),
+            ),
+            encoding="utf-8",
+        )
+        (fake_bin / "podman").write_text(
+            """#!/bin/sh
+set -eu
+printf 'podman %s\\n' "$*" >> {log}
+output=
+image=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --output ]; then
+    shift
+    output=$1
+  else
+    image=$1
+  fi
+  shift
+done
+if [ -n "$output" ]; then
+  case "$image" in
+    */ubuntu@*) cp {ubuntu} "$output" ;;
+    */nativelink@*) cp {nativelink} "$output" ;;
+    *) exit 2 ;;
+  esac
+fi
+""".format(
+                log=quoted_log,
+                ubuntu=quoted_ubuntu,
+                nativelink=quoted_nativelink,
+            ),
+            encoding="utf-8",
+        )
+        (fake_bin / "systemctl").write_text(
+            """#!/bin/sh
+printf 'systemctl %s\\n' "$*" >> {log}
+if [ "$1" = is-active ]; then exit 0; fi
+exit 1
+""".format(log=quoted_log),
+            encoding="utf-8",
+        )
+        (fake_bin / "sleep").write_text(
+            """#!/bin/sh
+set -eu
+printf 'sleep %s\\n' "$*" >> {log}
+if [ "${{FAKE_FAST_SLEEP:-0}}" -eq 1 ]; then exit 0; fi
+exec /bin/sleep "$@"
+""".format(log=quoted_log),
+            encoding="utf-8",
+        )
+        (fake_bin / "stat").write_text(
+            """#!/bin/sh
+set -eu
+path=
+format=
+next_is_format=0
+for argument in "$@"; do
+  path=$argument
+  if [ "$next_is_format" -eq 1 ]; then
+    format=$argument
+    next_is_format=0
+    continue
+  fi
+  case "$argument" in
+    -c|--format|-?*c*) next_is_format=1 ;;
+    --format=*) format=${{argument#*=}} ;;
+  esac
+done
+record=
+if [ -f {ownership_path} ]; then
+  record=$(/usr/bin/awk -F '\\t' -v path="$path" '$1 == path {{ print; exit }}' {ownership_path})
+fi
+[ -n "$record" ] || exec /usr/bin/stat "$@"
+tab=$(printf '\\t')
+IFS="$tab" read -r recorded_path uid gid mode <<EOF
+$record
+EOF
+[ "$recorded_path" = "$path" ] || exit 2
+case "$format" in
+  %u) printf '%s\\n' "$uid" ;;
+  %g) printf '%s\\n' "$gid" ;;
+  %a) printf '%s\\n' "$mode" ;;
+  %u:%g:%a) printf '%s:%s:%s\\n' "$uid" "$gid" "$mode" ;;
+  *) exec /usr/bin/stat "$@" ;;
+esac
+""".format(ownership_path=shlex.quote(str(managed_paths))),
+            encoding="utf-8",
+        )
+        if fail_archive_publish:
+            failure_marker = shlex.quote(str(self.external / "archive-mv-failed"))
+            (fake_bin / "mv").write_text(
+                """#!/bin/sh
+set -eu
+if [ "$1" = -- ]; then shift; fi
+source=$1
+if [ ! -e {marker} ]; then
+  case "$source" in
+    *.provenance.json.tmp.*)
+      : > {marker}
+      exit 1
+      ;;
+  esac
+fi
+exec /bin/mv -- "$@"
+""".format(marker=failure_marker),
+                encoding="utf-8",
+            )
+        for executable in fake_bin.iterdir():
+            executable.chmod(0o755)
+
+        fixed_path = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        script = self.script.read_text(encoding="utf-8")
+        self.script.write_text(
+            script.replace(fixed_path, "PATH={}:{}".format(fake_bin, fixed_path[5:])),
+            encoding="utf-8",
+        )
+        self.script.chmod(0o755)
+        return log
+
+    def worker_arguments(self) -> list[str]:
+        return [
+            "plan",
+            "worker",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--control-address",
+            "buckos-re-control",
+            "--probe-sysroot",
+            str(self.probe),
+            "--probe-sysroot-sha256",
+            self.digest,
+            "--min-scratch-bytes",
+            "1000000",
+            "--min-scratch-inodes",
+            "0",
+        ]
+
+    def native_architecture(self) -> str:
+        architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+            platform.machine(), platform.machine()
+        )
+        if architecture not in ("x86_64", "aarch64"):
+            self.skipTest("unsupported test architecture")
+        return architecture
+
+    def runtime_arguments(self, data_root: Path, architecture: str) -> list[str]:
+        return [
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(data_root),
+            "--ubuntu-oci-archive",
+            str(self.archives["ubuntu"][architecture]),
+            "--nativelink-oci-archive",
+            str(self.archives["nativelink"][architecture]),
+        ]
+
+    def control_arguments(self, data_root: Path, architecture: str) -> list[str]:
+        return [
+            "apply",
+            "control",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(data_root),
+            "--ubuntu-oci-archive",
+            str(self.archives["ubuntu"][architecture]),
+            "--nativelink-oci-archive",
+            str(self.archives["nativelink"][architecture]),
+        ]
+
+    def worker_apply_arguments(self, data_root: Path, architecture: str) -> list[str]:
+        arguments = self.worker_arguments()
+        arguments[0] = "apply"
+        arguments[arguments.index("x86_64")] = architecture
+        arguments[arguments.index(str(self.external / "data"))] = str(data_root)
+        arguments.extend(
+            [
+                "--ubuntu-oci-archive",
+                str(self.archives["ubuntu"][architecture]),
+                "--nativelink-oci-archive",
+                str(self.archives["nativelink"][architecture]),
+            ]
+        )
+        return arguments
+
+    def mtls_worker_arguments(self, data_root: Path, architecture: str) -> list[str]:
+        arguments = self.worker_apply_arguments(data_root, architecture)
+        control_index = arguments.index("--control-address")
+        del arguments[control_index : control_index + 2]
+        arguments.extend(self.mtls_worker_options())
+        return arguments
+
+    def set_fake_managed_path(
+        self,
+        path: Path,
+        *,
+        uid: int = FAKE_SERVICE_UID,
+        gid: int = FAKE_SERVICE_GID,
+        mode: str = "750",
+    ) -> None:
+        ownership_path = self.external / "fake-sdme-state/managed-paths.tsv"
+        ownership = {}
+        if ownership_path.is_file():
+            for line in ownership_path.read_text(encoding="utf-8").splitlines():
+                source, uid_text, gid_text, stored_mode = line.split("\t")
+                ownership[source] = {
+                    "gid": int(gid_text),
+                    "mode": stored_mode,
+                    "uid": int(uid_text),
+                }
+        ownership[str(path)] = {"gid": gid, "mode": mode, "uid": uid}
+        ownership_path.write_text(
+            "".join(
+                "{}\t{}\t{}\t{}\n".format(
+                    source, record["uid"], record["gid"], record["mode"]
+                )
+                for source, record in sorted(ownership.items())
+            ),
+            encoding="utf-8",
+        )
+
+    def fake_managed_path(self, path: Path) -> dict[str, object]:
+        ownership_path = self.external / "fake-sdme-state/managed-paths.tsv"
+        if not ownership_path.is_file():
+            raise KeyError(path)
+        for line in ownership_path.read_text(encoding="utf-8").splitlines():
+            source, uid_text, gid_text, mode = line.split("\t")
+            if source == str(path):
+                return {"gid": int(gid_text), "mode": mode, "uid": int(uid_text)}
+        raise KeyError(path)
+
+    def prepare_control_runtime(self, **fake_options: bool) -> tuple[str, Path, Path]:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture, **fake_options)
+        data_root = self.safe_runtime_data_root()
+        prepared = self.run_script(*self.runtime_arguments(data_root, architecture))
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        return architecture, data_root, log
+
+    def seed_matching_control(self, data_root: Path) -> None:
+        state = self.external / "fake-sdme-state"
+        control = data_root / "control"
+        control.mkdir(mode=0o750)
+        self.set_fake_managed_path(control)
+        (state / "container.json").write_text(
+            json.dumps(
+                {
+                    "addresses": [],
+                    "binds": [
+                        "{}:/var/lib/nativelink:rw".format(data_root / "control")
+                    ],
+                    "enabled": True,
+                    "limits": {"cpus": "8", "memory": "32G"},
+                    "name": "buckos-re-control",
+                    "network": {
+                        "network_bridge": None,
+                        "network_zone": "buckos-re",
+                        "oci_pod": False,
+                        "pod": False,
+                        "ports": [],
+                        "private_network": True,
+                    },
+                    "rootfs": RUNTIME_FS,
+                    "status": "running",
+                    "userns": True,
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        installed = state / "container-files/buckos-re-control/etc/nativelink"
+        installed.mkdir(parents=True, exist_ok=True)
+        control_config = self.repo / "infra/remote-execution/nativelink/control.json5"
+        shutil.copy2(control_config, installed / "control.json5")
+        (installed / "control.json5").chmod(0o644)
+        identity = installed / "deployment.identity"
+        identity.write_text(
+            "\n".join(
+                (
+                    "schema_version=1",
+                    "role=control",
+                    "architecture={}".format(self.native_architecture()),
+                    "security_mode=plaintext",
+                    "zone=buckos-re",
+                    "container_name=buckos-re-control",
+                    "config_basename=control.json5",
+                    "config_sha256={}".format(
+                        hashlib.sha256(control_config.read_bytes()).hexdigest()
+                    ),
+                    "unit_sha256=unused",
+                    "control_dns=none",
+                    "tls_identity_sha256=none",
+                    "topology_sha256=unused",
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        identity.chmod(0o600)
+
+    def prepare_matching_control(self) -> tuple[str, Path, Path]:
+        architecture, data_root, log = self.prepare_completed_control()
+        log.write_text("", encoding="utf-8")
+        (self.external / "fake-sdme-state/ps-count").unlink(missing_ok=True)
+        return architecture, data_root, log
+
+    def prepare_completed_control(self) -> tuple[str, Path, Path]:
+        architecture, data_root, log = self.prepare_control_runtime()
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return architecture, data_root, log
+
+    def prepare_completed_worker(self) -> tuple[str, Path, Path]:
+        architecture, data_root, log = self.prepare_completed_control()
+        result = self.run_script(*self.worker_apply_arguments(data_root, architecture))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return architecture, data_root, log
+
+    def set_test_control_address_wait_seconds(self, seconds: int) -> None:
+        source = self.script.read_text(encoding="utf-8")
+        updated = source.replace(
+            "readonly CONTROL_ADDRESS_WAIT_SECONDS='30'",
+            "readonly CONTROL_ADDRESS_WAIT_SECONDS='{}'".format(seconds),
+        )
+        self.assertNotEqual(source, updated)
+        self.script.write_text(updated, encoding="utf-8")
+
+    def test_worker_plan_has_required_isolation_and_storage(self) -> None:
+        result = self.run_script(*self.worker_arguments())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--userns-nested 1", result.stdout)
+        self.assertIn("worker-x86_64/scratch:/var/tmp", result.stdout)
+        self.assertIn("probe:/opt/buckos-re/probe-sysroot:ro", result.stdout)
+        self.assertIn("preflight-worker.sh", result.stdout)
+        self.assertIn("contents are not printed", result.stdout)
+        self.assertNotIn("BUCKOS_RE_MIN_SCRATCH_BYTES=", result.stdout)
+        self.assertNotIn("BUCKOS_RE_MIN_SCRATCH_INODES=", result.stdout)
+        self.assertNotIn("--hardened", result.stdout)
+        self.assertIn(
+            "install -d -m 0750 -o nativelink -g nativelink "
+            "/var/lib/nativelink/worker-x86_64 /var/tmp",
+            result.stdout,
+        )
+        self.assertIn(self.ubuntu_reference, result.stdout)
+        self.assertIn(self.nativelink_reference, result.stdout)
+        self.assertIn("prepare-runtime worker", result.stdout)
+        self.assertIn("prepare-worker-probe-root.sh apply", result.stdout)
+        self.assertIn("# 3. Apply the worker with that probe path and digest:", result.stdout)
+        self.assertFalse((self.external / "data").exists())
+
+    def test_plaintext_worker_rejects_routed_control_address(self) -> None:
+        arguments = self.worker_arguments()
+        arguments[arguments.index("buckos-re-control")] = "control.internal"
+
+        result = self.run_script(*arguments)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("must equal the local control container name", result.stderr)
+
+    def test_plaintext_worker_apply_requires_local_control_identity(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+
+        result = self.run_script(*self.worker_apply_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("local plaintext control container not found", result.stderr)
+        self.assertNotIn("sdme create", log.read_text(encoding="utf-8"))
+
+    def test_plaintext_worker_rejects_published_or_wrong_role_local_control(
+        self,
+    ) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        self.seed_matching_control(data_root)
+        state = self.external / "fake-sdme-state"
+        container_path = state / "container.json"
+        identity_path = (
+            state
+            / "container-files/buckos-re-control/etc/nativelink/deployment.identity"
+        )
+
+        container = json.loads(container_path.read_text(encoding="utf-8"))
+        container["network"]["ports"] = ["tcp:50051:50051"]
+        container_path.write_text(json.dumps(container), encoding="utf-8")
+        published = self.run_script(*self.worker_apply_arguments(data_root, architecture))
+        self.assertEqual(published.returncode, 1)
+        self.assertIn("published ports", published.stderr)
+        self.assertNotIn("sdme create", log.read_text(encoding="utf-8"))
+
+        container["network"]["ports"] = []
+        container_path.write_text(json.dumps(container), encoding="utf-8")
+        identity_path.write_text(
+            identity_path.read_text(encoding="utf-8").replace(
+                "role=control", "role=worker"
+            ),
+            encoding="utf-8",
+        )
+        wrong_role = self.run_script(
+            *self.worker_apply_arguments(data_root, architecture)
+        )
+        self.assertEqual(wrong_role.returncode, 1)
+        self.assertIn("deployment identity mismatch: role", wrong_role.stderr)
+
+    def test_rejects_duplicate_security_option(self) -> None:
+        result = self.run_script(
+            *self.worker_arguments(),
+            "--security-mode",
+            "plaintext",
+            "--security-mode",
+            "plaintext",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("may be supplied only once", result.stderr)
+
+    def test_rejects_incomplete_and_cross_role_mtls_options(self) -> None:
+        base = [
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--security-mode",
+            "mtls",
+            "--control-dns",
+            "control.internal",
+        ]
+        incomplete = self.run_script(*base)
+        self.assertEqual(incomplete.returncode, 2)
+        self.assertIn("mTLS control requires", incomplete.stderr)
+
+        wrong_role = self.run_script(
+            *base,
+            "--tls-control-chain",
+            "/missing",
+            "--tls-control-key",
+            "/missing",
+            "--tls-control-ca",
+            "/missing",
+            "--tls-reapi-client-ca",
+            "/missing",
+            "--tls-worker-client-ca",
+            "/missing",
+            "--tls-worker-key",
+            "/missing",
+        )
+        self.assertEqual(wrong_role.returncode, 2)
+        self.assertIn("worker TLS identity options are invalid", wrong_role.stderr)
+
+    def test_plaintext_publish_is_rejected_before_policy_or_sdme(self) -> None:
+        checker = self.external / "check-firewall"
+        checker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        checker.chmod(0o755)
+
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--publish",
+            "--client-cidrs",
+            "10.20.0.0/24",
+            "--worker-cidrs",
+            "10.30.0.0/24",
+            "--firewall-check",
+            str(checker),
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--publish requires --security-mode mtls", result.stderr)
+
+    def test_mtls_plans_select_role_specific_configs_without_environment_values(
+        self,
+    ) -> None:
+        control = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "control-data"),
+            *self.mtls_control_options(),
+        )
+        worker_arguments = self.worker_arguments()
+        control_index = worker_arguments.index("--control-address")
+        del worker_arguments[control_index : control_index + 2]
+        worker_arguments.extend(self.mtls_worker_options())
+        worker = self.run_script(*worker_arguments)
+
+        self.assertEqual(control.returncode, 0, control.stderr)
+        self.assertEqual(worker.returncode, 0, worker.stderr)
+        self.assertIn("control-mtls.json5", control.stdout)
+        self.assertIn("worker-x86_64-mtls.json5", worker.stdout)
+        for output in (control.stdout, worker.stdout):
+            self.assertIn("contents are not printed", output)
+            self.assertNotIn("NATIVELINK_CONTROL_DNS=", output)
+            self.assertNotIn("BEGIN CERTIFICATE", output)
+            self.assertNotIn("PRIVATE KEY", output)
+
+    def test_mtls_control_apply_installs_atomic_credentials_and_identity(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        arguments = self.control_arguments(data_root, architecture)
+        arguments.extend(self.mtls_control_options())
+
+        result = self.run_script(*arguments)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = (
+            self.external
+            / "fake-sdme-state/container-files/buckos-re-control/etc/nativelink"
+        )
+        tls = installed / "tls"
+        self.assertEqual(tls.stat().st_mode & 0o777, 0o750)
+        self.assertEqual(tls.stat().st_gid, FAKE_SERVICE_GID)
+        self.assertEqual(
+            {path.name for path in tls.iterdir()},
+            {
+                "control-chain.pem",
+                "control-key.pem",
+                "reapi-client-ca.pem",
+                "worker-client-ca.pem",
+            },
+        )
+        self.assertTrue(all(path.stat().st_mode & 0o777 == 0o440 for path in tls.iterdir()))
+        identity = installed / "deployment.identity"
+        self.assertEqual(identity.stat().st_mode & 0o777, 0o600)
+        identity_text = identity.read_text(encoding="utf-8")
+        self.assertIn("security_mode=mtls", identity_text)
+        self.assertIn("config_basename=control-mtls.json5", identity_text)
+        self.assertNotIn("PRIVATE KEY", identity_text)
+        self.assertFalse((data_root / "provision/transactions/deployment-buckos-re-control.transaction").exists())
+        self.assertIn("mv -T -- /etc/nativelink/tls-", log.read_text(encoding="utf-8"))
+
+    def test_mtls_worker_apply_uses_control_dns_and_role_credentials(self) -> None:
+        architecture, data_root, _ = self.prepare_control_runtime()
+
+        result = self.run_script(*self.mtls_worker_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        root = (
+            self.external
+            / "fake-sdme-state/container-files"
+            / "buckos-re-worker-{}".format(architecture.replace("_", "-"))
+            / "etc/nativelink"
+        )
+        environment = (root / "nativelink.env").read_text(encoding="utf-8")
+        self.assertIn("NATIVELINK_CONTROL_DNS=control.internal", environment)
+        self.assertNotIn("NATIVELINK_REAPI_ADDRESS", environment)
+        self.assertEqual(
+            {path.name for path in (root / "tls").iterdir()},
+            {"control-ca.pem", "worker-chain.pem", "worker-key.pem"},
+        )
+
+    def test_mtls_reuse_does_not_replace_credentials(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        arguments = self.control_arguments(data_root, architecture)
+        arguments.extend(self.mtls_control_options())
+        first = self.run_script(*arguments)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        log.write_text("", encoding="utf-8")
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn(".tmp/control-key.pem", commands)
+        self.assertNotIn("mv -T -- /etc/nativelink/tls-", commands)
+
+    def test_mtls_reuse_rejects_config_and_credential_drift(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        arguments = self.control_arguments(data_root, architecture)
+        arguments.extend(self.mtls_control_options())
+        first = self.run_script(*arguments)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        root = (
+            self.external
+            / "fake-sdme-state/container-files/buckos-re-control/etc/nativelink"
+        )
+
+        for path, expected in (
+            (root / "control-mtls.json5", "config does not match"),
+            (root / "tls/control-key.pem", "credentials do not match"),
+        ):
+            with self.subTest(path=path.name):
+                original = path.read_bytes()
+                path.write_bytes(original + b"drift")
+                log.write_text("", encoding="utf-8")
+                result = self.run_script(*arguments)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected, result.stderr)
+                self.assertNotIn(
+                    "systemctl restart nativelink.service",
+                    log.read_text(encoding="utf-8"),
+                )
+                path.write_bytes(original)
+                path.chmod(0o644 if path.name.endswith("json5") else 0o440)
+
+        key = root / "tls/control-key.pem"
+        key.chmod(0o640)
+        log.write_text("", encoding="utf-8")
+        wrong_mode = self.run_script(*arguments)
+        self.assertEqual(wrong_mode.returncode, 2)
+        self.assertIn("credentials do not match", wrong_mode.stderr)
+        self.assertNotIn(
+            "systemctl restart nativelink.service", log.read_text(encoding="utf-8")
+        )
+
+    def test_reuse_rejects_plaintext_to_mtls_transition(self) -> None:
+        architecture, data_root, log = self.prepare_completed_control()
+        arguments = self.control_arguments(data_root, architecture)
+        arguments.extend(self.mtls_control_options())
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*arguments)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("deployment identity does not match", result.stderr)
+        self.assertNotIn("control-mtls.json5 buckos-re-control:", log.read_text(encoding="utf-8"))
+        self.assertNotIn(
+            "systemctl restart nativelink.service", log.read_text(encoding="utf-8")
+        )
+
+    def test_mtls_copy_failure_leaves_only_transaction_owned_stage(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime(
+            fail_container_copy=True
+        )
+        arguments = self.control_arguments(data_root, architecture)
+        arguments.extend(self.mtls_control_options())
+
+        first = self.run_script(*arguments)
+
+        self.assertNotEqual(first.returncode, 0)
+        root = (
+            self.external
+            / "fake-sdme-state/container-files/buckos-re-control/etc/nativelink"
+        )
+        self.assertFalse((root / "tls").exists())
+        self.assertTrue(any(path.name.startswith("tls-") for path in root.iterdir()))
+        transaction = data_root / "provision/transactions/deployment-buckos-re-control.transaction"
+        self.assertTrue(transaction.is_file())
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertTrue((root / "tls").is_dir())
+        self.assertFalse(any(path.name.startswith("tls-") for path in root.iterdir()))
+        self.assertFalse(transaction.exists())
+
+    def test_mtls_partial_retry_rejects_changed_intent_or_missing_transaction(
+        self,
+    ) -> None:
+        architecture, data_root, log = self.prepare_control_runtime(
+            fail_container_copy=True
+        )
+        arguments = self.control_arguments(data_root, architecture)
+        arguments.extend(self.mtls_control_options())
+        first = self.run_script(*arguments)
+        self.assertNotEqual(first.returncode, 0)
+        transaction = data_root / "provision/transactions/deployment-buckos-re-control.transaction"
+        self.assertTrue(transaction.is_file())
+
+        config = self.repo / "infra/remote-execution/nativelink/control-mtls.json5"
+        config.write_text("{\"changed\": true}\n", encoding="utf-8")
+        log.write_text("", encoding="utf-8")
+        changed = self.run_script(*arguments)
+        self.assertEqual(changed.returncode, 2)
+        self.assertIn("transaction record does not match", changed.stderr)
+        self.assertNotIn("systemctl restart", log.read_text(encoding="utf-8"))
+
+        config.write_text("{}\n", encoding="utf-8")
+        transaction.unlink()
+        missing = self.run_script(*arguments)
+        self.assertEqual(missing.returncode, 2)
+        self.assertIn("lacks a deployment identity and matching transaction", missing.stderr)
+
+    def test_mtls_outputs_do_not_contain_credential_material(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        arguments = self.control_arguments(data_root, architecture)
+        arguments.extend(self.mtls_control_options())
+        key = self.pki_material()["control_key"].read_bytes()
+        key_digest = hashlib.sha256(key).hexdigest()
+
+        result = self.run_script(*arguments, "--verbose")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        combined = (result.stdout + result.stderr + log.read_text(encoding="utf-8")).encode()
+        self.assertNotIn(key, combined)
+        self.assertNotIn(key_digest.encode(), combined)
+
+    def test_mtls_reuse_rejects_validation_only_trust_anchor_drift(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        pki = self.pki_material()
+        arguments = self.control_arguments(data_root, architecture)
+        arguments.extend(self.mtls_control_options())
+        first = self.run_script(*arguments)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        installed = (
+            self.external
+            / "fake-sdme-state/container-files/buckos-re-control/etc/nativelink"
+        )
+        before = {path.name: path.read_bytes() for path in (installed / "tls").iterdir()}
+
+        widened = self.widened_trust_anchor(
+            "control-anchor-widened", pki["control_ca"], pki["extra_ca"]
+        )
+        drifted = list(arguments)
+        drifted[drifted.index(str(pki["control_ca"]))] = str(widened)
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*drifted)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("deployment identity does not match", result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn("systemctl restart nativelink.service", commands)
+        self.assertNotIn("mv -T -- /etc/nativelink/tls-", commands)
+        self.assertEqual(
+            {path.name: path.read_bytes() for path in (installed / "tls").iterdir()},
+            before,
+        )
+
+    def test_mtls_worker_reuse_rejects_issuer_anchor_drift(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        pki = self.pki_material()
+        arguments = self.mtls_worker_arguments(data_root, architecture)
+        first = self.run_script(*arguments)
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        widened = self.widened_trust_anchor(
+            "worker-issuer-widened", pki["worker_issuer_ca"], pki["extra_ca"]
+        )
+        drifted = list(arguments)
+        issuer_index = drifted.index("--tls-worker-issuer-ca") + 1
+        drifted[issuer_index] = str(widened)
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*drifted)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("deployment identity does not match", result.stderr)
+        self.assertNotIn(
+            "systemctl restart nativelink.service", log.read_text(encoding="utf-8")
+        )
+
+    def prepare_identity_less_control(
+        self,
+    ) -> tuple[Path, Path, list[str], Path]:
+        architecture, data_root, log = self.prepare_control_runtime(
+            fail_container_copy=True
+        )
+        arguments = self.control_arguments(data_root, architecture)
+        first = self.run_script(*arguments)
+        self.assertNotEqual(first.returncode, 0)
+        installed = (
+            self.external
+            / "fake-sdme-state/container-files/buckos-re-control/etc/nativelink"
+        )
+        self.assertFalse((installed / "deployment.identity").exists())
+        transaction = (
+            data_root / "provision/transactions/deployment-buckos-re-control.transaction"
+        )
+        self.assertTrue(transaction.is_file())
+        log.write_text("", encoding="utf-8")
+        return data_root, log, arguments, transaction
+
+    def set_fake_container_status(self, name: str, status: str) -> None:
+        container_path = self.external / "fake-sdme-state/container.json"
+        record = json.loads(container_path.read_text(encoding="utf-8"))
+        self.assertEqual(record["name"], name)
+        record["status"] = status
+        container_path.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
+
+    def test_identity_less_recovery_requires_an_inactive_disabled_service(self) -> None:
+        data_root, log, arguments, transaction = self.prepare_identity_less_control()
+        state = self.external / "fake-sdme-state"
+        container_root = state / "container-files/buckos-re-control"
+        installed = container_root / "etc/nativelink"
+        units = container_root / "etc/systemd/system"
+        wants = units / "multi-user.target.wants"
+
+        def reset() -> None:
+            (container_root / "service-active").unlink(missing_ok=True)
+            (container_root / "service-enabled").unlink(missing_ok=True)
+            if wants.exists():
+                shutil.rmtree(wants)
+            if not units.is_dir():
+                units.unlink(missing_ok=True)
+                units.mkdir(parents=True)
+            (units / "nativelink.service").unlink(missing_ok=True)
+            self.set_fake_container_status("buckos-re-control", "running")
+            log.write_text("", encoding="utf-8")
+
+        def install_unit() -> None:
+            (units / "nativelink.service").write_text("[Service]\n", encoding="utf-8")
+
+        def unit_reported_enabled() -> None:
+            install_unit()
+            (container_root / "service-enabled").touch()
+
+        def enable_unit() -> None:
+            wants.mkdir(parents=True, exist_ok=True)
+            (wants / "nativelink.service").symlink_to(
+                "/etc/systemd/system/nativelink.service"
+            )
+            (container_root / "service-enabled").touch()
+
+        def make_active() -> None:
+            (container_root / "service-active").touch()
+
+        def stop_but_enable() -> None:
+            enable_unit()
+            self.set_fake_container_status("buckos-re-control", "stopped")
+
+        def hide_units() -> None:
+            shutil.rmtree(units)
+
+        def corrupt_units() -> None:
+            shutil.rmtree(units)
+            units.write_text("not a directory\n", encoding="utf-8")
+
+        cases = (
+            ("enabled", enable_unit, "NativeLink is enabled through"),
+            ("active", make_active, "NativeLink is active in buckos-re-control"),
+            ("stopped but enabled", stop_but_enable, "NativeLink is enabled through"),
+            (
+                "unit reported enabled",
+                unit_reported_enabled,
+                "NativeLink is enabled in buckos-re-control",
+            ),
+            (
+                "inspection failure",
+                hide_units,
+                "could not inspect NativeLink enablement in buckos-re-control",
+            ),
+            ("malformed evidence", corrupt_units, "installed systemd state is missing"),
+        )
+
+        for label, mutate, expected_error in cases:
+            with self.subTest(case=label):
+                reset()
+                mutate()
+
+                result = self.run_script(*arguments)
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected_error, result.stderr)
+                commands = log.read_text(encoding="utf-8")
+                for forbidden in (
+                    "sdme start",
+                    "systemctl daemon-reload",
+                    "systemctl enable",
+                    "systemctl restart",
+                    "install -d -m 0750 -o nativelink",
+                    "control.json5 buckos-re-control:",
+                    "nativelink.env",
+                ):
+                    self.assertNotIn(forbidden, commands)
+                self.assertFalse((installed / "deployment.identity").exists())
+                self.assertTrue(transaction.is_file())
+
+        # The resumable case keeps the unit file installed so the live
+        # enablement query runs and reports a disabled unit.
+        reset()
+        install_unit()
+
+        resumed = self.run_script(*arguments)
+
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertIn(
+            "systemctl is-enabled nativelink.service",
+            log.read_text(encoding="utf-8"),
+        )
+        self.assertTrue((installed / "deployment.identity").is_file())
+        self.assertFalse(transaction.exists())
+        self.assertIn(
+            "systemctl restart nativelink.service", log.read_text(encoding="utf-8")
+        )
+
+    def test_option_errors_precede_tool_resolution_and_prerequisite_probes(self) -> None:
+        # `sdme` and `podman` are absent from this environment, so an apply that
+        # reached tool resolution would fail on them instead of on the options.
+        incomplete_mtls = [
+            "apply",
+            "control",
+            "--arch",
+            self.native_architecture(),
+            "--data-root",
+            str(self.external / "data"),
+            "--security-mode",
+            "mtls",
+            "--control-dns",
+            "control.internal",
+        ]
+
+        unresolved = self.run_script(*incomplete_mtls)
+
+        self.assertEqual(unresolved.returncode, 2)
+        self.assertIn("mTLS control requires", unresolved.stderr)
+        self.assertNotIn("missing required command", unresolved.stderr)
+
+        plaintext_publish = [
+            "apply",
+            "control",
+            "--arch",
+            self.native_architecture(),
+            "--data-root",
+            str(self.external / "data"),
+            "--publish",
+            "--client-cidrs",
+            "10.20.0.0/24",
+            "--worker-cidrs",
+            "10.30.0.0/24",
+            "--firewall-check",
+            "/bin/true",
+        ]
+
+        published = self.run_script(*plaintext_publish)
+
+        self.assertEqual(published.returncode, 2)
+        self.assertIn("--publish requires --security-mode mtls", published.stderr)
+        self.assertNotIn("missing required command", published.stderr)
+
+        # With every host tool available and logging, an invalid option set must
+        # still reach no SDME, systemd, or network probe at all.
+        log = self.install_fake_runtime_tools(self.native_architecture())
+
+        probed = self.run_script(*incomplete_mtls)
+
+        self.assertEqual(probed.returncode, 2)
+        self.assertIn("mTLS control requires", probed.stderr)
+        self.assertFalse(log.exists())
+
+        cross_role = self.run_script(
+            *incomplete_mtls,
+            "--tls-control-chain",
+            "/missing",
+            "--tls-control-key",
+            "/missing",
+            "--tls-control-ca",
+            "/missing",
+            "--tls-reapi-client-ca",
+            "/missing",
+            "--tls-worker-client-ca",
+            "/missing",
+            "--tls-worker-key",
+            "/missing",
+        )
+
+        self.assertEqual(cross_role.returncode, 2)
+        self.assertIn("worker TLS identity options are invalid", cross_role.stderr)
+        self.assertFalse(log.exists())
+
+    def test_mtls_rejects_credential_sources_inside_the_managed_roots(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        pki = self.pki_material()
+        key = pki["control_key"]
+        assert isinstance(key, Path)
+        cases = (
+            ("repository root", self.repo / "infra/remote-execution/secrets"),
+            ("nested repository root", self.repo / "tools/secrets/deep"),
+            ("data root", data_root / "secrets"),
+            ("nested data root", data_root / "provision/secrets"),
+        )
+
+        for label, directory in cases:
+            with self.subTest(case=label):
+                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+                copied = directory / "control.key"
+                copied.write_bytes(key.read_bytes())
+                copied.chmod(0o600)
+                arguments = self.control_arguments(data_root, architecture)
+                arguments.extend(self.mtls_control_options())
+                arguments[arguments.index(str(key))] = str(copied)
+                log.write_text("", encoding="utf-8")
+
+                result = self.run_script(*arguments)
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(
+                    "--tls-control-key must be outside the repository and managed "
+                    "data root",
+                    result.stderr,
+                )
+                commands = log.read_text(encoding="utf-8")
+                self.assertNotIn("sdme create", commands)
+                self.assertNotIn("sdme exec", commands)
+
+    def test_mtls_admits_a_lexical_prefix_sibling_of_the_data_root(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        pki = self.pki_material()
+        key = pki["control_key"]
+        assert isinstance(key, Path)
+        sibling = data_root.with_name(data_root.name + "-secrets")
+        sibling.mkdir(mode=0o700, parents=True)
+        copied = sibling / "control.key"
+        copied.write_bytes(key.read_bytes())
+        copied.chmod(0o600)
+        arguments = self.control_arguments(data_root, architecture)
+        arguments.extend(self.mtls_control_options())
+        arguments[arguments.index(str(key))] = str(copied)
+
+        result = self.run_script(*arguments)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def reset_fake_sdme_state(self) -> None:
+        state = self.external / "fake-sdme-state"
+        for path in state.iterdir():
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        (self.external / "tls-stage-mutated").unlink(missing_ok=True)
+
+    def fresh_mtls_control_apply(
+        self,
+        architecture: str,
+        log: Path,
+        environment: dict[str, str] | None = None,
+    ) -> tuple[Path, list[str], subprocess.CompletedProcess[str]]:
+        self.reset_fake_sdme_state()
+        data_root = self.safe_runtime_data_root()
+        prepared = self.run_script(*self.runtime_arguments(data_root, architecture))
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        log.write_text("", encoding="utf-8")
+        arguments = self.control_arguments(data_root, architecture)
+        arguments.extend(self.mtls_control_options())
+        result = self.run_script(*arguments, environment=environment)
+        return data_root, arguments, result
+
+    def assert_tls_publication_did_not_happen(self, data_root: Path, log: Path) -> Path:
+        installed = (
+            self.external
+            / "fake-sdme-state/container-files/buckos-re-control/etc/nativelink"
+        )
+        self.assertFalse((installed / "tls").exists())
+        self.assertFalse((installed / "deployment.identity").exists())
+        staged = [path for path in installed.iterdir() if path.name.startswith("tls-")]
+        self.assertEqual(len(staged), 1, staged)
+        transaction = (
+            data_root / "provision/transactions/deployment-buckos-re-control.transaction"
+        )
+        self.assertTrue(transaction.is_file())
+        commands = log.read_text(encoding="utf-8")
+        for forbidden in (
+            "mv -T -- /etc/nativelink/tls-",
+            "systemctl daemon-reload",
+            "systemctl enable",
+            "systemctl restart",
+            "nativelink.env",
+        ):
+            self.assertNotIn(forbidden, commands)
+        return transaction
+
+    def test_staged_credential_faults_refuse_publication_before_rename(self) -> None:
+        architecture, _, log = self.prepare_control_runtime()
+        mutations = (
+            "corrupt",
+            "mode",
+            "owner",
+            "extra",
+            "symlink",
+            "directory-mode",
+        )
+
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                data_root, _, result = self.fresh_mtls_control_apply(
+                    architecture, log, environment={"FAKE_TLS_STAGE_MUTATION": mutation}
+                )
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(
+                    "staged mTLS credentials do not match this invocation",
+                    result.stderr,
+                )
+                self.assert_tls_publication_did_not_happen(data_root, log)
+
+    def test_exact_retry_after_a_staging_fault_publishes_cleanly(self) -> None:
+        architecture, _, log = self.prepare_control_runtime()
+        data_root, arguments, first = self.fresh_mtls_control_apply(
+            architecture, log, environment={"FAKE_TLS_STAGE_MUTATION": "corrupt"}
+        )
+
+        self.assertEqual(first.returncode, 2)
+        transaction = self.assert_tls_publication_did_not_happen(data_root, log)
+        log.write_text("", encoding="utf-8")
+
+        retry = self.run_script(*arguments)
+
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        installed = (
+            self.external
+            / "fake-sdme-state/container-files/buckos-re-control/etc/nativelink"
+        )
+        self.assertTrue((installed / "tls").is_dir())
+        self.assertFalse(
+            any(path.name.startswith("tls-") for path in installed.iterdir())
+        )
+        self.assertTrue((installed / "deployment.identity").is_file())
+        self.assertFalse(transaction.exists())
+        commands = log.read_text(encoding="utf-8")
+        self.assertIn("mv -T -- /etc/nativelink/tls-", commands)
+        staged_check = [
+            line
+            for line in commands.splitlines()
+            if "sdme cp buckos-re-control:/etc/nativelink/tls-" in line
+        ]
+        self.assertTrue(staged_check)
+        self.assertLess(
+            commands.index(staged_check[-1]),
+            commands.index("mv -T -- /etc/nativelink/tls-"),
+        )
+
+    def profile_plan_arguments(self, role: str, architecture: str, mode: str) -> list[str]:
+        if role == "control":
+            arguments = [
+                "plan",
+                "control",
+                "--arch",
+                architecture,
+                "--data-root",
+                str(self.external / "data-{}-{}".format(role, mode)),
+            ]
+            if mode == "mtls":
+                arguments.extend(self.mtls_control_options())
+            return arguments
+        arguments = self.worker_arguments()
+        arguments[arguments.index("x86_64")] = architecture
+        if mode == "mtls":
+            control_index = arguments.index("--control-address")
+            del arguments[control_index : control_index + 2]
+            arguments.extend(self.mtls_worker_options())
+        return arguments
+
+    def test_all_six_profiles_select_their_deployment_metadata_config(self) -> None:
+        cases = (
+            ("control", "x86_64", "plaintext", "control.json5", "control-mtls.json5"),
+            ("control", "x86_64", "mtls", "control-mtls.json5", "control.json5"),
+            (
+                "worker",
+                "x86_64",
+                "plaintext",
+                "worker-x86_64.json5",
+                "worker-x86_64-mtls.json5",
+            ),
+            (
+                "worker",
+                "x86_64",
+                "mtls",
+                "worker-x86_64-mtls.json5",
+                "worker-x86_64.json5",
+            ),
+            (
+                "worker",
+                "aarch64",
+                "plaintext",
+                "worker-aarch64.json5",
+                "worker-aarch64-mtls.json5",
+            ),
+            (
+                "worker",
+                "aarch64",
+                "mtls",
+                "worker-aarch64-mtls.json5",
+                "worker-aarch64.json5",
+            ),
+        )
+
+        for role, architecture, mode, expected, rejected in cases:
+            with self.subTest(role=role, architecture=architecture, mode=mode):
+                result = self.run_script(
+                    *self.profile_plan_arguments(role, architecture, mode)
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(
+                    "/etc/nativelink/{}".format(expected), result.stdout
+                )
+                self.assertNotIn(rejected, result.stdout)
+
+    def test_config_selection_follows_the_deployment_metadata_mapping(self) -> None:
+        remapped = self.default_config_mapping()
+        remapped["control"] = "worker-aarch64.json5"
+        self.write_deployment_metadata(remapped)
+
+        result = self.run_script(*self.profile_plan_arguments("control", "x86_64", "plaintext"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("/etc/nativelink/worker-aarch64.json5", result.stdout)
+        self.assertNotIn("control.json5", result.stdout)
+
+    def test_config_selection_rejects_unusable_deployment_metadata(self) -> None:
+        log = self.install_fake_runtime_tools(self.native_architecture())
+        nativelink = self.repo / "infra/remote-execution/nativelink"
+        (nativelink / "a-directory.json5").mkdir()
+        (nativelink / "outside.json5").symlink_to(self.external / "escaped.json5")
+        (self.external / "escaped.json5").write_text("{}\n", encoding="utf-8")
+
+        def mapping(**changes: object) -> dict[str, object]:
+            record = self.default_config_mapping()
+            record.update(changes)
+            return record
+
+        cases = (
+            ("no config mapping", None, "has no config mapping"),
+            (
+                "non-dictionary mapping",
+                "control.json5",
+                "has no config mapping",
+            ),
+            (
+                "non-string name",
+                mapping(control=42),
+                "selects no plaintext control config",
+            ),
+            (
+                "empty name",
+                mapping(control=""),
+                "selects no plaintext control config",
+            ),
+            (
+                "absolute name",
+                mapping(control="/etc/passwd"),
+                "is not a plain basename",
+            ),
+            (
+                "separator in name",
+                mapping(control="sub/control.json5"),
+                "is not a plain basename",
+            ),
+            (
+                "traversal name",
+                mapping(control=".."),
+                "is not a plain basename",
+            ),
+            (
+                "padded name",
+                mapping(control=" control.json5"),
+                "is not a plain basename",
+            ),
+            (
+                "missing file",
+                mapping(control="absent.json5"),
+                "is not a regular file",
+            ),
+            (
+                "non-regular file",
+                mapping(control="a-directory.json5"),
+                "is not a regular file",
+            ),
+            (
+                "symlinked file",
+                mapping(control="outside.json5"),
+                "is a symlink",
+            ),
+        )
+
+        for label, configs, expected_error in cases:
+            with self.subTest(case=label):
+                self.write_deployment_metadata(configs)
+
+                result = self.run_script(
+                    *self.control_arguments(
+                        self.safe_runtime_data_root(), self.native_architecture()
+                    )
+                )
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected_error, result.stderr)
+                self.assertNotIn("sdme ", log.read_text(encoding="utf-8"))
+
+        self.write_deployment_metadata({"control": "control.json5"})
+
+        missing_mtls = self.run_script(
+            *self.profile_plan_arguments("control", "x86_64", "mtls")
+        )
+
+        self.assertEqual(missing_mtls.returncode, 2)
+        self.assertIn("has no mTLS config mapping", missing_mtls.stderr)
+        self.assertNotIn("sdme ", log.read_text(encoding="utf-8"))
+
+    def test_worker_config_selection_rejects_a_missing_architecture(self) -> None:
+        configs = self.default_config_mapping()
+        workers = configs["workers"]
+        assert isinstance(workers, dict)
+        del workers["aarch64"]
+        self.write_deployment_metadata(configs)
+        arguments = self.worker_arguments()
+        arguments[arguments.index("x86_64")] = "aarch64"
+
+        result = self.run_script(*arguments)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("selects no plaintext worker config", result.stderr)
+
+        configs = self.default_config_mapping()
+        del configs["workers"]
+        self.write_deployment_metadata(configs)
+
+        missing_workers = self.run_script(*self.worker_arguments())
+
+        self.assertEqual(missing_workers.returncode, 2)
+        self.assertIn("has no worker config mapping", missing_workers.stderr)
+
+    def test_local_plaintext_control_attestation_uses_the_selected_config(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        self.seed_matching_control(data_root)
+        remapped = self.default_config_mapping()
+        remapped["control"] = "worker-aarch64.json5"
+        self.write_deployment_metadata(remapped)
+
+        result = self.run_script(*self.worker_apply_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "local plaintext control deployment identity mismatch: config_basename",
+            result.stderr,
+        )
+        self.assertNotIn("sdme create", log.read_text(encoding="utf-8"))
+
+    def test_prepare_runtime_has_no_container_or_service_operations(self) -> None:
+        architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+            platform.machine(), platform.machine()
+        )
+        if architecture not in ("x86_64", "aarch64"):
+            self.skipTest("unsupported test architecture")
+        log = self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+
+        result = self.run_script(
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(data_root),
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertIn("podman pull", commands)
+        self.assertIn("sdme fs import", commands)
+        self.assertIn("sdme fs build {}".format(RUNTIME_FS), commands)
+        self.assertIn("sdme cp fs:{}:".format(RUNTIME_FS), commands)
+        for forbidden in (
+            "sdme create",
+            "sdme start",
+            "sdme exec",
+            "systemctl ",
+            "nativelink.env",
+            "--port",
+        ):
+            self.assertNotIn(forbidden, commands)
+        self.assertTrue((data_root / "images").is_dir())
+        self.assertTrue((data_root / "provision").is_dir())
+        self.assertFalse((data_root / "worker-{}".format(architecture)).exists())
+
+    def test_prepare_runtime_accepts_offline_archives_without_podman(self) -> None:
+        architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+            platform.machine(), platform.machine()
+        )
+        if architecture not in ("x86_64", "aarch64"):
+            self.skipTest("unsupported test architecture")
+        log = self.install_fake_runtime_tools(architecture)
+
+        result = self.run_script(
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(self.safe_runtime_data_root()),
+            "--ubuntu-oci-archive",
+            str(self.archives["ubuntu"][architecture]),
+            "--nativelink-oci-archive",
+            str(self.archives["nativelink"][architecture]),
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn("podman ", commands)
+        self.assertIn("sdme fs import", commands)
+        build_line = next(
+            line
+            for line in commands.splitlines()
+            if "sdme fs build {}".format(RUNTIME_FS) in line
+        )
+        self.assertIn("infra/remote-execution/sdme/worker-rootfs.sdme", build_line)
+        self.assertNotIn("--no-cache", build_line)
+
+    def test_prepare_runtime_recovers_archive_publication_with_transaction(self) -> None:
+        architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+            platform.machine(), platform.machine()
+        )
+        if architecture not in ("x86_64", "aarch64"):
+            self.skipTest("unsupported test architecture")
+        self.install_fake_runtime_tools(architecture, fail_archive_publish=True)
+        data_root = self.safe_runtime_data_root()
+        arguments = (
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(data_root),
+            "--ubuntu-oci-archive",
+            str(self.archives["ubuntu"][architecture]),
+            "--nativelink-oci-archive",
+            str(self.archives["nativelink"][architecture]),
+        )
+
+        first = self.run_script(*arguments)
+
+        ubuntu_cache = data_root / "images/ubuntu-2604-{}.oci.tar".format(
+            architecture
+        )
+        ubuntu_provenance = ubuntu_cache.with_name(
+            ubuntu_cache.name + ".provenance.json"
+        )
+        self.assertNotEqual(first.returncode, 0)
+        self.assertTrue(ubuntu_cache.is_file())
+        self.assertFalse(ubuntu_provenance.exists())
+        self.assertTrue(
+            (
+                data_root
+                / "provision/transactions/archive-ubuntu.transaction"
+            ).is_file()
+        )
+        transaction_text = (
+            data_root / "provision/transactions/archive-ubuntu.transaction"
+        ).read_text(encoding="utf-8")
+        self.assertIn("object_sha256=", transaction_text)
+        self.assertIn("phase=publishing", transaction_text)
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertTrue(ubuntu_cache.is_file())
+        self.assertTrue(ubuntu_provenance.is_file())
+        self.assertFalse(
+            (
+                data_root
+                / "provision/transactions/archive-ubuntu.transaction"
+            ).exists()
+        )
+
+    def test_prepare_runtime_rejects_archive_without_provenance_or_transaction(self) -> None:
+        architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+            platform.machine(), platform.machine()
+        )
+        if architecture not in ("x86_64", "aarch64"):
+            self.skipTest("unsupported test architecture")
+        self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        images = data_root / "images"
+        images.mkdir(parents=True)
+        ubuntu_cache = images / "ubuntu-2604-{}.oci.tar".format(architecture)
+        shutil.copy2(self.archives["ubuntu"][architecture], ubuntu_cache)
+
+        result = self.run_script(
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(data_root),
+            "--ubuntu-oci-archive",
+            str(self.archives["ubuntu"][architecture]),
+            "--nativelink-oci-archive",
+            str(self.archives["nativelink"][architecture]),
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("without a matching transaction", result.stderr)
+        self.assertFalse(
+            ubuntu_cache.with_name(ubuntu_cache.name + ".provenance.json").exists()
+        )
+
+    def test_archive_recovery_rejects_invalid_transaction_records(self) -> None:
+        architecture = self.native_architecture()
+        self.install_fake_runtime_tools(architecture, fail_archive_publish=True)
+        failure_marker = self.external / "archive-mv-failed"
+        cases = (
+            ("mismatched", "does not match"),
+            ("malformed", "does not match"),
+            ("symlinked", "is a symlink"),
+            ("unsafe", "group/world-writable"),
+        )
+        for mutation, expected_error in cases:
+            with self.subTest(mutation=mutation):
+                failure_marker.unlink(missing_ok=True)
+                data_root = self.safe_runtime_data_root()
+                arguments = self.runtime_arguments(data_root, architecture)
+                first = self.run_script(*arguments)
+                self.assertNotEqual(first.returncode, 0)
+                transaction = (
+                    data_root
+                    / "provision/transactions/archive-ubuntu.transaction"
+                )
+                self.assertTrue(transaction.is_file())
+                if mutation == "mismatched":
+                    transaction.write_text(
+                        transaction.read_text(encoding="utf-8").replace(
+                            "intent_sha256=", "intent_sha256=" + "0" * 64 + "#"
+                        ),
+                        encoding="utf-8",
+                    )
+                elif mutation == "malformed":
+                    transaction.write_text("not-a-transaction\n", encoding="utf-8")
+                elif mutation == "symlinked":
+                    transaction.unlink()
+                    target = self.external / "transaction-target"
+                    target.write_text("not-a-transaction\n", encoding="utf-8")
+                    transaction.symlink_to(target)
+                else:
+                    transaction.chmod(0o666)
+
+                retry = self.run_script(*arguments)
+
+                self.assertEqual(retry.returncode, 2)
+                self.assertIn(expected_error, retry.stderr)
+
+    def test_archive_recovery_rejects_both_acquisition_mode_changes(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture, fail_archive_publish=True)
+        failure_marker = self.external / "archive-mv-failed"
+
+        offline_root = self.safe_runtime_data_root()
+        offline_arguments = self.runtime_arguments(offline_root, architecture)
+        first_offline = self.run_script(*offline_arguments)
+        self.assertNotEqual(first_offline.returncode, 0)
+        podman_before = (
+            log.read_text(encoding="utf-8").count("podman ") if log.exists() else 0
+        )
+        offline_to_registry = self.run_script(
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(offline_root),
+            "--nativelink-oci-archive",
+            str(self.archives["nativelink"][architecture]),
+        )
+        self.assertEqual(offline_to_registry.returncode, 2)
+        self.assertIn("transaction record does not match", offline_to_registry.stderr)
+        self.assertEqual(
+            podman_before,
+            log.read_text(encoding="utf-8").count("podman ") if log.exists() else 0,
+        )
+
+        failure_marker.unlink(missing_ok=True)
+        registry_root = self.safe_runtime_data_root()
+        registry_arguments = [
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(registry_root),
+            "--nativelink-oci-archive",
+            str(self.archives["nativelink"][architecture]),
+        ]
+        first_registry = self.run_script(*registry_arguments)
+        self.assertNotEqual(first_registry.returncode, 0)
+        podman_before = (
+            log.read_text(encoding="utf-8").count("podman ") if log.exists() else 0
+        )
+        registry_to_offline = self.run_script(
+            *self.runtime_arguments(registry_root, architecture)
+        )
+        self.assertEqual(registry_to_offline.returncode, 2)
+        self.assertIn("transaction record does not match", registry_to_offline.stderr)
+        self.assertEqual(
+            podman_before,
+            log.read_text(encoding="utf-8").count("podman ") if log.exists() else 0,
+        )
+
+    def test_image_filesystem_publication_recovers_only_with_transaction(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(
+            architecture, fail_image_provenance=True
+        )
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+
+        first = self.run_script(*arguments)
+
+        transaction = (
+            data_root
+            / "provision/transactions/image-buckos-re-ubuntu-2260313b31c8.transaction"
+        )
+        self.assertNotEqual(first.returncode, 0)
+        self.assertTrue(transaction.is_file())
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertFalse(transaction.exists())
+        self.assertIn(
+            "sdme fs rm -f buckos-re-ubuntu-2260313b31c8",
+            log.read_text(encoding="utf-8"),
+        )
+
+    def test_image_filesystem_publication_rejects_missing_transaction(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(
+            architecture, fail_image_provenance=True
+        )
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        first = self.run_script(*arguments)
+        self.assertNotEqual(first.returncode, 0)
+        transaction = (
+            data_root
+            / "provision/transactions/image-buckos-re-ubuntu-2260313b31c8.transaction"
+        )
+        transaction.unlink()
+
+        retry = self.run_script(*arguments)
+
+        self.assertEqual(retry.returncode, 2)
+        self.assertIn("rootfs lacks image provenance", retry.stderr)
+        self.assertNotIn(
+            "sdme fs rm -f buckos-re-ubuntu-2260313b31c8",
+            log.read_text(encoding="utf-8"),
+        )
+
+    def test_image_filesystem_publication_rejects_mismatched_transaction(self) -> None:
+        architecture = self.native_architecture()
+        self.install_fake_runtime_tools(architecture, fail_image_provenance=True)
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        first = self.run_script(*arguments)
+        self.assertNotEqual(first.returncode, 0)
+        transaction = (
+            data_root
+            / "provision/transactions/image-buckos-re-ubuntu-2260313b31c8.transaction"
+        )
+        transaction.write_text(
+            transaction.read_text(encoding="utf-8").replace(
+                "intent_sha256=", "intent_sha256=" + "0" * 64 + "#"
+            ),
+            encoding="utf-8",
+        )
+
+        retry = self.run_script(*arguments)
+
+        self.assertEqual(retry.returncode, 2)
+        self.assertIn("transaction record does not match", retry.stderr)
+
+    def test_runtime_publication_recovers_only_with_transaction(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(
+            architecture, fail_runtime_provenance=True
+        )
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+
+        first = self.run_script(*arguments)
+
+        transaction = (
+            data_root
+            / "provision/transactions/runtime-{}.transaction".format(RUNTIME_FS)
+        )
+        self.assertNotEqual(first.returncode, 0)
+        self.assertTrue(transaction.is_file())
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertFalse(transaction.exists())
+        commands = log.read_text(encoding="utf-8")
+        self.assertIn("sdme fs rm -f {}".format(RUNTIME_FS), commands)
+        self.assertIn("--no-cache", commands)
+
+    def test_runtime_publication_rejects_missing_transaction(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(
+            architecture, fail_runtime_provenance=True
+        )
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        first = self.run_script(*arguments)
+        self.assertNotEqual(first.returncode, 0)
+        transaction = (
+            data_root
+            / "provision/transactions/runtime-{}.transaction".format(RUNTIME_FS)
+        )
+        transaction.unlink()
+
+        retry = self.run_script(*arguments)
+
+        self.assertEqual(retry.returncode, 2)
+        self.assertIn("runtime rootfs lacks strict provenance", retry.stderr)
+        self.assertNotIn(
+            "sdme fs rm -f {}".format(RUNTIME_FS),
+            log.read_text(encoding="utf-8"),
+        )
+
+    def test_runtime_publication_rejects_malformed_transaction(self) -> None:
+        architecture = self.native_architecture()
+        self.install_fake_runtime_tools(
+            architecture, fail_runtime_provenance=True
+        )
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        first = self.run_script(*arguments)
+        self.assertNotEqual(first.returncode, 0)
+        transaction = (
+            data_root
+            / "provision/transactions/runtime-{}.transaction".format(RUNTIME_FS)
+        )
+        transaction.write_text("not-a-transaction\n", encoding="utf-8")
+
+        retry = self.run_script(*arguments)
+
+        self.assertEqual(retry.returncode, 2)
+        self.assertIn("transaction record does not match", retry.stderr)
+
+    def test_proxy_runtime_build_contains_secrets_and_cleans_transaction(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        secret = "http://builder:p'{}$()@proxy.example:8443".format(
+            secrets.token_hex(12)
+        )
+        environment = {
+            "HTTPS_PROXY": secret,
+            "NO_PROXY": "localhost,127.0.0.1",
+            "FAKE_EXPECT_PROXY_SECRET": secret,
+            "FAKE_EXPECT_PROXY_NAME": "HTTPS_PROXY",
+            "FAKE_EXPECT_PROXY_NAMES": "HTTPS_PROXY,NO_PROXY",
+            "FAKE_UNRELATED_SECRET": "must-not-be-copied",
+        }
+
+        result = self.run_script(
+            *self.runtime_arguments(data_root, architecture),
+            "-v",
+            environment=environment,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertIn("transactions/runtime-{}".format(RUNTIME_FS), commands)
+        self.assertNotIn(secret, result.stdout + result.stderr + commands)
+        provenance_copy = "sdme cp "
+        provenance_destination = "fs:{}:/etc/buckos-re-runtime-provenance.json".format(
+            RUNTIME_FS
+        )
+        provenance_position = next(
+            index
+            for index, line in enumerate(commands.splitlines())
+            if provenance_copy in line and provenance_destination in line
+        )
+        inspection_positions = [
+            index
+            for index, line in enumerate(commands.splitlines())
+            if "sdme fs export fs:{}".format(RUNTIME_FS) in line
+        ]
+        self.assertEqual(len(inspection_positions), 2)
+        self.assertLess(inspection_positions[0], provenance_position)
+        self.assertGreater(inspection_positions[1], provenance_position)
+        transaction_dir = data_root / "provision/transactions"
+        self.assertEqual(list(transaction_dir.iterdir()), [])
+        state = self.external / "fake-sdme-state"
+        for path in state.iterdir():
+            self.assertNotIn(secret, path.read_text(encoding="utf-8"))
+
+    def test_proxy_runtime_build_resumes_identical_failed_transaction(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture, fail_runtime_build=True)
+        data_root = self.safe_runtime_data_root()
+        secret = "http://builder:{}@proxy.example:8080".format(
+            secrets.token_hex(12)
+        )
+        environment = {
+            "HTTP_PROXY": secret,
+            "FAKE_EXPECT_PROXY_SECRET": secret,
+            "FAKE_EXPECT_PROXY_NAME": "HTTP_PROXY",
+            "FAKE_EXPECT_PROXY_NAMES": "HTTP_PROXY",
+            "FAKE_BUILD_LEAK_PROXY": "known",
+        }
+        arguments = self.runtime_arguments(data_root, architecture)
+
+        first = self.run_script(*arguments, environment=environment)
+
+        transaction_dir = data_root / "provision/transactions"
+        self.assertNotEqual(first.returncode, 0)
+        self.assertTrue(
+            (transaction_dir / "runtime-{}.transaction".format(RUNTIME_FS)).is_file()
+        )
+        self.assertFalse(
+            (transaction_dir / "runtime-{}.proxy.env".format(RUNTIME_FS)).exists()
+        )
+        self.assertTrue(
+            (self.external / "fake-sdme-state/{}.proxy-path".format(RUNTIME_FS)).is_file()
+        )
+        transaction = transaction_dir / "runtime-{}.transaction".format(RUNTIME_FS)
+        build_definition = transaction_dir / "runtime-{}.build.sdme".format(
+            RUNTIME_FS
+        )
+        self.assertFalse(build_definition.exists())
+        self.assertEqual(transaction.stat().st_mode & 0o777, 0o600)
+        self.assertNotIn(secret, transaction.read_text(encoding="utf-8"))
+
+        rotated_secret = "http://builder:{}@proxy.example:8080".format(
+            secrets.token_hex(12)
+        )
+        second = self.run_script(
+            *arguments,
+            environment={
+                "HTTP_PROXY": rotated_secret,
+                "FAKE_EXPECT_PROXY_SECRET": rotated_secret,
+                "FAKE_EXPECT_PROXY_NAME": "HTTP_PROXY",
+                "FAKE_EXPECT_PROXY_NAMES": "HTTP_PROXY",
+            },
+        )
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        build_lines = [
+            line
+            for line in log.read_text(encoding="utf-8").splitlines()
+            if "sdme fs build {}".format(RUNTIME_FS) in line
+        ]
+        self.assertEqual(len(build_lines), 2)
+        self.assertIn("--no-cache", build_lines[0])
+        self.assertIn("--no-cache", build_lines[1])
+        self.assertNotIn(rotated_secret, second.stdout + second.stderr)
+        self.assertFalse(
+            (self.external / "fake-sdme-state/{}.proxy-path".format(RUNTIME_FS)).exists()
+        )
+        self.assertEqual(list(transaction_dir.iterdir()), [])
+
+    def test_proxy_plan_never_prints_proxy_values(self) -> None:
+        secret = secrets.token_hex(16)
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            environment={
+                "HTTPS_PROXY": "http://builder:{}@proxy.example:8443".format(secret)
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("private transaction files", result.stdout)
+        self.assertIn("--no-cache", result.stdout)
+        self.assertNotIn(secret, result.stdout + result.stderr)
+
+    def test_all_proxy_variable_spellings_are_forwarded_exactly(self) -> None:
+        architecture = self.native_architecture()
+        self.install_fake_runtime_tools(architecture)
+        state = self.external / "fake-sdme-state"
+        for name in (
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+            "no_proxy",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "NO_PROXY",
+        ):
+            with self.subTest(name=name):
+                for path in state.iterdir():
+                    if path.is_dir():
+                        shutil.rmtree(path)
+                    else:
+                        path.unlink()
+                data_root = self.safe_runtime_data_root()
+                value = "{}-exact-value".format(name)
+                result = self.run_script(
+                    *self.runtime_arguments(data_root, architecture),
+                    environment={
+                        name: value,
+                        "FAKE_EXPECT_PROXY_SECRET": value,
+                        "FAKE_EXPECT_PROXY_NAME": name,
+                        "FAKE_EXPECT_PROXY_NAMES": name,
+                    },
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn(value, result.stdout + result.stderr)
+
+        for path in state.iterdir():
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        lower_value = "http://lower-proxy.example:8080"
+        upper_value = "http://upper-proxy.example:8080"
+        conflict_root = self.safe_runtime_data_root()
+        conflict = self.run_script(
+            *self.runtime_arguments(conflict_root, architecture),
+            environment={
+                "http_proxy": lower_value,
+                "HTTP_PROXY": upper_value,
+                "FAKE_EXPECT_PROXY_SECRET": lower_value,
+                "FAKE_EXPECT_PROXY_NAMES": "http_proxy,HTTP_PROXY",
+                "FAKE_EXPECT_PROXY_VALUES": json.dumps(
+                    {"http_proxy": lower_value, "HTTP_PROXY": upper_value}
+                ),
+            },
+        )
+        self.assertEqual(conflict.returncode, 0, conflict.stderr)
+
+    def test_no_proxy_build_and_retry_keep_the_original_sdme_command(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture, fail_runtime_build=True)
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+
+        first = self.run_script(*arguments)
+        second = self.run_script(*arguments)
+
+        self.assertNotEqual(first.returncode, 0)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        build_lines = [
+            line
+            for line in log.read_text(encoding="utf-8").splitlines()
+            if "sdme fs build {}".format(RUNTIME_FS) in line
+        ]
+        self.assertEqual(len(build_lines), 2)
+        for line in build_lines:
+            self.assertIn("infra/remote-execution/sdme/worker-rootfs.sdme", line)
+            self.assertNotIn("transactions/runtime-", line)
+            self.assertNotIn("--no-cache", line)
+
+    def test_clean_runtime_reuse_with_proxy_creates_no_transport(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        first = self.run_script(*arguments)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        before = log.read_text(encoding="utf-8").count(
+            "sdme fs build {}".format(RUNTIME_FS)
+        )
+
+        proxy_value = "http://reuse-proxy.example:8080"
+        second = self.run_script(
+            *arguments,
+            environment={"HTTPS_PROXY": proxy_value},
+        )
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        after = log.read_text(encoding="utf-8").count(
+            "sdme fs build {}".format(RUNTIME_FS)
+        )
+        self.assertEqual(before, after)
+        self.assertEqual(list((data_root / "provision/transactions").iterdir()), [])
+
+    def test_proxy_and_direct_builds_publish_identical_runtime_provenance(self) -> None:
+        architecture = self.native_architecture()
+        self.install_fake_runtime_tools(architecture)
+        state = self.external / "fake-sdme-state"
+        direct_root = self.safe_runtime_data_root()
+        direct = self.run_script(*self.runtime_arguments(direct_root, architecture))
+        self.assertEqual(direct.returncode, 0, direct.stderr)
+        provenance_path = state / "{}.buckos-re-runtime-provenance.json".format(
+            RUNTIME_FS
+        )
+        direct_provenance = provenance_path.read_bytes()
+        for path in state.iterdir():
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+
+        proxy_root = self.safe_runtime_data_root()
+        proxy_value = "http://provenance-proxy.example:8080"
+        proxied = self.run_script(
+            *self.runtime_arguments(proxy_root, architecture),
+            environment={
+                "HTTPS_PROXY": proxy_value,
+                "FAKE_EXPECT_PROXY_SECRET": proxy_value,
+                "FAKE_EXPECT_PROXY_NAME": "HTTPS_PROXY",
+                "FAKE_EXPECT_PROXY_NAMES": "HTTPS_PROXY",
+            },
+        )
+
+        self.assertEqual(proxied.returncode, 0, proxied.stderr)
+        self.assertEqual(direct_provenance, provenance_path.read_bytes())
+
+    def test_proxy_to_no_proxy_interrupted_transition_is_refused(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture, fail_runtime_build=True)
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        proxy_value = "http://transition-proxy.example:8080"
+        first = self.run_script(
+            *arguments,
+            environment={
+                "all_proxy": proxy_value,
+                "FAKE_EXPECT_PROXY_SECRET": proxy_value,
+                "FAKE_EXPECT_PROXY_NAME": "all_proxy",
+                "FAKE_EXPECT_PROXY_NAMES": "all_proxy",
+                "FAKE_BUILD_LEAK_PROXY": "known",
+            },
+        )
+        self.assertNotEqual(first.returncode, 0)
+
+        retry = self.run_script(*arguments)
+
+        self.assertEqual(retry.returncode, 2)
+        self.assertIn("transaction record does not match", retry.stderr)
+        build_lines = [
+            line
+            for line in log.read_text(encoding="utf-8").splitlines()
+            if "sdme fs build {}".format(RUNTIME_FS) in line
+        ]
+        self.assertEqual(len(build_lines), 1)
+
+    def test_proxy_retry_rejects_untrusted_transport_files(self) -> None:
+        architecture = self.native_architecture()
+        self.install_fake_runtime_tools(architecture, fail_runtime_build=True)
+        failure_marker = self.external / "runtime-build-failed"
+        for mutation, expected_error in (
+            ("symlink", "is a symlink"),
+            ("unsafe", "group/world-writable"),
+        ):
+            with self.subTest(mutation=mutation):
+                failure_marker.unlink(missing_ok=True)
+                data_root = self.safe_runtime_data_root()
+                arguments = self.runtime_arguments(data_root, architecture)
+                proxy_value = "http://transport-{}.example:8080".format(mutation)
+                environment = {
+                    "HTTPS_PROXY": proxy_value,
+                    "FAKE_EXPECT_PROXY_SECRET": proxy_value,
+                    "FAKE_EXPECT_PROXY_NAME": "HTTPS_PROXY",
+                    "FAKE_EXPECT_PROXY_NAMES": "HTTPS_PROXY",
+                }
+                first = self.run_script(*arguments, environment=environment)
+                self.assertNotEqual(first.returncode, 0)
+                transport = (
+                    data_root
+                    / "provision/transactions/runtime-{}.proxy.env".format(RUNTIME_FS)
+                )
+                if mutation == "symlink":
+                    transport.symlink_to(self.external / "missing-transport")
+                else:
+                    transport.write_text("unsafe\n", encoding="utf-8")
+                    transport.chmod(0o666)
+
+                retry = self.run_script(*arguments, environment=environment)
+
+                self.assertEqual(retry.returncode, 2)
+                self.assertIn(expected_error, retry.stderr)
+
+    def test_proxy_transport_without_transaction_is_refused(self) -> None:
+        architecture = self.native_architecture()
+        self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        transaction_dir = data_root / "provision/transactions"
+        transaction_dir.mkdir(parents=True, mode=0o700)
+        transport = transaction_dir / "runtime-{}.proxy.env".format(RUNTIME_FS)
+        transport.write_text("# buckos-sdme-proxy-transport-v1\n", encoding="utf-8")
+        transport.chmod(0o600)
+
+        result = self.run_script(*self.runtime_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("without a matching transaction record", result.stderr)
+        self.assertTrue(transport.is_file())
+
+    def test_proxy_transport_is_cleaned_after_sigterm_and_retry_is_fresh(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        ready = self.external / "build-block-ready"
+        release = self.external / "build-block-release"
+        proxy_value = "http://signal-proxy.example:8080"
+        environment = {
+            "HTTPS_PROXY": proxy_value,
+            "FAKE_EXPECT_PROXY_SECRET": proxy_value,
+            "FAKE_EXPECT_PROXY_NAME": "HTTPS_PROXY",
+            "FAKE_EXPECT_PROXY_NAMES": "HTTPS_PROXY",
+            "FAKE_SDME_BLOCK_BUILD_READY": str(ready),
+            "FAKE_SDME_BLOCK_BUILD_RELEASE": str(release),
+        }
+        first = subprocess.Popen(
+            [str(self.script), *arguments],
+            env=self.script_environment(environment),
+            start_new_session=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.addCleanup(lambda: first.kill() if first.poll() is None else None)
+        deadline = time.monotonic() + 20
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(ready.exists())
+
+        os.killpg(first.pid, signal.SIGTERM)
+        first.communicate(timeout=20)
+
+        self.assertNotEqual(first.returncode, 0)
+        transaction_dir = data_root / "provision/transactions"
+        self.assertTrue(
+            (transaction_dir / "runtime-{}.transaction".format(RUNTIME_FS)).is_file()
+        )
+        self.assertFalse(
+            (transaction_dir / "runtime-{}.proxy.env".format(RUNTIME_FS)).exists()
+        )
+        self.assertFalse(
+            (transaction_dir / "runtime-{}.build.sdme".format(RUNTIME_FS)).exists()
+        )
+
+        retry_environment = environment.copy()
+        retry_environment.pop("FAKE_SDME_BLOCK_BUILD_READY")
+        retry_environment.pop("FAKE_SDME_BLOCK_BUILD_RELEASE")
+        retry = self.run_script(*arguments, environment=retry_environment)
+
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        build_lines = [
+            line
+            for line in log.read_text(encoding="utf-8").splitlines()
+            if "sdme fs build {}".format(RUNTIME_FS) in line
+        ]
+        self.assertEqual(len(build_lines), 2)
+        self.assertTrue(all("--no-cache" in line for line in build_lines))
+
+    def test_runtime_proxy_scan_rejects_unexpected_content_before_provenance(self) -> None:
+        architecture = self.native_architecture()
+        self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        proxy_value = "http://leak-proxy.example:8080"
+        result = self.run_script(
+            *arguments,
+            environment={
+                "HTTPS_PROXY": proxy_value,
+                "FAKE_EXPECT_PROXY_SECRET": proxy_value,
+                "FAKE_EXPECT_PROXY_NAME": "HTTPS_PROXY",
+                "FAKE_EXPECT_PROXY_NAMES": "HTTPS_PROXY",
+                "FAKE_BUILD_LEAK_PROXY": "value",
+            },
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("contains proxy transport material", result.stderr)
+        state = self.external / "fake-sdme-state"
+        self.assertFalse(
+            (state / "{}.buckos-re-runtime-provenance.json".format(RUNTIME_FS)).exists()
+        )
+        transaction_dir = data_root / "provision/transactions"
+        self.assertTrue(
+            (transaction_dir / "runtime-{}.transaction".format(RUNTIME_FS)).is_file()
+        )
+        self.assertFalse(
+            (transaction_dir / "runtime-{}.proxy.env".format(RUNTIME_FS)).exists()
+        )
+
+    def test_runtime_proxy_scan_rejects_reuse_leak_and_inspection_error(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        first = self.run_script(*arguments)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        state = self.external / "fake-sdme-state"
+        leak = state / "{}.proxy-path".format(RUNTIME_FS)
+        leak.write_text("# buckos-sdme-proxy-transport-v1\n", encoding="utf-8")
+
+        contaminated = self.run_script(*arguments)
+
+        self.assertEqual(contaminated.returncode, 2)
+        self.assertIn("contains proxy transport material", contaminated.stderr)
+        self.assertNotIn("sdme fs rm -f {}".format(RUNTIME_FS), log.read_text(encoding="utf-8"))
+        leak.unlink()
+
+        inspection_error = self.run_script(
+            *arguments, environment={"FAKE_INSPECTION_ERROR": "1"}
+        )
+
+        self.assertEqual(inspection_error.returncode, 2)
+        self.assertIn("runtime proxy inspection failed", inspection_error.stderr)
+        self.assertNotIn("sdme fs rm -f {}".format(RUNTIME_FS), log.read_text(encoding="utf-8"))
+
+    def test_fresh_runtime_inspection_error_prevents_provenance_publication(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+
+        first = self.run_script(
+            *arguments, environment={"FAKE_INSPECTION_ERROR": "1"}
+        )
+
+        self.assertEqual(first.returncode, 2)
+        self.assertIn("runtime proxy inspection failed", first.stderr)
+        state = self.external / "fake-sdme-state"
+        self.assertFalse(
+            (state / "{}.buckos-re-runtime-provenance.json".format(RUNTIME_FS)).exists()
+        )
+        self.assertTrue(
+            (
+                data_root
+                / "provision/transactions/runtime-{}.transaction".format(RUNTIME_FS)
+            ).is_file()
+        )
+
+        retry = self.run_script(*arguments)
+
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertIn(
+            "sdme fs rm -f {}".format(RUNTIME_FS),
+            log.read_text(encoding="utf-8"),
+        )
+
+    def test_post_provenance_proxy_leak_is_not_reused(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(
+            architecture, leak_after_runtime_provenance=True
+        )
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        proxy_value = "http://post-provenance.example:8080"
+        environment = {
+            "HTTPS_PROXY": proxy_value,
+            "FAKE_EXPECT_PROXY_SECRET": proxy_value,
+            "FAKE_EXPECT_PROXY_NAME": "HTTPS_PROXY",
+            "FAKE_EXPECT_PROXY_NAMES": "HTTPS_PROXY",
+        }
+
+        first = self.run_script(*arguments, environment=environment)
+        self.assertNotEqual(first.returncode, 0)
+        state = self.external / "fake-sdme-state"
+        self.assertTrue(
+            (state / "{}.buckos-re-runtime-provenance.json".format(RUNTIME_FS)).is_file()
+        )
+
+        retry = self.run_script(*arguments, environment=environment)
+
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertIn(
+            "sdme fs rm -f {}".format(RUNTIME_FS),
+            log.read_text(encoding="utf-8"),
+        )
+
+    def test_clean_post_provenance_interruption_completes_without_rebuild(self) -> None:
+        architecture = self.native_architecture()
+        log = self.install_fake_runtime_tools(
+            architecture, fail_after_runtime_provenance=True
+        )
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        proxy_value = "http://clean-post-provenance.example:8080"
+        environment = {
+            "HTTPS_PROXY": proxy_value,
+            "FAKE_EXPECT_PROXY_SECRET": proxy_value,
+            "FAKE_EXPECT_PROXY_NAME": "HTTPS_PROXY",
+            "FAKE_EXPECT_PROXY_NAMES": "HTTPS_PROXY",
+        }
+        first = self.run_script(*arguments, environment=environment)
+        self.assertNotEqual(first.returncode, 0)
+
+        retry = self.run_script(*arguments, environment=environment)
+
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        build_lines = [
+            line
+            for line in log.read_text(encoding="utf-8").splitlines()
+            if "sdme fs build {}".format(RUNTIME_FS) in line
+        ]
+        self.assertEqual(len(build_lines), 1)
+        self.assertEqual(list((data_root / "provision/transactions").iterdir()), [])
+
+    def test_prepare_runtime_refuses_concurrent_writer_and_releases_lock(self) -> None:
+        architecture = self.native_architecture()
+        self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        arguments = self.runtime_arguments(data_root, architecture)
+        ready = self.external / "sdme-block-ready"
+        release = self.external / "sdme-block-release"
+        environment = {
+            "FAKE_SDME_BLOCK_READY": str(ready),
+            "FAKE_SDME_BLOCK_RELEASE": str(release),
+        }
+        first = subprocess.Popen(
+            [str(self.script), *arguments],
+            env=self.script_environment(environment),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.addCleanup(lambda: first.kill() if first.poll() is None else None)
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(ready.exists())
+
+        concurrent = self.run_script(*arguments)
+
+        self.assertEqual(concurrent.returncode, 2)
+        self.assertIn("another provisioning operation holds", concurrent.stderr)
+        release.touch()
+        _, first_stderr = first.communicate(timeout=30)
+        self.assertEqual(first.returncode, 0, first_stderr)
+
+        later = self.run_script(*arguments)
+        self.assertEqual(later.returncode, 0, later.stderr)
+
+    def test_existing_filesystem_does_not_relax_incomplete_cache(self) -> None:
+        architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+            platform.machine(), platform.machine()
+        )
+        if architecture not in ("x86_64", "aarch64"):
+            self.skipTest("unsupported test architecture")
+        self.install_fake_runtime_tools(architecture)
+        data_root = self.safe_runtime_data_root()
+        images = data_root / "images"
+        images.mkdir(parents=True)
+        ubuntu_cache = images / "ubuntu-2604-{}.oci.tar".format(architecture)
+        shutil.copy2(self.archives["ubuntu"][architecture], ubuntu_cache)
+        state = self.external / "fake-sdme-state"
+        (state / "buckos-re-ubuntu-2260313b31c8.fs").write_text(
+            "", encoding="utf-8"
+        )
+
+        result = self.run_script(
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(data_root),
+            "--ubuntu-oci-archive",
+            str(self.archives["ubuntu"][architecture]),
+            "--nativelink-oci-archive",
+            str(self.archives["nativelink"][architecture]),
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("incomplete cached OCI archive pair", result.stderr)
+        self.assertFalse(
+            ubuntu_cache.with_name(ubuntu_cache.name + ".provenance.json").exists()
+        )
+
+    def test_worker_apply_still_requires_probe_contract(self) -> None:
+        architecture = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+            platform.machine(), platform.machine()
+        )
+        if architecture not in ("x86_64", "aarch64"):
+            self.skipTest("unsupported test architecture")
+        log = self.install_fake_runtime_tools(architecture)
+
+        result = self.run_script(
+            "apply",
+            "worker",
+            "--arch",
+            architecture,
+            "--data-root",
+            str(self.external / "data"),
+            "--control-address",
+            "buckos-re-control",
+            "--min-scratch-bytes",
+            "1000000",
+            "--min-scratch-inodes",
+            "0",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--probe-sysroot must be absolute", result.stderr)
+        self.assertFalse(log.exists())
+
+    def test_prepare_runtime_rejects_deployment_options(self) -> None:
+        self.install_fake_runtime_tools("x86_64")
+        result = self.run_script(
+            "prepare-runtime",
+            "worker",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--control-address",
+            "buckos-re-control",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("accepts only --data-root, --arch, and acquisition options", result.stderr)
+
+    def test_rootfs_and_drop_in_preserve_worker_contract(self) -> None:
+        rootfs = ROOTFS.read_text(encoding="utf-8")
+        drop_in = DROP_IN.read_text(encoding="utf-8")
+        for package in ("bubblewrap", "uidmap", "rpm2cpio", "dpkg-dev"):
+            self.assertIn(package, rootfs)
+        self.assertIn("nativelink:65536:65536", rootfs)
+        self.assertIn("nativelink --version", rootfs)
+        self.assertIn("fs:buckos-re-nativelink-5c2e6eca51c6:/bin/nativelink", rootfs)
+        self.assertNotIn("/oci/apps/", rootfs)
+        self.assertLess(
+            rootfs.index("rm -rf /nix /opt/buckos-re/image-bin"),
+            rootfs.index('test "$(/usr/bin/nativelink --version)"'),
+        )
+        self.assertIn("# PROVISIONER_PROXY_COPY", rootfs)
+        self.assertIn(". /etc/buckos-re-build-proxy.env", rootfs)
+        self.assertIn("rm -f /etc/buckos-re-build-proxy.env", rootfs)
+        self.assertIn("test ! -e /etc/buckos-re-build-proxy.env", rootfs)
+        self.assertIn("PrivateTmp=no", drop_in)
+        self.assertIn("ReadWritePaths=/var/tmp", drop_in)
+        self.assertIn("preflight-worker.sh", drop_in)
+        self.assertNotIn("NoNewPrivileges", drop_in)
+
+    def test_aarch64_plan_selects_native_worker_assets(self) -> None:
+        arguments = self.worker_arguments()
+        arguments[arguments.index("x86_64")] = "aarch64"
+        result = self.run_script(*arguments)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("worker-aarch64.json5", result.stdout)
+        self.assertIn("--name buckos-re-worker-aarch64", result.stdout)
+        self.assertIn("--platform linux/arm64", result.stdout)
+
+    def test_control_apply_waits_for_delayed_zone_address(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        state = self.external / "fake-sdme-state"
+        cases = (
+            (["169.254.42.8", "10.77.0.3"], "10.77.0.3"),
+            (["fe80::193", "fd00::77"], "[fd00::77]"),
+            (["169.254.42.8"], "169.254.42.8"),
+        )
+
+        for addresses, expected in cases:
+            with self.subTest(expected=expected):
+                (state / "ps-count").unlink(missing_ok=True)
+                log.write_text("", encoding="utf-8")
+                result = self.run_script(
+                    *self.control_arguments(data_root, architecture),
+                    "-v",
+                    environment={
+                        "FAKE_FAST_SLEEP": "1",
+                        "FAKE_SDME_ADDRESSES": json.dumps(addresses),
+                        "FAKE_SDME_ADDRESS_READY_AFTER": "3",
+                    },
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    result.stderr.count("waiting for control container"), 1
+                )
+                commands = log.read_text(encoding="utf-8")
+                self.assertEqual(commands.count("sdme ps --json"), 4)
+                self.assertEqual(commands.count("sleep 1.000"), 1)
+                self.assertNotIn("sdme create", commands)
+                self.assertNotIn("sdme start", commands)
+                environment = data_root / "provision/buckos-re-control.env"
+                self.assertIn(
+                    "NATIVELINK_WORKER_BIND_ADDRESS={}".format(expected),
+                    environment.read_text(encoding="utf-8"),
+                )
+
+    def test_fresh_control_create_waits_for_its_zone_address(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+
+        result = self.run_script(
+            *self.control_arguments(data_root, architecture),
+            "-v",
+            environment={
+                "FAKE_FAST_SLEEP": "1",
+                "FAKE_SDME_ADDRESS_READY_AFTER": "2",
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertEqual(commands.count("sdme create"), 1)
+        self.assertNotIn("sdme start", commands)
+        self.assertNotIn("sdme restart", commands)
+        self.assertEqual(result.stderr.count("waiting for control container"), 1)
+        environment = data_root / "provision/buckos-re-control.env"
+        self.assertIn(
+            "NATIVELINK_WORKER_BIND_ADDRESS=169.254.42.8",
+            environment.read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            self.fake_managed_path(data_root / "control"),
+            {"gid": FAKE_SERVICE_GID, "mode": "750", "uid": FAKE_SERVICE_UID},
+        )
+
+    def test_completed_control_apply_accepts_service_managed_state(self) -> None:
+        architecture, data_root, log = self.prepare_completed_control()
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn("sdme create", commands)
+        self.assertNotIn("sdme start", commands)
+        self.assertEqual(commands.count("systemctl restart nativelink.service"), 1)
+
+    def test_control_retry_accepts_root_owned_pre_storage_state(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime(
+            fail_container_copy=True
+        )
+        arguments = self.control_arguments(data_root, architecture)
+
+        first = self.run_script(*arguments)
+
+        self.assertNotEqual(first.returncode, 0)
+        control = data_root / "control"
+        self.assertEqual((control.stat().st_uid, control.stat().st_gid), (0, 0))
+        with self.assertRaises(KeyError):
+            self.fake_managed_path(control)
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(
+            self.fake_managed_path(control),
+            {"gid": FAKE_SERVICE_GID, "mode": "750", "uid": FAKE_SERVICE_UID},
+        )
+        commands = log.read_text(encoding="utf-8")
+        self.assertEqual(commands.count("sdme create"), 1)
+        self.assertEqual(commands.count("systemctl restart nativelink.service"), 1)
+
+    def test_worker_retry_accepts_root_owned_pre_storage_paths(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime(
+            fail_container_copy=True
+        )
+        self.seed_matching_control(data_root)
+        arguments = self.worker_apply_arguments(data_root, architecture)
+
+        first = self.run_script(*arguments)
+
+        self.assertNotEqual(first.returncode, 0)
+        state = data_root / "worker-{}/state".format(architecture)
+        worker_state = state / "worker-{}".format(architecture)
+        scratch = data_root / "worker-{}/scratch".format(architecture)
+        for path in (state, scratch):
+            self.assertEqual((path.stat().st_uid, path.stat().st_gid), (0, 0))
+            with self.assertRaises(KeyError):
+                self.fake_managed_path(path)
+        self.assertFalse(worker_state.exists())
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual((state.stat().st_uid, state.stat().st_gid), (0, 0))
+        with self.assertRaises(KeyError):
+            self.fake_managed_path(state)
+        for path in (worker_state, scratch):
+            self.assertEqual(
+                self.fake_managed_path(path),
+                {
+                    "gid": FAKE_SERVICE_GID,
+                    "mode": "750",
+                    "uid": FAKE_SERVICE_UID,
+                },
+            )
+        self.set_fake_managed_path(worker_state, uid=0, gid=0)
+
+        third = self.run_script(*arguments)
+
+        self.assertEqual(third.returncode, 0, third.stderr)
+        self.assertEqual(
+            self.fake_managed_path(worker_state),
+            {"gid": FAKE_SERVICE_GID, "mode": "750", "uid": FAKE_SERVICE_UID},
+        )
+        commands = log.read_text(encoding="utf-8")
+        self.assertEqual(commands.count("sdme create"), 1)
+        self.assertEqual(commands.count("systemctl restart nativelink.service"), 2)
+
+    def test_fresh_control_apply_requires_root_owned_state(self) -> None:
+        architecture, data_root, log = self.prepare_control_runtime()
+        control = data_root / "control"
+        control.mkdir(mode=0o750)
+        self.set_fake_managed_path(control)
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("managed state path is not root-owned", result.stderr)
+        self.assertNotIn("sdme create", log.read_text(encoding="utf-8"))
+
+    def test_container_topology_is_validated_before_service_ownership(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        control = data_root / "control"
+        self.set_fake_managed_path(control, uid=FAKE_SERVICE_UID + 1)
+        container_path = self.external / "fake-sdme-state/container.json"
+        container = json.loads(container_path.read_text(encoding="utf-8"))
+        container["binds"] = []
+        container_path.write_text(json.dumps(container), encoding="utf-8")
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("existing container does not match requested topology", result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn("/etc/passwd", commands)
+        self.assertNotIn("systemctl restart nativelink.service", commands)
+
+    def test_worker_retry_accepts_service_managed_state_and_scratch(self) -> None:
+        architecture, data_root, log = self.prepare_completed_worker()
+        state = data_root / "worker-{}/state".format(architecture)
+        worker_state = state / "worker-{}".format(architecture)
+        scratch = data_root / "worker-{}/scratch".format(architecture)
+        commands = log.read_text(encoding="utf-8")
+        self.assertIn(
+            "install -d -m 0750 -o nativelink -g nativelink "
+            "/var/lib/nativelink/worker-{} /var/tmp".format(
+                architecture
+            ),
+            commands,
+        )
+        self.assertEqual(state.stat().st_uid, 0)
+        self.assertEqual(state.stat().st_gid, 0)
+        with self.assertRaises(KeyError):
+            self.fake_managed_path(state)
+        for path in (worker_state, scratch):
+            self.assertEqual(
+                self.fake_managed_path(path),
+                {
+                    "gid": FAKE_SERVICE_GID,
+                    "mode": "750",
+                    "uid": FAKE_SERVICE_UID,
+                },
+            )
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.worker_apply_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn("sdme create", commands)
+        self.assertNotIn("sdme start", commands)
+        self.assertEqual(commands.count("systemctl restart nativelink.service"), 1)
+
+    def test_existing_control_rejects_wrong_service_managed_metadata(self) -> None:
+        architecture, data_root, log = self.prepare_completed_control()
+        control = data_root / "control"
+        cases = (
+            ({"uid": FAKE_SERVICE_UID + 1}, "ownership is neither root nor"),
+            ({"gid": FAKE_SERVICE_GID + 1}, "ownership is neither root nor"),
+            ({"mode": "770"}, "group/world-writable"),
+        )
+
+        for changes, expected_error in cases:
+            with self.subTest(changes=changes):
+                self.set_fake_managed_path(control, **changes)
+                log.write_text("", encoding="utf-8")
+                result = self.run_script(
+                    *self.control_arguments(data_root, architecture)
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected_error, result.stderr)
+                self.assertNotIn(
+                    "systemctl restart nativelink.service",
+                    log.read_text(encoding="utf-8"),
+                )
+                self.set_fake_managed_path(control)
+
+    def test_existing_worker_rejects_wrong_managed_path_owners(self) -> None:
+        architecture, data_root, log = self.prepare_completed_worker()
+        state = data_root / "worker-{}/state".format(architecture)
+        worker_state = state / "worker-{}".format(architecture)
+        scratch = data_root / "worker-{}/scratch".format(architecture)
+        cases = (
+            (
+                state,
+                {"uid": FAKE_SERVICE_UID, "gid": FAKE_SERVICE_GID},
+                "managed state path is not root-owned",
+            ),
+            (
+                worker_state,
+                {"uid": FAKE_SERVICE_UID + 1},
+                "managed worker state path ownership is neither root nor",
+            ),
+            (
+                scratch,
+                {"gid": FAKE_SERVICE_GID + 1},
+                "managed scratch path ownership is neither root nor",
+            ),
+        )
+
+        for path, changes, expected_error in cases:
+            with self.subTest(path=path):
+                self.set_fake_managed_path(path, **changes)
+                log.write_text("", encoding="utf-8")
+                result = self.run_script(
+                    *self.worker_apply_arguments(data_root, architecture)
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected_error, result.stderr)
+                self.assertNotIn(
+                    "systemctl restart nativelink.service",
+                    log.read_text(encoding="utf-8"),
+                )
+                if path == state:
+                    self.set_fake_managed_path(path, uid=0, gid=0)
+                else:
+                    self.set_fake_managed_path(path)
+
+    def test_existing_control_rejects_symlinked_state(self) -> None:
+        architecture, data_root, log = self.prepare_completed_control()
+        control = data_root / "control"
+        replacement = data_root / "replacement"
+        replacement.mkdir(mode=0o750)
+        control.rmdir()
+        control.symlink_to(replacement, target_is_directory=True)
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("managed state path is not a real directory", result.stderr)
+        self.assertNotIn(
+            "systemctl restart nativelink.service",
+            log.read_text(encoding="utf-8"),
+        )
+
+    def test_worker_retry_rejects_unsafe_service_managed_ancestry(self) -> None:
+        architecture, data_root, log = self.prepare_completed_worker()
+        worker_root = data_root / "worker-{}".format(architecture)
+        worker_root.chmod(0o770)
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.worker_apply_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "managed data path ancestor is group/world-writable", result.stderr
+        )
+        self.assertNotIn(
+            "systemctl restart nativelink.service",
+            log.read_text(encoding="utf-8"),
+        )
+
+    def test_existing_control_rejects_unexpected_service_identity(self) -> None:
+        architecture, data_root, log = self.prepare_completed_control()
+        passwd = self.external / "fake-sdme-state/{}.passwd".format(RUNTIME_FS)
+        passwd.write_text(
+            "nativelink:x:0:{}:NativeLink:/var/lib/nativelink:/usr/sbin/nologin\n".format(
+                FAKE_SERVICE_GID
+            ),
+            encoding="utf-8",
+        )
+        log.write_text("", encoding="utf-8")
+
+        result = self.run_script(*self.control_arguments(data_root, architecture))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("runtime service account must not use root identity", result.stderr)
+        self.assertNotIn(
+            "systemctl restart nativelink.service",
+            log.read_text(encoding="utf-8"),
+        )
+
+    def test_control_address_wait_has_a_fixed_timeout(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        self.set_test_control_address_wait_seconds(1)
+
+        result = self.run_script(
+            *self.control_arguments(data_root, architecture),
+            environment={"FAKE_SDME_ADDRESS_READY_AFTER": "999"},
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "timed out after 1s waiting for control container "
+            "buckos-re-control SDME zone address",
+            result.stderr,
+        )
+        commands = log.read_text(encoding="utf-8")
+        self.assertEqual(commands.count("sdme ps --json"), 3)
+        self.assertNotIn("systemctl restart nativelink.service", commands)
+
+    def test_control_address_wait_bounds_a_stalled_inventory_query(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        self.set_test_control_address_wait_seconds(1)
+        ready = self.external / "sdme-ps-hang-ready"
+
+        process = subprocess.Popen(
+            [str(self.script), *self.control_arguments(data_root, architecture)],
+            env=self.script_environment(
+                {
+                    "FAKE_SDME_PS_HANG_AT": "3",
+                    "FAKE_SDME_PS_HANG_READY": str(ready),
+                }
+            ),
+            start_new_session=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.addCleanup(self.terminate_and_reap_process_group, process, (ready,))
+        _, stderr, elapsed = self.communicate_after_marker(process, ready)
+
+        self.assertEqual(process.returncode, 2)
+        self.assertIn(
+            "timed out after 1s waiting for control container "
+            "buckos-re-control SDME zone address",
+            stderr,
+        )
+        self.assertGreater(elapsed, 0.5)
+        self.assertLess(elapsed, 3.0)
+        commands = log.read_text(encoding="utf-8")
+        self.assertEqual(commands.count("sdme ps --json"), 3)
+        self.assertNotIn("sleep ", commands)
+        self.assertNotIn("systemctl restart nativelink.service", commands)
+
+    def assert_process_and_group_gone(
+        self, process: subprocess.Popen[str], blocking_pid: int
+    ) -> None:
+        self.assertIsNotNone(process.returncode)
+        self.assertFalse(self.process_exists(process.pid))
+        self.assertFalse(self.process_exists(blocking_pid))
+        self.assertFalse(self.process_group_exists(process.pid))
+        with self.assertRaises(ChildProcessError):
+            os.waitpid(process.pid, os.WNOHANG)
+
+    def test_missing_marker_cleanup_kills_and_reaps_the_provisioner_group(
+        self,
+    ) -> None:
+        architecture, data_root, _ = self.prepare_matching_control()
+        self.set_test_control_address_wait_seconds(1)
+        actual_marker = self.external / "sdme-ps-actual.ready"
+        missing_marker = self.external / "sdme-ps-missing.ready"
+        markers = (actual_marker, missing_marker)
+        process = subprocess.Popen(
+            [str(self.script), *self.control_arguments(data_root, architecture)],
+            env=self.script_environment(
+                {
+                    "FAKE_SDME_PS_HANG_AT": "3",
+                    "FAKE_SDME_PS_HANG_READY": str(actual_marker),
+                }
+            ),
+            start_new_session=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.addCleanup(self.terminate_and_reap_process_group, process, markers)
+        blocking_pid = self.wait_for_process_marker(process, actual_marker, 10)
+
+        try:
+            with self.assertRaises(AssertionError):
+                self.wait_for_process_marker(process, missing_marker, 0.05)
+        finally:
+            self.terminate_and_reap_process_group(process, markers)
+
+        self.assert_process_and_group_gone(process, blocking_pid)
+        for marker in markers:
+            self.assertFalse(marker.exists())
+
+    def test_communicate_timeout_cleanup_kills_and_reaps_the_provisioner_group(
+        self,
+    ) -> None:
+        architecture, data_root, _ = self.prepare_matching_control()
+        self.set_test_control_address_wait_seconds(1)
+        marker = self.external / "sdme-ps-timeout.ready"
+        process = subprocess.Popen(
+            [str(self.script), *self.control_arguments(data_root, architecture)],
+            env=self.script_environment(
+                {
+                    "FAKE_SDME_PS_HANG_AT": "3",
+                    "FAKE_SDME_PS_HANG_READY": str(marker),
+                }
+            ),
+            start_new_session=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.addCleanup(self.terminate_and_reap_process_group, process, (marker,))
+        blocking_pid = self.wait_for_process_marker(process, marker, 10)
+
+        try:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                process.communicate(timeout=0.05)
+        finally:
+            self.terminate_and_reap_process_group(process, (marker,))
+
+        self.assert_process_and_group_gone(process, blocking_pid)
+        self.assertFalse(marker.exists())
+
+    def test_control_address_wait_fails_immediately_on_inventory_errors(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        scenarios = (
+            (
+                {"FAKE_SDME_PS_FAIL_AT": "3"},
+                "could not inspect container while waiting for its SDME zone address",
+            ),
+            (
+                {"FAKE_SDME_PS_INVALID_JSON_AT": "3"},
+                "could not inspect container while waiting for its SDME zone address",
+            ),
+            (
+                {"FAKE_SDME_CONTAINER_DISAPPEAR_AT": "3"},
+                "container disappeared while waiting for its SDME zone address",
+            ),
+            (
+                {"FAKE_SDME_BAD_ADDRESSES_AT": "3"},
+                "invalid SDME address inventory shape",
+            ),
+            (
+                {"FAKE_SDME_MALFORMED_ADDRESS_AT": "3"},
+                "invalid SDME address inventory member",
+            ),
+        )
+        state = self.external / "fake-sdme-state"
+
+        for environment, expected_error in scenarios:
+            with self.subTest(expected_error=expected_error):
+                (state / "ps-count").unlink(missing_ok=True)
+                log.write_text("", encoding="utf-8")
+                result = self.run_script(
+                    *self.control_arguments(data_root, architecture),
+                    environment=environment,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected_error, result.stderr)
+                commands = log.read_text(encoding="utf-8")
+                self.assertEqual(commands.count("sdme ps --json"), 3)
+                self.assertNotIn("sleep ", commands)
+                self.assertNotIn("systemctl restart nativelink.service", commands)
+
+    def test_control_apply_retries_a_matching_partially_applied_container(self) -> None:
+        architecture, data_root, log = self.prepare_matching_control()
+        self.set_test_control_address_wait_seconds(1)
+        arguments = self.control_arguments(data_root, architecture)
+        first = self.run_script(
+            *arguments,
+            environment={"FAKE_SDME_ADDRESS_READY_AFTER": "999"},
+        )
+        self.assertEqual(first.returncode, 2)
+
+        second = self.run_script(*arguments)
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        commands = log.read_text(encoding="utf-8")
+        self.assertNotIn("sdme create", commands)
+        self.assertNotIn("sdme start", commands)
+        self.assertEqual(commands.count("systemctl restart nativelink.service"), 1)
+        environment = data_root / "provision/buckos-re-control.env"
+        self.assertIn(
+            "NATIVELINK_WORKER_BIND_ADDRESS=169.254.42.8",
+            environment.read_text(encoding="utf-8"),
+        )
+
+    def test_control_is_private_until_publish_is_explicit(self) -> None:
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("--port", result.stdout)
+        self.assertIn("--network-zone buckos-re", result.stdout)
+        self.assertNotIn("NATIVELINK_WORKER_BIND_ADDRESS=0.0.0.0", result.stdout)
+        self.assertIn("preferring RFC1918/ULA over link-local", result.stdout)
+
+    def test_rejects_placeholder_control_address(self) -> None:
+        arguments = self.worker_arguments()
+        index = arguments.index("buckos-re-control")
+        arguments[index] = "re.example.invalid"
+        result = self.run_script(*arguments)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("placeholder", result.stderr)
+
+    def test_rejects_wrong_probe_digest(self) -> None:
+        arguments = self.worker_arguments()
+        index = arguments.index(self.digest)
+        arguments[index] = "0" * 64
+        result = self.run_script(*arguments)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("digest mismatch", result.stderr)
+
+    def test_publish_requires_restricted_policy(self) -> None:
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--publish",
+            "--client-cidrs",
+            "0.0.0.0/0",
+            "--worker-cidrs",
+            "10.0.0.2/32",
+            "--firewall-check",
+            "/bin/true",
+            *self.mtls_control_options(),
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("public catch-all", result.stderr)
+
+    def test_publish_plan_names_distinct_network_policies(self) -> None:
+        checker = self.external / "check-firewall"
+        checker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        checker.chmod(0o755)
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--publish",
+            "--client-cidrs",
+            "10.20.0.0/24",
+            "--worker-cidrs",
+            "10.30.0.0/24",
+            "--firewall-check",
+            str(checker),
+            *self.mtls_control_options(),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--client-port 50051", result.stdout)
+        self.assertIn("--worker-port 50061", result.stdout)
+        self.assertIn("--port tcp:50051:50051", result.stdout)
+        self.assertIn("--port tcp:50061:50061", result.stdout)
+
+    def test_rejects_malformed_client_cidr(self) -> None:
+        checker = self.external / "check-firewall"
+        checker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        checker.chmod(0o755)
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--publish",
+            "--client-cidrs",
+            "10.20.0.999/24",
+            "--worker-cidrs",
+            "10.30.0.0/24",
+            "--firewall-check",
+            str(checker),
+            *self.mtls_control_options(),
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("invalid CIDR", result.stderr)
+
+    def test_offline_plan_validates_both_archives_without_podman(self) -> None:
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--ubuntu-oci-archive",
+            str(self.ubuntu_archive),
+            "--nativelink-oci-archive",
+            str(self.nativelink_archive),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("podman pull", result.stdout)
+        self.assertNotIn("podman save", result.stdout)
+        self.assertIn(str(self.ubuntu_archive), result.stdout)
+        self.assertIn(str(self.nativelink_archive), result.stdout)
+        self.assertIn("buckos-re-image-provenance.json", result.stdout)
+        self.assertFalse((self.external / "data").exists())
+
+    def test_worker_plan_propagates_offline_archives_to_bootstrap_steps(self) -> None:
+        result = self.run_script(
+            *self.worker_arguments(),
+            "--ubuntu-oci-archive",
+            str(self.ubuntu_archive),
+            "--nativelink-oci-archive",
+            str(self.nativelink_archive),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prepare_line = next(
+            line for line in result.stdout.splitlines() if "prepare-runtime worker" in line
+        )
+        apply_line = next(
+            line for line in result.stdout.splitlines() if "apply worker" in line
+        )
+        for line in (prepare_line, apply_line):
+            self.assertIn("--ubuntu-oci-archive", line)
+            self.assertIn(str(self.ubuntu_archive), line)
+            self.assertIn("--nativelink-oci-archive", line)
+            self.assertIn(str(self.nativelink_archive), line)
+
+    def test_offline_plan_rejects_wrong_architecture(self) -> None:
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "aarch64",
+            "--data-root",
+            str(self.external / "data"),
+            "--ubuntu-oci-archive",
+            str(self.ubuntu_archive),
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("archive filename mismatch", result.stderr)
+
+    def test_offline_plan_rejects_unsafe_source_path(self) -> None:
+        unsafe = self.external / "unsafe"
+        unsafe.mkdir(mode=0o777)
+        unsafe.chmod(0o777)
+        archive = unsafe / self.ubuntu_archive.name
+        shutil.copy2(self.ubuntu_archive, archive)
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--ubuntu-oci-archive",
+            str(archive),
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("group/world-writable path component", result.stderr)
+
+    def test_plan_rejects_incomplete_managed_cache(self) -> None:
+        images = self.external / "data/images"
+        images.mkdir(parents=True)
+        shutil.copy2(self.ubuntu_archive, images / self.ubuntu_archive.name)
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("incomplete cached OCI archive pair", result.stderr)
+
+    def test_plan_rejects_dangling_cached_archive_symlink(self) -> None:
+        images = self.external / "data/images"
+        images.mkdir(parents=True)
+        (images / self.ubuntu_archive.name).symlink_to("missing-archive")
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unsafe or legacy cached OCI archive state", result.stderr)
+
+    def test_offline_plan_reuses_valid_managed_cache(self) -> None:
+        images = self.external / "data/images"
+        images.mkdir(parents=True)
+        cached = images / self.ubuntu_archive.name
+        shutil.copy2(self.ubuntu_archive, cached)
+        provenance = oci_archive.verify_archive(
+            self.repo / "infra/remote-execution/sdme/offline-oci-archives.json",
+            "ubuntu",
+            "x86_64",
+            self.ubuntu_reference,
+            cached,
+            "offline",
+        )
+        cached.with_name(cached.name + ".provenance.json").write_text(
+            json.dumps(provenance, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--ubuntu-oci-archive",
+            str(self.ubuntu_archive),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Reuse validated ubuntu OCI archive", result.stdout)
+        self.assertNotIn(self.ubuntu_reference, result.stdout)
+
+    def test_rejects_duplicate_offline_archive_option(self) -> None:
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--ubuntu-oci-archive",
+            str(self.ubuntu_archive),
+            "--ubuntu-oci-archive",
+            str(self.ubuntu_archive),
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("may be supplied only once", result.stderr)
+
+    def test_rejects_empty_offline_archive_option(self) -> None:
+        result = self.run_script(
+            "plan",
+            "control",
+            "--arch",
+            "x86_64",
+            "--data-root",
+            str(self.external / "data"),
+            "--ubuntu-oci-archive",
+            "",
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("must not be empty", result.stderr)
+
+
+class AddressSelectionTest(unittest.TestCase):
+    def select(self, addresses: list[object]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(ADDRESS_SELECTOR)],
+            input=json.dumps({"addresses": addresses}),
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def test_prefers_rfc1918_over_link_local(self) -> None:
+        result = self.select(["169.254.42.8", "10.77.0.3"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "10.77.0.3")
+
+    def test_accepts_link_local_fallback(self) -> None:
+        result = self.select(["169.254.42.8"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "169.254.42.8")
+
+    def test_reports_not_ready_for_non_routable_candidates(self) -> None:
+        result = self.select(["127.0.0.1", "0.0.0.0", "224.0.0.1", "::", "ff02::1"])
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("no private or link-local non-wildcard", result.stderr)
+
+    def test_reports_not_ready_for_an_empty_inventory(self) -> None:
+        result = self.select([])
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("no private or link-local non-wildcard", result.stderr)
+
+    def test_rejects_malformed_address_members(self) -> None:
+        for addresses in (["not-an-ip"], [42]):
+            with self.subTest(addresses=addresses):
+                result = self.select(addresses)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("invalid SDME address inventory member", result.stderr)
+
+    def test_rejects_malformed_address_inventory(self) -> None:
+        for value in ("{", json.dumps({"addresses": "169.254.42.8"})):
+            with self.subTest(value=value):
+                result = subprocess.run(
+                    [str(ADDRESS_SELECTOR)],
+                    input=value,
+                    check=False,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(result.returncode, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

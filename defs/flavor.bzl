@@ -24,6 +24,7 @@ restructuring anything.
 
 load(
     "//defs/rules/dsc.bzl",
+    "built_deb",
     "deb_build",
     "deb_subpackage",
     "dsc_unpack",
@@ -335,9 +336,14 @@ def _deb_package(
         source_files,
         source_name = None,
         version = "",
+        version_full = "",
         release = "",
         build_deps = None,
+        build_env = None,
         subpackages = None,
+        binary_metadata = None,
+        build_options = None,
+        build_type = "binary",
         build_profiles = None,
         nocheck = True,
         buildroot = None,
@@ -348,8 +354,14 @@ def _deb_package(
     """Replay one Debian source package with dpkg-buildpackage."""
     source_name = source_name or name
     build_deps = build_deps or []
+    build_env = build_env or {}
     subpackages = subpackages or [source_name]
-    build_profiles = build_profiles or []
+    binary_metadata = binary_metadata or {}
+    build_options = build_options or []
+    build_profiles = [profile for profile in (build_profiles or [])]
+    version_full = version_full or version + ("-" + release if release else "")
+    if nocheck and "nocheck" not in build_profiles:
+        build_profiles.append("nocheck")
 
     dsc_unpack(
         name = name + "-source",
@@ -358,6 +370,7 @@ def _deb_package(
         package_name = source_name,
         flavor = flavor,
         version = version,
+        version_full = version_full,
         release = release,
         default_target_platform = default_target_platform,
         visibility = visibility,
@@ -368,7 +381,11 @@ def _deb_package(
         source = ":" + name + "-source",
         dsc = dsc,
         build_deps = build_deps,
+        build_env = build_env,
+        build_options = build_options,
+        build_type = build_type,
         build_profiles = build_profiles,
+        install_packages = subpackages,
         nocheck = nocheck,
         buildroot = buildroot,
         dpkg_buildpackage = read_config("buckos." + flavor, "dpkg_buildpackage", None),
@@ -379,13 +396,30 @@ def _deb_package(
     )
 
     for subpackage in subpackages:
+        metadata = binary_metadata.get(subpackage, {})
+        architecture = metadata.get("architecture", "")
+        source_version = metadata.get("source_version", version_full)
         deb_subpackage(
             name = _subpackage_target(name, source_name, subpackage),
             source = ":" + name + "-build",
             package_name = subpackage,
+            architecture = architecture,
+            source_name = source_name,
+            source_version = source_version,
             default_target_platform = default_target_platform,
             visibility = visibility,
         )
+        if architecture and source_version:
+            built_deb(
+                name = subpackage_deb_target(name, source_name, subpackage),
+                source = ":" + name + "-build",
+                package_name = subpackage,
+                architecture = architecture,
+                source_name = source_name,
+                source_version = source_version,
+                default_target_platform = default_target_platform,
+                visibility = visibility,
+            )
 
     if source_name in subpackages:
         actual = ":" + _subpackage_target(name, source_name, source_name)
@@ -398,6 +432,10 @@ def _deb_package(
         default_target_platform = default_target_platform,
         visibility = visibility,
     )
+
+def subpackage_deb_target(name, source_name, subpackage):
+    """Target name for one selected DEB emitted by a source build."""
+    return _subpackage_target(name, source_name, subpackage) + "-deb"
 
 # ── Dispatch ─────────────────────────────────────────────────────────
 

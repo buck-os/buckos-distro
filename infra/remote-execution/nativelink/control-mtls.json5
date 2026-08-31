@@ -1,0 +1,117 @@
+{
+  "stores": [
+    {
+      "name": "CAS_MAIN_STORE",
+      "compression": {
+        "compression_algorithm": {
+          "lz4": {}
+        },
+        "backend": {
+          "filesystem": {
+            "content_path": "/var/lib/nativelink/cas/content",
+            "temp_path": "/var/lib/nativelink/cas/tmp",
+            "eviction_policy": {
+              "max_bytes": "${NATIVELINK_CAS_MAX_BYTES:-100000000000}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "AC_MAIN_STORE",
+      "filesystem": {
+        "content_path": "/var/lib/nativelink/ac/content",
+        "temp_path": "/var/lib/nativelink/ac/tmp",
+        "eviction_policy": {
+          "max_bytes": "${NATIVELINK_AC_MAX_BYTES:-5000000000}"
+        }
+      }
+    }
+  ],
+  "schedulers": [
+    {
+      "name": "MAIN_SCHEDULER",
+      "simple": {
+        "supported_platform_properties": {
+          "platform.OSFamily": "exact",
+          "platform.arch": "exact"
+        },
+        "unacknowledged_kill_timeout_s": 60
+      }
+    }
+  ],
+  "servers": [
+    {
+      "name": "public_reapi",
+      "listener": {
+        "http": {
+          "socket_address": "${NATIVELINK_REAPI_BIND_ADDRESS:-0.0.0.0}:50051",
+          "tls": {
+            "cert_file": "/etc/nativelink/tls/control-chain.pem",
+            "key_file": "/etc/nativelink/tls/control-key.pem",
+            "client_ca_file": "/etc/nativelink/tls/reapi-client-ca.pem"
+          }
+        }
+      },
+      "services": {
+        "cas": [
+          {
+            "instance_name": "main",
+            "cas_store": "CAS_MAIN_STORE"
+          }
+        ],
+        "ac": [
+          {
+            "instance_name": "main",
+            "ac_store": "AC_MAIN_STORE"
+          }
+        ],
+        "bytestream": [
+          {
+            "instance_name": "main",
+            "cas_store": "CAS_MAIN_STORE"
+          }
+        ],
+        "execution": [
+          {
+            "instance_name": "main",
+            "cas_store": "CAS_MAIN_STORE",
+            "scheduler": "MAIN_SCHEDULER"
+          }
+        ],
+        "capabilities": [
+          {
+            "instance_name": "main",
+            "remote_execution": {
+              "scheduler": "MAIN_SCHEDULER"
+            }
+          }
+        ],
+        "health": {}
+      }
+    },
+    {
+      "name": "private_workers",
+      "listener": {
+        "http": {
+          "socket_address": "${NATIVELINK_WORKER_BIND_ADDRESS:-127.0.0.1}:50061",
+          "tls": {
+            "cert_file": "/etc/nativelink/tls/control-chain.pem",
+            "key_file": "/etc/nativelink/tls/control-key.pem",
+            "client_ca_file": "/etc/nativelink/tls/worker-client-ca.pem"
+          }
+        }
+      },
+      "services": {
+        "worker_api": {
+          "scheduler": "MAIN_SCHEDULER",
+          "kill_revoked_operations_interval_s": 5
+        },
+        "health": {}
+      }
+    }
+  ],
+  "global": {
+    "max_open_files": 524288
+  }
+}

@@ -143,6 +143,14 @@ def _seeded_deb_buildroot_impl(ctx: AnalysisContext) -> list[Provider]:
         for artifact in deb[DefaultInfo].default_outputs:
             cmd.add("--deb", artifact)
 
+    # Refreshing the tree's library cache means running the tree's own
+    # ldconfig, so this action enters the sandbox exactly as the RPM
+    # assembler does, and for the same reason: work a payload composition
+    # never performs because no maintainer script ran.
+    cmd.add("--isolation", ctx.attrs.isolation)
+    cmd.add("--target-cpu", ctx.attrs.target_cpu)
+    cmd.add("--source-date-epoch", ctx.attrs.source_date_epoch)
+
     # re-contract: buildroot-independent -- this action builds the Debian
     # buildroot exclusively from SHA-256-pinned package artifacts.
     ctx.actions.run(
@@ -170,7 +178,12 @@ seeded_deb_buildroot = rule(
     is_toolchain_rule = True,
     attrs = {
         "env": attrs.dict(attrs.string(), attrs.string(), default = {}),
+        "isolation": attrs.enum(
+            ["auto", "bwrap", "unshare", "none"],
+            default = "auto",
+        ),
         "seed_debs": attrs.list(attrs.dep(), default = []),
+        "source_date_epoch": attrs.string(default = "1700000000"),
         "target_cpu": attrs.string(default = "x86_64"),
         "_assemble": attrs.default_only(
             attrs.exec_dep(default = "//tools:deb_buildroot_assemble"),

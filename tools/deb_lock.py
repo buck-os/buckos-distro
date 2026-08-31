@@ -12,7 +12,8 @@ import sys
 import tempfile
 import urllib.parse
 
-from _deb import parse_control_paragraphs
+from _deb import dsc_files, parse_control_paragraphs, source_identity
+from source_policy import build_source_policy
 
 
 TARGET_RE = re.compile(r"[^A-Za-z0-9_-]+")
@@ -120,6 +121,15 @@ def binary_record(entry):
             fields for fields in records
             if url_path.endswith("/" + fields.get("Filename", ""))
         ]
+    unique_matches = {}
+    for fields in matches:
+        key = (
+            fields.get("Package"),
+            fields.get("Version"),
+            fields.get("Checksums-Sha256"),
+        )
+        unique_matches[key] = fields
+    matches = list(unique_matches.values())
     if len(matches) != 1:
         raise ValueError(
             "{}: expected one apt-cache record for {}, got {}".format(
@@ -129,14 +139,17 @@ def binary_record(entry):
     fields = matches[0]
     sha256 = fields.get("SHA256")
     if not sha256:
-        raise ValueError("{} has no SHA256 in apt metadata".format(package))
+        raise ValueError("{} has no SHA256 in apt metadata".format(fields["Package"]))
+    source_name, source_version = source_identity(fields)
     return {
         "architecture": fields["Architecture"],
         "filename": os.path.basename(fields["Filename"]),
         "package": fields["Package"],
         "sha256": sha256,
         "size": int(fields["Size"]),
-        "source": fields.get("Source", fields["Package"]).split()[0],
+        "source": "{}@{}".format(source_name, source_version),
+        "source_name": source_name,
+        "source_version": source_version,
         "target": target_name("deb", fields["Package"], fields["Version"], fields["Architecture"]),
         "url": entry["url"],
         "version": fields["Version"],
@@ -147,21 +160,103 @@ def target_name(*parts):
     return TARGET_RE.sub("-", "-".join(parts)).strip("-")
 
 
-def source_record(package):
-    uri_entries = apt_uri_lines(apt_output([
-        "apt-get", "source", "--print-uris", "--download-only", package,
-    ]))
+def apt_source_selector(package, version=None):
+    selector = "src:{}".format(package)
+    if version:
+        selector += "={}".format(version)
+    return selector
+
+
+def apt_source_command(package, version=None):
+    return [
+        "apt-get", "source", "--print-uris", "--download-only",
+        apt_source_selector(package, version),
+    ]
+
+
+def apt_build_dep_command(package, version):
+    return [
+        "apt-get", "-Pnocheck", "build-dep",
+        apt_source_selector(package, version),
+    ]
+
+
+def source_files_from_metadata(uri_entries, fields):
+    """Bind APT source URIs to authoritative SHA-256 source metadata."""
+    try:
+        metadata = dsc_files(fields)
+    except ValueError as error:
+        raise ValueError(
+            "invalid source Checksums-Sha256 metadata: {}".format(error)
+        ) from error
+    files = []
+    seen = set()
+    for entry in uri_entries:
+        filename = os.path.basename(entry["filename"])
+        if filename in seen:
+            raise ValueError("duplicate source URI filename: {!r}".format(filename))
+        seen.add(filename)
+        if filename not in metadata:
+            raise ValueError(
+                "{} is missing from source Checksums-Sha256 metadata".format(filename)
+            )
+        sha256, size = metadata[filename]
+        if entry["size"] != size:
+            raise ValueError(
+                "{}: source size mismatch: URI reports {}, metadata reports {}".format(
+                    filename, entry["size"], size,
+                )
+            )
+        if entry["digest_kind"] == "sha256" and entry["digest"] != sha256:
+            raise ValueError(
+                "{}: source SHA-256 mismatch: URI reports {}, metadata reports {}".format(
+                    filename, entry["digest"], sha256,
+                )
+            )
+        files.append({
+            "filename": filename,
+            "sha256": sha256,
+            "size": size,
+            "target": target_name("source", filename),
+            "url": entry["url"],
+        })
+
+    missing = sorted(set(metadata) - seen)
+    if missing:
+        raise ValueError(
+            "APT produced no URI for source metadata file(s): {}".format(
+                ", ".join(missing)
+            )
+        )
+    return files
+
+
+def source_record(package, version=None):
+    uri_entries = apt_uri_lines(apt_output(apt_source_command(package, version)))
     dsc_entries = [entry for entry in uri_entries if entry["filename"].endswith(".dsc")]
     if len(dsc_entries) != 1:
         raise ValueError("{}: expected one .dsc URI, got {}".format(package, len(dsc_entries)))
-    dsc_name = dsc_entries[0]["filename"]
+    dsc_name = os.path.basename(dsc_entries[0]["filename"])
 
     records = parse_control_paragraphs(apt_output(["apt-cache", "showsrc", package]))
     matches = []
     for fields in records:
+        if fields.get("Package") != package:
+            continue
+        if version and fields.get("Version") != version:
+            continue
         checksums = fields.get("Checksums-Sha256", "")
         if any(line.split()[-1:] == [dsc_name] for line in checksums.splitlines()):
             matches.append(fields)
+    unique_matches = {}
+    for fields in matches:
+        key = (
+            fields.get("Package"),
+            fields.get("Version"),
+            fields.get("Checksums-Sha256"),
+        )
+        unique_matches[key] = fields
+    matches = list(unique_matches.values())
     if len(matches) != 1:
         raise ValueError(
             "{}: expected one source record for {}, got {}".format(
@@ -170,21 +265,17 @@ def source_record(package):
         )
     fields = matches[0]
     full_version = fields["Version"]
+    if version and full_version != version:
+        raise ValueError(
+            "{}: selected source version {}, expected {}".format(
+                package, full_version, version,
+            )
+        )
     upstream, separator, revision = full_version.rpartition("-")
     if not separator:
         upstream, revision = full_version, ""
 
-    files = []
-    for entry in uri_entries:
-        if entry["digest_kind"] != "sha256":
-            raise ValueError("{}: apt did not report SHA256".format(entry["filename"]))
-        files.append({
-            "filename": entry["filename"],
-            "sha256": entry["digest"],
-            "size": entry["size"],
-            "target": target_name("source", entry["filename"]),
-            "url": entry["url"],
-        })
+    files = source_files_from_metadata(uri_entries, fields)
 
     binaries = [item.strip() for item in fields.get("Binary", package).split(",")]
     build_dep_fields = (
@@ -224,6 +315,74 @@ def parse_named_packages(value):
     return name, roots
 
 
+def parse_source_exception(value):
+    try:
+        exception = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise argparse.ArgumentTypeError(
+            "source exception must be a JSON object"
+        ) from error
+    if not isinstance(exception, dict):
+        raise argparse.ArgumentTypeError("source exception must be a JSON object")
+    return exception
+
+
+def records_by_target(entries):
+    records = {}
+    for entry in entries:
+        record = binary_record(entry)
+        previous = records.get(record["target"])
+        if previous and previous["sha256"] != record["sha256"]:
+            raise ValueError("conflicting pins for {}".format(record["target"]))
+        records[record["target"]] = record
+    return records
+
+
+def source_requests(image_sets, source_sets, exceptions):
+    """Group selected live binaries by exact source name and source version."""
+    exception_names = {entry["package"] for entry in exceptions}
+    selected = {}
+    requests = {}
+    for set_name in source_sets:
+        if set_name not in image_sets:
+            raise ValueError("source policy names missing image set {!r}".format(set_name))
+        for binary in image_sets[set_name]:
+            name = binary["package"]
+            previous = selected.get(name)
+            identity = (binary["source_name"], binary["source_version"])
+            if previous and previous != identity:
+                raise ValueError(
+                    "binary package {} maps to conflicting sources: {} and {}".format(
+                        name, previous, identity,
+                    )
+                )
+            selected[name] = identity
+            if name in exception_names:
+                continue
+            requests.setdefault(identity, []).append(binary)
+
+    unused = exception_names - set(selected)
+    if unused:
+        raise ValueError(
+            "source exceptions do not match selected packages: {}".format(
+                ", ".join(sorted(unused)),
+            )
+        )
+    return requests, selected
+
+
+def dependency_overlay(base_by_target, dependencies):
+    """Return the package-specific dependency closure outside the common base."""
+    return sorted(
+        (
+            entry
+            for target, entry in dependencies.items()
+            if target not in base_by_target
+        ),
+        key=lambda item: item["target"],
+    )
+
+
 def default_repositories(distro, codename, architecture):
     if distro == "debian":
         signed_by = "[signed-by=/usr/share/keyrings/debian-archive-keyring.gpg]"
@@ -254,7 +413,14 @@ def main():
     parser.add_argument("--release", required=True)
     parser.add_argument("--codename", required=True)
     parser.add_argument("--architecture", default="amd64")
-    parser.add_argument("--source", action="append", required=True)
+    parser.add_argument("--source", action="append", default=[])
+    parser.add_argument("--source-set", action="append", default=[])
+    parser.add_argument(
+        "--source-exception",
+        action="append",
+        default=[],
+        type=parse_source_exception,
+    )
     parser.add_argument("--image", action="append", default=[], type=parse_named_packages)
     parser.add_argument("--repository", action="append", default=[])
     parser.add_argument("--output", required=True)
@@ -301,13 +467,7 @@ def main():
             sources=sources_list,
         )[:-3]
         apt_output(["apt-get", "update"])
-        sources = [source_record(name) for name in args.source]
         essential = essential_packages()
-        build_output = run_output(
-            ["apt-get"] + apt_options(
-                status, archives, args.architecture, lists, sources_list,
-            ) + ["build-dep"] + args.source
-        )
         base_roots = essential + ["build-essential", "fakeroot"]
         base_output = run_output(
             ["apt-get"] + apt_options(
@@ -329,24 +489,78 @@ def main():
             if fields.get("Filename")
         }
 
-    by_target = {}
-    for entry in apt_uri_lines(build_output) + apt_uri_lines(base_output):
-        record = binary_record(entry)
-        previous = by_target.get(record["target"])
-        if previous and previous["sha256"] != record["sha256"]:
-            raise ValueError("conflicting pins for {}".format(record["target"]))
-        by_target[record["target"]] = record
+        base_by_target = records_by_target(apt_uri_lines(base_output))
+        image_sets = {
+            name: sorted(
+                records_by_target(apt_uri_lines(output)).values(),
+                key=lambda item: item["target"],
+            )
+            for name, output in image_output.items()
+        }
+        source_sets = args.source_set or ["live"]
+        requests, selected = source_requests(
+            image_sets,
+            source_sets,
+            args.source_exception,
+        )
 
-    image_sets = {}
-    for name, output in image_output.items():
-        records = {}
-        for entry in apt_uri_lines(output):
-            record = binary_record(entry)
-            previous = records.get(record["target"])
-            if previous and previous["sha256"] != record["sha256"]:
-                raise ValueError("conflicting pins for {}".format(record["target"]))
-            records[record["target"]] = record
-        image_sets[name] = sorted(records.values(), key=lambda item: item["target"])
+        sources = []
+        source_names = {}
+        for (name, version), binaries in sorted(requests.items()):
+            previous = source_names.get(name)
+            if previous and previous != version:
+                raise ValueError(
+                    "source package {} is required at both {} and {}".format(
+                        name, previous, version,
+                    )
+                )
+            source_names[name] = version
+            source = source_record(name, version)
+            declared = set(source["binaries"])
+            missing = sorted({entry["package"] for entry in binaries} - declared)
+            if missing:
+                raise ValueError(
+                    "source {} {} does not declare selected binaries: {}".format(
+                        name, version, ", ".join(missing),
+                    )
+                )
+            build_output = run_output(
+                ["apt-get"] + apt_options(
+                    status, archives, args.architecture, lists, sources_list,
+                ) + apt_build_dep_command(name, version)[1:]
+            )
+            deps = records_by_target(apt_uri_lines(build_output))
+            source["binary_metadata"] = sorted(
+                binaries,
+                key=lambda item: (item["package"], item["architecture"]),
+            )
+            source["build_deps"] = dependency_overlay(base_by_target, deps)
+            sources.append(source)
+
+        for name in args.source:
+            if name in source_names:
+                continue
+            source = source_record(name)
+            build_output = run_output(
+                ["apt-get"] + apt_options(
+                    status, archives, args.architecture, lists, sources_list,
+                ) + apt_build_dep_command(name, source["version_full"])[1:]
+            )
+            deps = records_by_target(apt_uri_lines(build_output))
+            source["binary_metadata"] = []
+            source["build_deps"] = dependency_overlay(base_by_target, deps)
+            sources.append(source)
+
+    producers = {
+        "{}@{}".format(source["name"], source["version_full"])
+        for source in sources
+    }
+    source_policy = build_source_policy(
+        image_sets,
+        producers,
+        args.source_exception,
+        source_sets,
+    )
 
     lock = {
         "architecture": args.architecture,
@@ -355,8 +569,9 @@ def main():
         "release": args.release,
         "image_sets": image_sets,
         "repositories": repositories,
-        "schema": 2,
-        "seed_debs": sorted(by_target.values(), key=lambda item: item["target"]),
+        "schema": 3,
+        "base_debs": sorted(base_by_target.values(), key=lambda item: item["target"]),
+        "source_policy": source_policy,
         "sources": sorted(sources, key=lambda item: item["name"]),
         "target_cpu": target_cpu,
     }
@@ -365,10 +580,12 @@ def main():
         json.dump(lock, stream, indent=2, sort_keys=True)
         stream.write("\n")
     LOG.info(
-        "wrote %s: %d seed debs, %d sources",
+        "wrote %s: %d base debs, %d sources, %d/%d selected binaries from source",
         args.output,
-        len(lock["seed_debs"]),
+        len(lock["base_debs"]),
         len(lock["sources"]),
+        source_policy["summary"]["live"]["source"],
+        source_policy["summary"]["live"]["total"],
     )
 
 

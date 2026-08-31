@@ -47,6 +47,7 @@ from _isolation import (
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    sandbox_path,
 )
 from _rpm import (
     extract_rpm,
@@ -215,7 +216,8 @@ def install_deps(sysroot, dep_rpms, args, work, env):
         '"$1"/*.rpm\n'
     )
     run_isolated(
-        ["/bin/sh", "-c", script, "sh", staging],
+        ["/bin/sh", "-c", script, "sh",
+         sandbox_path(staging, work, args.isolation)],
         args.isolation, work=work, chdir=work, sysroot=sysroot, env=env,
     )
 
@@ -238,7 +240,14 @@ def sysroot_env(sysroot, env):
         "PATH": os.pathsep.join([
             os.path.join(usr, "bin"),
             os.path.join(usr, "sbin"),
-            env.get("PATH", "/usr/bin:/bin"),
+            # os.environ rather than the sandbox environment: this is
+            # the host-provenance path, and reaching host tools is the
+            # only thing it exists for.  The declared sandbox PATH is
+            # deliberately narrow and would drop /usr/local/bin here.
+            # Stated rather than inherited, which is the same principle
+            # as the allowlist applied to the one mode that wants the
+            # host.
+            os.environ.get("PATH", "/usr/bin:/bin"),
         ]),
         "PKG_CONFIG_PATH": os.pathsep.join([
             os.path.join(usr, "lib64", "pkgconfig"),
@@ -263,6 +272,12 @@ def sysroot_env(sysroot, env):
 
 def spec_macro_args(topdir, args):
     """The macro state a spec must be read under, for any rpm tool.
+
+    `topdir` is the sandbox's address for it, already translated by the
+    caller: every path here is a --define read by rpm running inside, and
+    %_topdir in particular becomes the compiler's working directory and
+    from there DW_AT_comp_dir.  Handing it the host path is what used to
+    put the scratch directory's random name in the build-id.
 
     Shared with rpmspec rather than inlined into the rpmbuild command,
     because the two have to agree.  A spec that guards BuildRequires with
@@ -391,14 +406,39 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
     reliably readable by whatever rpm the host happens to ship -- and the
     host is not supposed to be part of the answer anyway.
     """
+    # Written by the shell inside and read by _slurp out here, so these
+    # four are the one case that genuinely needs both spellings.  Host
+    # names for the reads below, sandbox names interpolated into the
+    # script.
     requires_out = os.path.join(work, "br-all.txt")
     static_out = os.path.join(work, "br-static.txt")
     rc_out = os.path.join(work, "br-rc.txt")
     header_out = os.path.join(work, "br-header.txt")
+    produces_out = os.path.join(work, "br-produces.txt")
 
-    build = build_rpmbuild_cmd(spec, topdir, args, None)
+    def inside(path):
+        return sandbox_path(path, work, args.isolation)
+
+    sandbox_topdir = inside(topdir)
+    sandbox_spec = inside(spec)
+    build = build_rpmbuild_cmd(sandbox_spec, sandbox_topdir, args, None)
     query = [args.rpmspec, "-q", "--buildrequires"]
-    query += spec_macro_args(topdir, args) + [spec]
+    query += spec_macro_args(sandbox_topdir, args) + [sandbox_spec]
+    # What this spec actually produces, for this architecture.
+    #
+    # Repodata cannot answer it.  A binary package is indexed under the
+    # source that built it, but the index is the union across every
+    # architecture's build, so glibc appears to produce
+    # sysroot-{x86_64,aarch64,ppc64le,s390x}-el10-glibc when any one build
+    # produces exactly one of them -- the spec derives that name from
+    # %{_arch}.  A solve that believes the union wires a consumer to a
+    # projection of a subpackage this build can never emit.
+    #
+    # rpmspec evaluates the spec's own conditionals, so it answers for the
+    # architecture being built rather than for the archive.  Asked here
+    # because this is where the topdir and the target's macros already are.
+    produces = [args.rpmspec, "-q", "--qf", "%{NAME}\\n"]
+    produces += spec_macro_args(sandbox_topdir, args) + [sandbox_spec]
 
     script = (
         "set -e\n"
@@ -422,6 +462,18 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
         # the buildroot, instead of failing with a message about a missing
         # header.
         "{query} > {staticout}\n"
+        # Same parse, different projection, and fatal on its own.  An empty
+        # answer here would read as "this spec produces nothing", which the
+        # solver would honour by treating every one of the package's
+        # binaries as not built here -- silently un-source-building it.
+        # A spec that cannot be parsed must stop the probe instead.
+        "{produces} > {producesout}\n"
+        "if [ ! -s {producesout} ]; then\n"
+        '  echo "buckos-distro: rpmspec listed no binary packages for '
+        "'$(basename {spec})'. An empty answer is a parse failure, not a "
+        'spec that builds nothing." >&2\n'
+        "  exit 1\n"
+        "fi\n"
         # Exit 11 is an answer, not a failure: it means the generator
         # asked for something the buildroot does not have, which is
         # exactly what a probe is for.  Recorded rather than swallowed --
@@ -457,14 +509,17 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
     ).format(
         build=_join(build),
         query=_join(query),
+        produces=_join(produces),
+        spec=shlex.quote(sandbox_spec),
         unmet=BUILDREQUIRES_UNMET,
-        srpms=shlex.quote(os.path.join(topdir, "SRPMS")),
+        srpms=shlex.quote(os.path.join(sandbox_topdir, "SRPMS")),
         nosrc=_NOSRC_GLOB,
         src=_SRC_GLOB,
-        rcout=shlex.quote(rc_out),
-        headerout=shlex.quote(header_out),
-        allout=shlex.quote(requires_out),
-        staticout=shlex.quote(static_out),
+        rcout=shlex.quote(inside(rc_out)),
+        headerout=shlex.quote(inside(header_out)),
+        allout=shlex.quote(inside(requires_out)),
+        staticout=shlex.quote(inside(static_out)),
+        producesout=shlex.quote(inside(produces_out)),
     )
     run_isolated(["/bin/sh", "-c", script], args.isolation,
                  work=work, chdir=topdir, sysroot=sysroot, env=env)
@@ -475,6 +530,15 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
     header = _slurp(header_out)
     unmet = _slurp(rc_out) == str(BUILDREQUIRES_UNMET)
     static_set = set(_read_capabilities(static_out))
+    produced = sorted({
+        line.strip() for line in _slurp(produces_out).splitlines()
+        if line.strip()
+    })
+    if not produced:
+        sys.exit(
+            "rpmspec listed no binary packages for {}; an empty answer is a "
+            "parse failure rather than a spec that builds nothing".format(spec)
+        )
     # Without a header there is nothing to subtract, so the union *is* the
     # static set and the dynamic set is unknown rather than empty.  Those
     # are different claims and the caller has to be able to tell them
@@ -509,6 +573,11 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
         "buildrequires": sorted(set(all_caps)),
         "static": sorted(static_set),
         "dynamic": dynamic,
+        # The binary packages this spec defines for this architecture, as
+        # opposed to the ones repodata attributes to this source across
+        # every architecture's build.  Never empty: the probe stops above
+        # rather than reporting a spec that produces nothing.
+        "produces": produced,
     }
 
 
@@ -668,12 +737,13 @@ def main():
     # The flavor macro file is a repo source, so its path is outside
     # anything the sandbox mounts and `--load` of it fails inside the
     # chroot with nothing but "failed to load macro file".  Copy it into
-    # the work area, which is bound at its real path in every isolation
-    # mode, and load it from there.
+    # the work area, which is the one writable thing the sandbox has, and
+    # load it from there -- by its address inside, since `--load` is read
+    # by rpm and nothing out here opens it again.
     if args.macros:
         staged_macros = os.path.join(work, os.path.basename(args.macros))
         shutil.copyfile(args.macros, staged_macros)
-        args.macros = staged_macros
+        args.macros = sandbox_path(staged_macros, work, args.isolation)
 
     # rpmbuild writes the staged install tree here; we then hand it out
     # as PackageInfo.prefix.
@@ -707,11 +777,11 @@ def main():
     if sysroot and args.isolation == "none":
         env.update(sysroot_env(sysroot, env))
     elif args.isolation != "none":
-        # Inside the chroot the normal paths already resolve to the
-        # buildroot, and an inherited PATH would name host directories
-        # that either do not exist there or, worse, do.
-        env["PATH"] = "/usr/bin:/usr/sbin:/bin:/sbin"
-        env["HOME"] = "/builddir"
+        # PATH and HOME are declared by reproducible_env for every
+        # sandboxed action.  This call site worked out why first -- an
+        # inherited PATH names host directories that either do not exist
+        # in the buildroot or, worse, do -- and stated it locally; the
+        # reasoning now lives with the declaration.
 
         # We are uid 0 in this namespace, and gnulib's configure objects:
         #
@@ -750,11 +820,14 @@ def main():
         # Pointed at rpm's own %_tmppath, not at /tmp: /tmp inside the
         # sandbox is a tmpfs, and a large package's %install temporaries
         # would then be charged to memory.  This one is under the work
-        # area, on real disk, bound at the same absolute path in and out.
-        sandbox_tmp = os.path.abspath(os.path.join(topdir, "tmp"))
-        os.makedirs(sandbox_tmp, exist_ok=True)
+        # area, on real disk.  Set to the address inside, which is what
+        # keeps it equal to the %_tmppath define spec_macro_args builds
+        # from the same translated topdir -- the two disagreeing is worse
+        # than either choice alone.
+        host_tmp = os.path.abspath(os.path.join(topdir, "tmp"))
+        os.makedirs(host_tmp, exist_ok=True)
         for var in ("TMPDIR", "TMP", "TEMP"):
-            env[var] = sandbox_tmp
+            env[var] = sandbox_path(host_tmp, work, args.isolation)
 
     if sysroot and args.dep_rpm:
         install_deps(sysroot, args.dep_rpm, args, work, env)
@@ -787,7 +860,15 @@ def main():
             remove_tree(work)
         return
 
-    cmd = build_rpmbuild_cmd(spec, topdir, args, buildroot_dir)
+    # Every path in the command is rpm's to resolve, so all three cross.
+    # `topdir` and `buildroot_dir` stay in their host spelling out here --
+    # collect_rpms and the installroot walk below read them from this side.
+    cmd = build_rpmbuild_cmd(
+        sandbox_path(spec, work, args.isolation),
+        sandbox_path(topdir, work, args.isolation),
+        args,
+        sandbox_path(buildroot_dir, work, args.isolation),
+    )
     run_isolated(cmd, args.isolation, work, topdir, sysroot, env=env)
 
     rpms = collect_rpms(topdir, args.out_rpms)
