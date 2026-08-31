@@ -116,7 +116,7 @@ seeded_buildroot = rule(
         "env": attrs.dict(attrs.string(), attrs.string(), default = {}),
         "isolation": attrs.enum(
             ["auto", "bwrap", "unshare", "none"],
-            default = "auto",
+            default = read_root_config("buckos", "isolation", "auto"),
         ),
         "macros": attrs.option(attrs.source(), default = None),
         # The @buildsys-build closure, pinned by sha256 upstream via
@@ -180,7 +180,7 @@ seeded_deb_buildroot = rule(
         "env": attrs.dict(attrs.string(), attrs.string(), default = {}),
         "isolation": attrs.enum(
             ["auto", "bwrap", "unshare", "none"],
-            default = "auto",
+            default = read_root_config("buckos", "isolation", "auto"),
         ),
         "seed_debs": attrs.list(attrs.dep(), default = []),
         "source_date_epoch": attrs.string(default = "1700000000"),

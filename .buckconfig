@@ -69,6 +69,9 @@
 #   buck2 build //... -c buckos.flavor=ubuntu
 [buckos]
   flavor = fedora
+  # Sandbox implementation for seeded buildroots. `auto` selects the best
+  # available mechanism; constrained hosts may override it locally.
+  isolation = auto
 
 # ── Fedora flavor configuration ──────────────────────────────────────
 # releases     Every release to define targets for, oldest first.  Each one
