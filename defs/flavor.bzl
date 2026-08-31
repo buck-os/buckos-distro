@@ -23,14 +23,14 @@ restructuring anything.
 """
 
 load(
-    "//defs/rules/dsc.bzl",
+    "//defs/rules:dsc.bzl",
     "built_deb",
     "deb_build",
     "deb_subpackage",
     "dsc_unpack",
 )
 load(
-    "//defs/rules/srpm.bzl",
+    "//defs/rules:srpm.bzl",
     "built_rpm",
     "prebuilt_rpm",
     "rpm_subpackage",

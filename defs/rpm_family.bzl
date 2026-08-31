@@ -20,11 +20,11 @@ load(
     "target_platform",
 )
 load("//defs:releases.bzl", "iso_volume_label", "release_suffix")
-load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
-load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_buildroot")
-load("//defs/rules/srpm.bzl", "prebuilt_rpm")
-load("//defs/rules/image.bzl", "iso_image", "squashfs")
-load("//defs/rules/rootfs.bzl", "rootfs")
+load("//defs/rules:boot.bzl", "initramfs", "kernel_image")
+load("//defs/rules:buildroot.bzl", "host_buildroot", "seeded_buildroot")
+load("//defs/rules:srpm.bzl", "prebuilt_rpm")
+load("//defs/rules:image.bzl", "iso_image", "squashfs")
+load("//defs/rules:rootfs.bzl", "rootfs")
 
 _RPM_FLAVORS = {
     "centos": {
