@@ -10,11 +10,11 @@ load(
     "target_platform",
 )
 load("//defs:releases.bzl", "iso_volume_label", "release_suffix")
-load("//defs/rules/boot.bzl", "initramfs", "kernel_image")
-load("//defs/rules/buildroot.bzl", "host_buildroot", "seeded_deb_buildroot")
-load("//defs/rules/dsc.bzl", "prebuilt_deb")
-load("//defs/rules/image.bzl", "iso_image", "squashfs")
-load("//defs/rules/rootfs.bzl", "deb_rootfs")
+load("//defs/rules:boot.bzl", "initramfs", "kernel_image")
+load("//defs/rules:buildroot.bzl", "host_buildroot", "seeded_deb_buildroot")
+load("//defs/rules:dsc.bzl", "prebuilt_deb")
+load("//defs/rules:image.bzl", "iso_image", "squashfs")
+load("//defs/rules:rootfs.bzl", "deb_rootfs")
 
 _DISTRO_SUPPLIERS = {
     "debian": "Organization: Debian",
