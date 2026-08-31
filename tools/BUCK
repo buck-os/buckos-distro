@@ -17,7 +17,10 @@ python_library(
     srcs = ["_deb.py"],
     base_module = "",
     visibility = ["PUBLIC"],
-    deps = [":_isolation"],
+    deps = [
+        ":_isolation",
+        ":_rpm",
+    ],
 )
 
 # Entering a buildroot as / -- shared by the spec replay and by rootfs
