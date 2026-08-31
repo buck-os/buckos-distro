@@ -8,11 +8,16 @@ python_library(
     visibility = ["PUBLIC"],
 )
 
+# _deb reaches for sandbox_path because the Debian-family drivers compose
+# trees the sandbox then binds, so it needs the same translation the RPM
+# side does.  Declared here rather than at each binary: every consumer of
+# _deb inherits the import whether or not it calls the function itself.
 python_library(
     name = "_deb",
     srcs = ["_deb.py"],
     base_module = "",
     visibility = ["PUBLIC"],
+    deps = [":_isolation"],
 )
 
 # Entering a buildroot as / -- shared by the spec replay and by rootfs
