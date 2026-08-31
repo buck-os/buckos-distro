@@ -9,6 +9,8 @@ tested here rather than trusted to a re-solve.
 """
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import tempfile
@@ -16,6 +18,7 @@ import unittest
 from unittest import mock
 
 from solve import (
+    apply_probed_producers,
     BUILDSYS_BUILD,
     CENTOS_BUILDSYS_BUILD,
     IMPLICIT_GROUPS,
@@ -25,6 +28,7 @@ from solve import (
     collect_repos,
     derive_repo_name,
     load_probe,
+    read_probe,
     merge_fallback_packages,
     merge_packages,
     parse_override,
@@ -401,6 +405,20 @@ class TestProbeFile(unittest.TestCase):
         # buildroot, and the buildroot comes from a solve.
         self.assertEqual(load_probe(None, {"widget"}), {})
 
+    def test_read_probe_is_not_filtered_by_a_build_list(self):
+        # The producer question is asked before a build list exists --
+        # what a spec builds is what decides who lands on the list.  So
+        # read_probe returns every report and leaves filtering to
+        # load_probe, which asks the later question.
+        path = self.write({
+            "schema": PROBE_SCHEMA,
+            "packages": {"widget": {"dynamic": []}, "dropped": {"dynamic": []}},
+        })
+        self.assertEqual(sorted(read_probe(path)), ["dropped", "widget"])
+
+    def test_read_probe_of_nothing_is_empty(self):
+        self.assertEqual(read_probe(None), {})
+
     def test_an_unknown_schema_is_refused(self):
         path = self.write({"schema": PROBE_SCHEMA + 1, "packages": {}})
         with self.assertRaises(SystemExit):
@@ -488,6 +506,86 @@ class TestProbeFile(unittest.TestCase):
                 release="44",
             ),
         )
+
+
+class TestProbedProducers(unittest.TestCase):
+    """A source cannot produce a binary its spec does not build here.
+
+    Repodata indexes every architecture's build under one source, so the
+    subpackage list is a union.  The probe asks rpmspec inside the target
+    buildroot, which answers for the architecture being built.
+    """
+
+    def _universe(self):
+        return universe_of(
+            binary("glibc", source="glibc-2.39-137.el10.src.rpm"),
+            binary("sysroot-x86_64-el10-glibc", source="glibc-2.39-137.el10.src.rpm"),
+            binary("sysroot-aarch64-el10-glibc", source="glibc-2.39-137.el10.src.rpm"),
+            binary("cross-gcc-aarch64", source="gcc-14.4.1-3.el10.src.rpm"),
+            binary("gcc", source="gcc-14.4.1-3.el10.src.rpm"),
+        )
+
+    def test_drops_only_what_the_spec_does_not_build(self):
+        probe = {"glibc": {"produces": ["glibc", "sysroot-x86_64-el10-glibc"]}}
+        out = apply_probed_producers(self._universe(), probe)
+
+        self.assertEqual(
+            out["subpackages"]["glibc"],
+            ["glibc", "sysroot-x86_64-el10-glibc"],
+        )
+        self.assertNotIn("sysroot-aarch64-el10-glibc", out["source_of"])
+        self.assertEqual(out["source_of"]["sysroot-x86_64-el10-glibc"], "glibc")
+
+    def test_keeps_a_foreign_arch_name_the_spec_does_build(self):
+        # An x86_64 gcc build really does emit cross-gcc-aarch64.  A rule
+        # keyed on the name would drop it; the spec is the authority.
+        probe = {"gcc": {"produces": ["gcc", "cross-gcc-aarch64"]}}
+        out = apply_probed_producers(self._universe(), probe)
+
+        self.assertIn("cross-gcc-aarch64", out["subpackages"]["gcc"])
+        self.assertEqual(out["source_of"]["cross-gcc-aarch64"], "gcc")
+
+    def test_a_source_with_no_report_is_untouched(self):
+        before = self._universe()
+        out = apply_probed_producers(before, {"glibc": {"produces": ["glibc"]}})
+
+        self.assertEqual(out["subpackages"]["gcc"], before["subpackages"]["gcc"])
+
+    def test_an_absent_produces_field_changes_nothing(self):
+        # A probe file written before this field existed must not be read
+        # as "this source produces nothing".
+        before = self._universe()
+        out = apply_probed_producers(before, {"glibc": {"static": []}})
+
+        self.assertEqual(out["subpackages"], before["subpackages"])
+        self.assertEqual(out["source_of"], before["source_of"])
+
+    def test_no_probe_at_all_changes_nothing(self):
+        before = self._universe()
+        self.assertEqual(apply_probed_producers(before, {}), before)
+
+    def test_reports_the_population_it_consulted_even_when_clean(self):
+        # A pass that checked 114 reports and a pass that checked none
+        # both drop nothing.  Only the count distinguishes them, so the
+        # count is printed whether or not anything was found.
+        probe = {"glibc": {"produces": ["glibc", "sysroot-x86_64-el10-glibc",
+                                        "sysroot-aarch64-el10-glibc"]}}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            apply_probed_producers(self._universe(), probe)
+
+        self.assertIn("consulted 1 of 1", err.getvalue())
+        self.assertIn("dropped 0", err.getvalue())
+
+    def test_reports_a_zero_population_when_no_report_carries_the_field(self):
+        # The Fedora shape: reports exist, none of them carries produces
+        # because they predate the field, nothing is dropped, and without
+        # the denominator the run reads exactly like a clean one.
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            apply_probed_producers(self._universe(), {"glibc": {}, "gcc": {}})
+
+        self.assertIn("consulted 0 of 2", err.getvalue())
 
 
 class TestMergePackages(unittest.TestCase):

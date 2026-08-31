@@ -1062,16 +1062,15 @@ def probe_identity_errors(data, flavor=None, release=None, target_cpu=None):
     return errors
 
 
-def load_probe(path, build_set, flavor=None, release=None, target_cpu=None):
-    """Read a probe file, keeping only the packages being solved.
+def read_probe(path, flavor=None, release=None, target_cpu=None):
+    """Read and validate a probe file, before any build list exists.
 
-    Filtered against build_set because a probe file outlives the build
-    list that produced it: dropping a package from --build leaves its
-    report behind, and a stale report would go on contributing
-    BuildRequires for something no longer built.  The reverse -- a package
-    on the build list with no report -- is normal and handled by falling
-    back to repodata, since that is exactly the state of a release whose
-    first solve has not been probed yet.
+    Split out of load_probe because the two things a probe answers are
+    needed at opposite ends of the solve.  What a spec *produces* has to
+    be known before the universe is consumed, since it decides which
+    source is the producer of a binary and therefore what lands on the
+    build list at all.  What a spec *requires* is needed much later, once
+    that build list is settled.  One read, validated once, used twice.
     """
     if not path:
         return {}
@@ -1087,7 +1086,25 @@ def load_probe(path, build_set, flavor=None, release=None, target_cpu=None):
         sys.exit("{}: probe identity mismatch: {}".format(
             path, "; ".join(identity_errors)
         ))
-    packages = data.get("packages", {})
+    return data.get("packages", {})
+
+
+def load_probe(path, build_set, flavor=None, release=None, target_cpu=None):
+    """Read a probe file, keeping only the packages being solved.
+
+    Filtered against build_set because a probe file outlives the build
+    list that produced it: dropping a package from --build leaves its
+    report behind, and a stale report would go on contributing
+    BuildRequires for something no longer built.  The reverse -- a package
+    on the build list with no report -- is normal and handled by falling
+    back to repodata, since that is exactly the state of a release whose
+    first solve has not been probed yet.
+    """
+    if not path:
+        return {}
+    packages = read_probe(
+        path, flavor=flavor, release=release, target_cpu=target_cpu
+    )
     known = {k: v for k, v in packages.items() if k in build_set}
     stale = sorted(set(packages) - set(known))
     print("probe: {} of {} package(s) from {}{}".format(
@@ -1095,6 +1112,81 @@ def load_probe(path, build_set, flavor=None, release=None, target_cpu=None):
         " (ignoring {})".format(", ".join(stale)) if stale else "",
     ), file=sys.stderr)
     return known
+
+
+def apply_probed_producers(universe, probe):
+    """Drop subpackages a source's build cannot emit on this architecture.
+
+    Repodata indexes a binary package under the source that built it, but
+    the index is a union in two directions, and both produce false claims.
+
+    Across architectures: glibc looks like it produces
+    sysroot-{x86_64,aarch64,ppc64le,s390x}-el10-glibc, when the spec
+    derives that name from %{_arch} and any one build produces exactly
+    one.
+
+    Across time: a repo keeps the rpms of source versions it no longer
+    ships.  crypto-policies-pq-preview is in appstream, built from
+    crypto-policies-20250404; the pinned source is 20260811, whose spec
+    stopped building it.  Matching on source *name* attributes an rpm from
+    an eighteen-month-old spec to today's.
+
+    Either way the lock was describing the archive rather than describing
+    what this build can emit.
+
+    Left alone that is latent: a name nothing consumes.  A probe turns it
+    into an edge, because `rpmbuild -br` reports gcc's real BuildRequires
+    and they include the three foreign sysroots -- so the solver wires a
+    consumer to a projection of a subpackage that can never be built, and
+    the failure surfaces only at the ISO.
+
+    Only the probe knows.  It runs rpmspec against the spec inside the
+    target buildroot, so it answers for the architecture being built.  A
+    source with no report is left exactly as repodata described it, which
+    is what keeps an unprobed lock unchanged.
+
+    Deliberately no name-based fallback.  "The name embeds a foreign
+    architecture" is false inside the very source this exists for: an
+    x86_64 gcc build really does produce cross-gcc-aarch64.  The spec is
+    the authority and a name check beside it would suggest otherwise.
+    """
+    if not probe:
+        return universe
+    subpackages = dict(universe["subpackages"])
+    source_of = dict(universe["source_of"])
+    dropped = {}
+    for src, report in sorted(probe.items()):
+        produced = report.get("produces")
+        if not produced:
+            continue
+        allowed = set(produced)
+        keep = [b for b in subpackages.get(src, ()) if b in allowed]
+        gone = [b for b in subpackages.get(src, ()) if b not in allowed]
+        if not gone:
+            continue
+        subpackages[src] = keep
+        for binary in gone:
+            if source_of.get(binary) == src:
+                del source_of[binary]
+        dropped[src] = gone
+    # Printed even when every number is zero.  "Checked everything, found
+    # nothing wrong" and "checked nothing" produce the same silence, and
+    # the second is the one worth knowing about: it means no spec was
+    # consulted and every repodata claim stood unchecked.  Reporting the
+    # population beside the result is what tells the two apart without
+    # anyone having to remember to ask.
+    consulted = sum(1 for r in probe.values() if r.get("produces"))
+    total = sum(len(v) for v in dropped.values())
+    print(
+        "probe: consulted {} of {} source report(s) for what the spec "
+        "builds here; dropped {} binary package claim(s)".format(
+            consulted, len(probe), total
+        ),
+        file=sys.stderr,
+    )
+    for src, gone in sorted(dropped.items()):
+        print("  {}: {}".format(src, ", ".join(gone)), file=sys.stderr)
+    return dict(universe, subpackages=subpackages, source_of=source_of)
 
 
 def solve(universe, build_set, overrides=None, strict=False, probe=None,
@@ -1106,6 +1198,11 @@ def solve(universe, build_set, overrides=None, strict=False, probe=None,
     """
     overrides = overrides or {}
     probe = probe or {}
+    # Note: the producer filter is NOT applied here.  It has to run on the
+    # universe before source_build_set and add_source_variants read
+    # source_of, and before the lockfile writer reads subpackages -- all
+    # of which happen in main() ahead of this call.  Filtering here would
+    # rebind a local name and change nothing anyone can see.
     build_deps = {}
     resolutions = {}
     dynamic = {}
@@ -1934,6 +2031,21 @@ def main(argv=None):
         )
         if groups["buildroot"]
         else universe
+    )
+
+    # Before anything reads source_of or subpackages.  Both universes,
+    # because source_build_set reads the compose one and the lockfile
+    # writer reads the other; a claim dropped from only one of them would
+    # leave the two disagreeing about who produces what.
+    probed_producers = read_probe(
+        args.probe, flavor=args.flavor, release=args.release,
+        target_cpu=args.target_cpu,
+    )
+    shared_universe = compose_universe is universe
+    universe = apply_probed_producers(universe, probed_producers)
+    compose_universe = (
+        universe if shared_universe
+        else apply_probed_producers(compose_universe, probed_producers)
     )
 
     image_sets, image_problems = solve_image_sets(

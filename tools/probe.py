@@ -150,7 +150,7 @@ def collect(outputs, cwd):
         packages[name] = {
             k: report[k]
             for k in ("buildrequires", "dynamic", "static", "generated",
-                      "unmet", "spec")
+                      "unmet", "spec", "produces")
             if k in report
         }
     return packages

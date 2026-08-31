@@ -414,6 +414,7 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
     static_out = os.path.join(work, "br-static.txt")
     rc_out = os.path.join(work, "br-rc.txt")
     header_out = os.path.join(work, "br-header.txt")
+    produces_out = os.path.join(work, "br-produces.txt")
 
     def inside(path):
         return sandbox_path(path, work, args.isolation)
@@ -423,6 +424,21 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
     build = build_rpmbuild_cmd(sandbox_spec, sandbox_topdir, args, None)
     query = [args.rpmspec, "-q", "--buildrequires"]
     query += spec_macro_args(sandbox_topdir, args) + [sandbox_spec]
+    # What this spec actually produces, for this architecture.
+    #
+    # Repodata cannot answer it.  A binary package is indexed under the
+    # source that built it, but the index is the union across every
+    # architecture's build, so glibc appears to produce
+    # sysroot-{x86_64,aarch64,ppc64le,s390x}-el10-glibc when any one build
+    # produces exactly one of them -- the spec derives that name from
+    # %{_arch}.  A solve that believes the union wires a consumer to a
+    # projection of a subpackage this build can never emit.
+    #
+    # rpmspec evaluates the spec's own conditionals, so it answers for the
+    # architecture being built rather than for the archive.  Asked here
+    # because this is where the topdir and the target's macros already are.
+    produces = [args.rpmspec, "-q", "--qf", "%{NAME}\\n"]
+    produces += spec_macro_args(sandbox_topdir, args) + [sandbox_spec]
 
     script = (
         "set -e\n"
@@ -446,6 +462,18 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
         # the buildroot, instead of failing with a message about a missing
         # header.
         "{query} > {staticout}\n"
+        # Same parse, different projection, and fatal on its own.  An empty
+        # answer here would read as "this spec produces nothing", which the
+        # solver would honour by treating every one of the package's
+        # binaries as not built here -- silently un-source-building it.
+        # A spec that cannot be parsed must stop the probe instead.
+        "{produces} > {producesout}\n"
+        "if [ ! -s {producesout} ]; then\n"
+        '  echo "buckos-distro: rpmspec listed no binary packages for '
+        "'$(basename {spec})'. An empty answer is a parse failure, not a "
+        'spec that builds nothing." >&2\n'
+        "  exit 1\n"
+        "fi\n"
         # Exit 11 is an answer, not a failure: it means the generator
         # asked for something the buildroot does not have, which is
         # exactly what a probe is for.  Recorded rather than swallowed --
@@ -481,6 +509,8 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
     ).format(
         build=_join(build),
         query=_join(query),
+        produces=_join(produces),
+        spec=shlex.quote(sandbox_spec),
         unmet=BUILDREQUIRES_UNMET,
         srpms=shlex.quote(os.path.join(sandbox_topdir, "SRPMS")),
         nosrc=_NOSRC_GLOB,
@@ -489,6 +519,7 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
         headerout=shlex.quote(inside(header_out)),
         allout=shlex.quote(inside(requires_out)),
         staticout=shlex.quote(inside(static_out)),
+        producesout=shlex.quote(inside(produces_out)),
     )
     run_isolated(["/bin/sh", "-c", script], args.isolation,
                  work=work, chdir=topdir, sysroot=sysroot, env=env)
@@ -499,6 +530,15 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
     header = _slurp(header_out)
     unmet = _slurp(rc_out) == str(BUILDREQUIRES_UNMET)
     static_set = set(_read_capabilities(static_out))
+    produced = sorted({
+        line.strip() for line in _slurp(produces_out).splitlines()
+        if line.strip()
+    })
+    if not produced:
+        sys.exit(
+            "rpmspec listed no binary packages for {}; an empty answer is a "
+            "parse failure rather than a spec that builds nothing".format(spec)
+        )
     # Without a header there is nothing to subtract, so the union *is* the
     # static set and the dynamic set is unknown rather than empty.  Those
     # are different claims and the caller has to be able to tell them
@@ -533,6 +573,11 @@ def probe_buildrequires(spec, topdir, work, args, sysroot, env):
         "buildrequires": sorted(set(all_caps)),
         "static": sorted(static_set),
         "dynamic": dynamic,
+        # The binary packages this spec defines for this architecture, as
+        # opposed to the ones repodata attributes to this source across
+        # every architecture's build.  Never empty: the probe stops above
+        # rather than reporting a spec that produces nothing.
+        "produces": produced,
     }
 
 
