@@ -9,13 +9,14 @@ import sys
 
 from _isolation import (
     ISOLATION_MODES,
+    fabricated_mount_components,
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    sandbox_path,
 )
 from _deb import fakeroot_command, stage_fakeroot_runtime
 from _rpm import (
-    fabricated_mount_components,
     make_dirs_writable,
     reproducible_env,
     scratch_dir,
@@ -187,16 +188,25 @@ def main():
     stage_debs(debs, staging)
     shutil.copytree(args.buildroot_tree, sysroot, symlinks=True, dirs_exist_ok=True)
     make_dirs_writable(sysroot)
-    fakeroot = stage_fakeroot_runtime(sysroot, work)
+    fakeroot = stage_fakeroot_runtime(sysroot, work, isolation)
 
     env = reproducible_env(source_date_epoch=args.source_date_epoch)
     env["FAKEROOTDONTTRYCHOWN"] = "1"
+
+    def inside(path):
+        return sandbox_path(path, work, isolation)
+
+    # The scripts run in the sandbox and name these by their address
+    # there; `target` and `tarball` keep their host spelling above and
+    # below, where this process opens them.
+    in_target = inside(target)
+    in_staging = inside(staging)
     try:
         try:
             run_isolated(
                 fakeroot_command(
                     fakeroot,
-                    ["/bin/sh", "-c", bootstrap_script(target, staging)],
+                    ["/bin/sh", "-c", bootstrap_script(in_target, in_staging)],
                 ),
                 isolation,
                 work,
@@ -204,11 +214,14 @@ def main():
                 sysroot,
                 env=env,
             )
-            fabricated = fabricated_mount_components(target, work)
+            # Against `target` because that is the tree this one mounts at
+            # /, and the paths it returns are pruned from it out here --
+            # so they stay host-side, unlike everything else in this block.
+            fabricated = fabricated_mount_components(target)
             run_isolated(
                 fakeroot_command(
                     fakeroot,
-                    ["/bin/sh", "-c", transaction_script(staging)],
+                    ["/bin/sh", "-c", transaction_script(in_staging)],
                     load=True,
                 ),
                 isolation,
@@ -220,7 +233,7 @@ def main():
             run_isolated(
                 fakeroot_command(
                     fakeroot,
-                    ["/bin/sh", "-c", normalize_merged_usr_script(target)],
+                    ["/bin/sh", "-c", normalize_merged_usr_script(in_target)],
                     load=True,
                 ),
                 isolation,
@@ -233,10 +246,10 @@ def main():
                 fakeroot_command(
                     fakeroot,
                     ["/bin/sh", "-c", archive_script(
-                        target,
-                        tarball,
+                        in_target,
+                        inside(tarball),
                         args.source_date_epoch,
-                        fabricated,
+                        [inside(path) for path in fabricated],
                     )],
                     load=True,
                 ),
@@ -248,7 +261,7 @@ def main():
             )
         finally:
             run_isolated(
-                ["/bin/sh", "-c", cleanup_script(target)],
+                ["/bin/sh", "-c", cleanup_script(in_target)],
                 isolation,
                 work,
                 work,

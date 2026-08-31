@@ -18,7 +18,12 @@ from _deb import (
     run,
     stage_fakeroot_runtime,
 )
-from _isolation import require_target_execution, resolve_isolation, run_isolated
+from _isolation import (
+    require_target_execution,
+    resolve_isolation,
+    run_isolated,
+    sandbox_path,
+)
 from _rpm import make_dirs_writable, overlay_tree, reproducible_env, scratch_dir
 
 BUILD_OPTIONS = {
@@ -273,7 +278,7 @@ def main():
 
     refresh_library_cache(sysroot, isolation, work, env)
 
-    fakeroot = stage_fakeroot_runtime(sysroot, work)
+    fakeroot = stage_fakeroot_runtime(sysroot, work, isolation)
     command = fakeroot_command(fakeroot, [
         require_tool(args.dpkg_buildpackage),
         build_option(args.build_type),

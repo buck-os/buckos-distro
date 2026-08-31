@@ -242,13 +242,13 @@ class TestBubblewrapUserNamespace(unittest.TestCase):
                 "--unshare-ipc",
                 "--die-with-parent",
                 "--bind", "/root", "/",
-                "--bind", "/work", "/work",
+                "--bind", "/work", "/build",
                 "--ro-bind", "/proc", "/proc",
                 "--ro-bind", "/sys", "/sys",
                 "--dev", "/dev",
                 "--tmpfs", "/tmp",
                 "--setenv", "HOME", "/builddir",
-                "--chdir", "/work/source",
+                "--chdir", "/build/source",
                 "/bin/true",
             ],
         )
@@ -257,14 +257,20 @@ class TestBubblewrapUserNamespace(unittest.TestCase):
         # /tmp in here is the tmpfs two lines above, so a tool falling back
         # to it would charge its intermediates to memory.  Asserted exactly
         # rather than loosened, because this is the assertion that noticed
-        # the environment had changed at all.
+        # the environment had changed at all -- twice now, the second time
+        # when the bind moved to /build and these three moved with it.
+        #
+        # Every path in this argv and this environment is now either a
+        # constant or the caller's own sysroot.  "/work" appears once, as
+        # the *source* of the bind, which is the only place the host's
+        # scratch name is allowed to survive.
         self.assertEqual(
             events[2][2]["env"],
             {
                 "PATH": "/usr/bin",
-                "TMPDIR": "/work/tmp",
-                "TMP": "/work/tmp",
-                "TEMP": "/work/tmp",
+                "TMPDIR": "/build/tmp",
+                "TMP": "/build/tmp",
+                "TEMP": "/build/tmp",
             },
         )
         self.assertEqual(
@@ -438,10 +444,34 @@ class TestActionTemporariesLandOnDisk(unittest.TestCase):
     """
 
     def test_temporary_variables_point_into_the_work_area(self):
-        env = _isolation._with_action_tmpdir({"PATH": "/usr/bin"}, "/work")
+        env = _isolation._with_action_tmpdir(
+            {"PATH": "/usr/bin"}, "/work", "bwrap")
         for name in ("TMPDIR", "TMP", "TEMP"):
             with self.subTest(variable=name):
-                self.assertEqual("/work/tmp", env[name])
+                self.assertEqual("/build/tmp", env[name])
+
+    def test_the_value_does_not_depend_on_where_the_work_area_lives(self):
+        """The point of the fixed bind, stated as an assertion.
+
+        Two scratch directories that share nothing but their role produce
+        the same variable.  Before the bind was fixed this returned each
+        one's own name, and that name reached every tool that called
+        mktemp -- and, through %_topdir, every DW_AT_comp_dir.
+        """
+        first = _isolation._with_action_tmpdir({}, "/scratch/a-9f3c1e", "bwrap")
+        second = _isolation._with_action_tmpdir({}, "/var/tmp/b-0011ff", "bwrap")
+        self.assertEqual(first["TMPDIR"], second["TMPDIR"])
+        self.assertEqual("/build/tmp", first["TMPDIR"])
+
+    def test_isolation_none_keeps_the_host_path(self):
+        """No mount namespace means no bind, so there is nothing to translate.
+
+        The pair to the test above: it would pass just as well if the
+        function returned a constant unconditionally, and that would put a
+        path into the environment of the one mode where it does not exist.
+        """
+        env = _isolation._with_action_tmpdir({}, "/scratch/a-9f3c1e", "none")
+        self.assertEqual("/scratch/a-9f3c1e/tmp", env["TMPDIR"])
 
     def test_a_deliberate_caller_value_is_not_overridden(self):
         """rpmbuild_replay pairs its own with rpm's %_tmppath define.
@@ -450,24 +480,223 @@ class TestActionTemporariesLandOnDisk(unittest.TestCase):
         either choice alone.  Safe to defer to the caller here precisely
         because nothing in this dict is inherited any more.
         """
-        env = _isolation._with_action_tmpdir({"TMPDIR": "/work/topdir/tmp"}, "/work")
-        self.assertEqual("/work/topdir/tmp", env["TMPDIR"])
+        env = _isolation._with_action_tmpdir(
+            {"TMPDIR": "/build/topdir/tmp"}, "/work", "bwrap")
+        self.assertEqual("/build/topdir/tmp", env["TMPDIR"])
 
     def test_the_caller_dict_is_not_mutated(self):
         original = {"PATH": "/usr/bin"}
-        _isolation._with_action_tmpdir(original, "/work")
+        _isolation._with_action_tmpdir(original, "/work", "bwrap")
         self.assertEqual({"PATH": "/usr/bin"}, original)
 
     def test_no_environment_stays_no_environment(self):
         """A caller passing none inherits the process env; leave that alone."""
-        self.assertIsNone(_isolation._with_action_tmpdir(None, "/work"))
+        self.assertIsNone(_isolation._with_action_tmpdir(None, "/work", "bwrap"))
 
     def test_the_directory_is_created_before_the_sandbox_is_entered(self):
         """Nothing inside creates it, and a TMPDIR naming nothing is the
-        state this replaces."""
+        state this replaces.
+
+        Created at the host name even though the variable holds the
+        sandbox one -- the bind needs a real directory on this side to
+        point at.
+        """
         with tempfile.TemporaryDirectory() as work:
-            _isolation._with_action_tmpdir({}, work)
+            _isolation._with_action_tmpdir({}, work, "bwrap")
             self.assertTrue(os.path.isdir(os.path.join(work, "tmp")))
+
+
+class TestSandboxPathTranslation(unittest.TestCase):
+    """The one function every driver relies on to get the boundary right.
+
+    Its failure mode is the reason it raises rather than returning
+    something plausible: a path that resolves outside and not inside does
+    not fail here, it fails part-way through an hour-long action, with a
+    message about a missing file that plainly exists.
+    """
+
+    def test_the_work_area_itself_becomes_the_mount_point(self):
+        self.assertEqual(
+            "/build",
+            _isolation.sandbox_path("/scratch/x-1234", "/scratch/x-1234", "bwrap"),
+        )
+
+    def test_a_path_under_the_work_area_keeps_its_tail(self):
+        self.assertEqual(
+            "/build/topdir/BUILD",
+            _isolation.sandbox_path(
+                "/scratch/x-1234/topdir/BUILD", "/scratch/x-1234", "bwrap"),
+        )
+
+    def test_two_different_work_areas_give_the_same_answer(self):
+        """Restates the property the whole change exists for."""
+        self.assertEqual(
+            _isolation.sandbox_path("/scratch/a-01/topdir", "/scratch/a-01", "bwrap"),
+            _isolation.sandbox_path(
+                "/var/tmp/deeply/nested/b-99/topdir", "/var/tmp/deeply/nested/b-99",
+                "bwrap"),
+        )
+
+    def test_isolation_none_is_the_identity(self):
+        self.assertEqual(
+            "/scratch/x-1234/topdir",
+            _isolation.sandbox_path(
+                "/scratch/x-1234/topdir", "/scratch/x-1234", "none"),
+        )
+
+    def test_a_path_outside_the_work_area_is_refused(self):
+        """Silence here is what would ship a broken path into an action."""
+        with self.assertRaises(ValueError) as caught:
+            _isolation.sandbox_path("/etc/passwd", "/scratch/x-1234", "bwrap")
+        self.assertIn("/etc/passwd", str(caught.exception))
+        self.assertIn("/scratch/x-1234", str(caught.exception))
+
+    def test_a_sibling_with_a_shared_prefix_is_refused(self):
+        """The off-by-one a startswith() without the separator would allow."""
+        with self.assertRaises(ValueError):
+            _isolation.sandbox_path(
+                "/scratch/x-1234-other/topdir", "/scratch/x-1234", "bwrap")
+
+    def test_relative_paths_are_resolved_against_the_process_cwd(self):
+        with tempfile.TemporaryDirectory() as work:
+            os.makedirs(os.path.join(work, "topdir"))
+            previous = os.getcwd()
+            os.chdir(work)
+            try:
+                self.assertEqual(
+                    "/build/topdir",
+                    _isolation.sandbox_path("topdir", work, "bwrap"),
+                )
+            finally:
+                os.chdir(previous)
+
+
+class TestHostPathsCannotEnterTheSandbox(unittest.TestCase):
+    """The static half of the translation, which is worth more than the boots.
+
+    A sandbox path used host-side fails immediately with ENOENT.  A host
+    path used inside fails an hour into an expensive action.  Only the
+    second direction needs catching, and with a fixed bind it is exactly
+    the detectable one: nothing crossing has any business naming the host
+    work area.
+    """
+
+    WORK = "/scratch/buckos-distro-replay-9f3c1e00"
+
+    def test_a_translated_script_passes(self):
+        _isolation._assert_no_host_work_path(
+            ["/bin/sh", "-c", "tar -xf /build/image.tar -C /build/root"],
+            {"TMPDIR": "/build/tmp"},
+            self.WORK,
+        )
+
+    def test_an_untranslated_script_stops_the_build(self):
+        with self.assertRaises(SystemExit) as caught:
+            _isolation._assert_no_host_work_path(
+                ["/bin/sh", "-c",
+                 "tar -xf {}/image.tar -C /build/root".format(self.WORK)],
+                None,
+                self.WORK,
+            )
+        message = str(caught.exception)
+        self.assertIn(self.WORK, message)
+        self.assertIn("/build", message)
+        self.assertIn("argv[2]", message)
+
+    def test_an_untranslated_argument_stops_the_build(self):
+        """Not only interpolated scripts: bare argv crosses too."""
+        with self.assertRaises(SystemExit) as caught:
+            _isolation._assert_no_host_work_path(
+                ["/usr/bin/rpmbuild", "--define",
+                 "_topdir {}/topdir".format(self.WORK)],
+                None,
+                self.WORK,
+            )
+        self.assertIn("argv[2]", str(caught.exception))
+
+    def test_an_untranslated_environment_value_stops_the_build(self):
+        """The channel the call-site audit would not have caught."""
+        with self.assertRaises(SystemExit) as caught:
+            _isolation._assert_no_host_work_path(
+                ["/bin/true"],
+                {"TMPDIR": "{}/topdir/tmp".format(self.WORK)},
+                self.WORK,
+            )
+        self.assertIn("$TMPDIR", str(caught.exception))
+
+    def test_every_offender_is_named_not_only_the_first(self):
+        """A driver that got it wrong once usually got it wrong twice."""
+        with self.assertRaises(SystemExit) as caught:
+            _isolation._assert_no_host_work_path(
+                ["/bin/sh", "-c", "{}/a".format(self.WORK), "{}/b".format(self.WORK)],
+                {"TMPDIR": "{}/tmp".format(self.WORK)},
+                self.WORK,
+            )
+        message = str(caught.exception)
+        self.assertIn("3 thing(s)", message)
+        for where in ("argv[2]", "argv[3]", "$TMPDIR"):
+            self.assertIn(where, message)
+
+    def test_a_long_script_is_excerpted_around_the_offence(self):
+        """A 4KB script has to name its own bug or nobody reads the message."""
+        script = "# filler\n" * 400 + "cp {}/x /tmp/y".format(self.WORK)
+        with self.assertRaises(SystemExit) as caught:
+            _isolation._assert_no_host_work_path(
+                ["/bin/sh", "-c", script], None, self.WORK)
+        message = str(caught.exception)
+        self.assertIn("cp {}/x".format(self.WORK), message)
+        self.assertLess(len(message), len(script))
+
+    def test_isolation_none_is_never_checked(self):
+        """That mode has no bind, so the host path is the correct answer.
+
+        Asserted through run_isolated rather than the helper, because the
+        property is that the check is not reached at all -- a helper-level
+        test would pass even if the call were placed above the early
+        return, which is the mistake worth catching.
+        """
+        with patch("_isolation.run", return_value="ran") as ran:
+            result = _isolation.run_isolated(
+                ["/bin/sh", "-c", "cat {}/marker".format(self.WORK)],
+                "none",
+                self.WORK,
+                self.WORK,
+                None,
+                env={"TMPDIR": "{}/tmp".format(self.WORK)},
+            )
+        self.assertEqual("ran", result)
+        ran.assert_called_once()
+
+
+class TestNoBuildrootShipsTheMountPoint(unittest.TestCase):
+    """Mounting over a directory a package owns would hide it silently.
+
+    No buildroot in the fleet ships one, checked across ten on both
+    flavors and both architectures -- but that is a fact about today's
+    package sets, not a guarantee, so it is asserted before every mount
+    rather than written down once.
+    """
+
+    def test_a_tree_without_the_directory_passes(self):
+        with tempfile.TemporaryDirectory() as sysroot:
+            _isolation._assert_no_real_build_dir(sysroot)
+
+    def test_an_empty_directory_passes(self):
+        """What the sandbox itself leaves behind, so it cannot be fatal."""
+        with tempfile.TemporaryDirectory() as sysroot:
+            os.makedirs(os.path.join(sysroot, "build"))
+            _isolation._assert_no_real_build_dir(sysroot)
+
+    def test_a_populated_directory_stops_the_build(self):
+        with tempfile.TemporaryDirectory() as sysroot:
+            os.makedirs(os.path.join(sysroot, "build", "somepackage"))
+            with self.assertRaises(SystemExit) as caught:
+                _isolation._assert_no_real_build_dir(sysroot)
+            self.assertIn("/build", str(caught.exception))
+
+    def test_no_sysroot_is_not_an_error(self):
+        """isolation=none passes none, and there is nothing to shadow."""
+        _isolation._assert_no_real_build_dir(None)
 
 
 if __name__ == "__main__":

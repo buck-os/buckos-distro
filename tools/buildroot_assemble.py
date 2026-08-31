@@ -25,6 +25,8 @@ from _isolation import (
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    SANDBOX_WORK,
+    sandbox_path,
 )
 from _rpm import (
     extract_rpm,
@@ -282,7 +284,8 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
             '-path "$WORK" -prune -o ! -uid 0 -exec chown -h 0 {} +\n'
         )
         run_isolated(
-            ["/bin/sh", "-c", script, "sh", staging],
+            ["/bin/sh", "-c", script, "sh",
+             sandbox_path(staging, work, isolation)],
             isolation,
             work=work,
             chdir=work,
@@ -295,14 +298,15 @@ def _register_rpmdb(out, rpms, isolation, source_date_epoch):
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)
-        # The sandbox binds the work area at its own absolute path, which
-        # means it had to create that path *inside* the tree as a mount
-        # point.  The mount is gone with the namespace but the empty
-        # directory is not, and its name contains mkdtemp's random suffix
-        # -- so leaving it would make this output differ on every build
-        # for no reason a reader could ever guess.
-        leftover = os.path.join(out, os.path.relpath(work, "/"))
-        shutil.rmtree(leftover, ignore_errors=True)
+        # The sandbox had to create its mount point *inside* the tree.
+        # The mount is gone with the namespace but the empty directory is
+        # not, and leaving it would put a directory in the output that no
+        # package placed there.  One known name under a fixed bind; it
+        # used to be the host scratch path, random suffix and all, which
+        # made this output differ on every build for no reason a reader
+        # could ever guess.
+        shutil.rmtree(os.path.join(out, SANDBOX_WORK.lstrip("/")),
+                      ignore_errors=True)
 
         # In the finally, not after it, and this is not tidiness.  A real
         # transaction lays down rpm's declared modes, and rpm ships

@@ -64,6 +64,7 @@ from _isolation import (
     require_target_execution,
     resolve_isolation,
     run_isolated,
+    sandbox_path,
 )
 from _rpm import (
     make_dirs_writable,
@@ -230,11 +231,23 @@ def _install(args, isolation, rpms, work, out):
         file=sys.stderr,
         flush=True,
     )
+
+    def inside(path):
+        return sandbox_path(path, work, isolation)
+
+    # rpm resolves all four inside; `target` and `tarball` stay host-side
+    # above and below, where this process checks and copies them.
     run_isolated(
         [
             "/bin/sh",
             "-c",
-            _transaction_script(args, staging, target, tarball, modules),
+            _transaction_script(
+                args,
+                inside(staging),
+                inside(target),
+                inside(tarball),
+                inside(modules) if modules else None,
+            ),
         ],
         isolation, work, work, sysroot,
         env=_transaction_env(args),

@@ -54,26 +54,43 @@ _DEFAULT_SCRATCH_ROOT = "/var/tmp"
 def scratch_dir(prefix, key=None, remove=None):
     """A private scratch directory for a tree Buck must not walk.
 
-    `key` makes the name a function of the action instead of random, and
-    that is a reproducibility fix, not a tidiness one.  The work area is
-    bound into the sandbox at its own absolute path (see _isolation.py),
-    so it *is* %_topdir, so it lands in every DW_AT_comp_dir the compiler
-    emits.  ld then hashes the linked output -- debug sections included --
-    into the GNU build-id.  find-debuginfo runs debugedit afterwards,
-    which rewrites those paths to /usr/src/debug and leaves the note
-    alone, so the path vanishes from the output while its fingerprint
-    stays behind in 20 bytes that differ on every build.
+    `key` makes the name a function of the action instead of random.  It
+    was a reproducibility fix: the work area used to be bound into the
+    sandbox at its own absolute path, so it *was* %_topdir, so it landed
+    in every DW_AT_comp_dir the compiler emitted, and from there in the
+    GNU build-id -- which meant two builds of identical sources in
+    differently-named scratch directories produced different bytes.
 
-    That is invisible in the obvious places: nothing greps out of the
-    rpm, the DWARF is byte-identical, and the diff is a build-id plus the
-    two things derived from it (.gnu_debuglink's CRC and the
-    xz-compressed .gnu_debugdata, which carries its own copy of the
-    note).  mkdtemp's suffix is even fixed-length, so the binaries do not
-    change size.
+    That reason is gone.  The bind is at _isolation.SANDBOX_WORK now, a
+    constant, and every path handed to a tool inside is translated to it,
+    so the scratch directory's name no longer reaches a compiler at all.
+    The fix is in the bind rather than in the name.
 
-    So: pass something that identifies the action and is stable across
-    runs of it -- an output path is both.  Callers that only need a
-    private directory can leave it None and keep mkdtemp semantics.
+    One observation from that era is worth keeping, because it is about
+    how a path difference *presents* rather than about where the path
+    comes from, and it misleads in a direction that looks like good news.
+    A path-only difference is nearly invisible: nothing greps out of the
+    rpm, the DWARF is byte-identical after debugedit rewrites it, and what
+    is left is a build-id plus the two things derived from it --
+    .gnu_debuglink's CRC and the xz-compressed .gnu_debugdata, which
+    carries its own copy of the note.  The suffixes involved are
+    fixed-length, so **the binaries do not change size**.
+
+    Which means identical size, and an identical symbol table, are the
+    *expected signature* of a pure path difference rather than evidence
+    against one.  Anything comparing two builds has to read that the right
+    way round: those two agreeing is what a path difference looks like,
+    not what near-identity looks like.
+
+    What `key` is still for is narrower and worth keeping.  A name derived
+    from the action is a name this process can predict on its *next* run,
+    which is what lets the block below delete a previous run's leftovers:
+    mkdtemp cannot, because it never produces the same name twice, so an
+    action killed mid-build strands its tree under the scratch root
+    forever.  These trees are whole buildroots.  Pass something that
+    identifies the action and is stable across runs of it -- an output
+    path is both.  Callers that only need a private directory can leave it
+    None and keep mkdtemp semantics.
 
     `remove` overrides how a leftover from a previous run is deleted, and
     a caller that ran an rpm transaction in here has to supply one.  The
@@ -671,32 +688,3 @@ def resolve_in_buildroot(var, candidates):
         "  exit 1",
         "fi",
     ])
-
-
-def fabricated_mount_components(sandbox_root, work):
-    """The parts of the work bind path the sandbox invents inside its root.
-
-    Bubblewrap has to create every missing component of a bind path inside
-    the tree it mounts at `/`, and those components survive the sandbox.
-    When that tree is the image being built, rather than a buildroot, they
-    are shipped: an empty directory named after the scratch path of the
-    machine that ran the build.
-
-    Two steps do that. The Debian rootfs transaction runs against the
-    target, and the SELinux relabel runs against the unpacked image because
-    the policy deciding the labels has to be the image's own. Everything
-    else passes a buildroot and is unaffected.
-
-    Call it before the sandbox runs, while the distinction is still
-    observable, and prune what it returns afterwards. Returns them deepest
-    first. Components the tree genuinely owns are absent, so pruning cannot
-    delete a shipped directory.
-    """
-    fabricated = []
-    current = sandbox_root
-    for part in work.strip("/").split("/"):
-        current = os.path.join(current, part)
-        if not os.path.isdir(current):
-            fabricated.append(current)
-    fabricated.reverse()
-    return fabricated
