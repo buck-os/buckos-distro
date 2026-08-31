@@ -12,6 +12,7 @@ import tempfile
 from xml.sax.saxutils import quoteattr
 
 from _isolation import sandbox_path
+from _rpm import nest_unrepresentable
 
 
 SOURCE_FIELD_RE = re.compile(r"^([^\s()]+)(?:\s+\(([^()]+)\))?$")
@@ -555,7 +556,78 @@ def deb_fields(path: str) -> dict[str, str]:
 
 
 def extract_deb(path, out):
-    run([require_tool("dpkg-deb"), "--extract", path, out])
+    """Unpack a deb payload, reshaping names buck2 cannot address.
+
+    Ubuntu 26.04's systemd ships
+
+        usr/lib/systemd/system/system-systemd\\x2dmute\\x2dconsole.slice
+
+    and a literal backslash is not expressible as a buck2 project-relative
+    path, so a directory output holding one fails the whole build with
+    "Invalid filename ... slashes in path" before any of our targets are
+    reached.  The RPM side meets the same systemd payload through
+    rpm2archive and answers it the same way; see the _UNREPRESENTABLE note
+    in tools/_rpm.py for why the reshape has to happen as tar writes the
+    file rather than in a rename pass afterwards.
+
+    dpkg-deb --extract cannot rewrite names, so the payload goes through
+    its own tar instead, which can.  Safe here for the reason it is safe
+    there: all three callers -- the buildroot assembler, the seed
+    extractor and the replay's installroot -- produce trees that run
+    dpkg-buildpackage or mksquashfs and never boot.  The shipped rootfs
+    does not come through this function at all; deb_rootfs_install.py runs
+    a real dpkg transaction in the sandbox and hands back a tarball, and a
+    tar member has no such restriction.
+    """
+    os.makedirs(out, exist_ok=True)
+    dpkg_deb = require_tool("dpkg-deb")
+    tar = require_tool("tar")
+    payload = subprocess.Popen(
+        [dpkg_deb, "--fsys-tarfile", path],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    unpack = subprocess.Popen(
+        [
+            tar,
+            "-x",
+            "--delay-directory-restore",
+            # dpkg payloads name root:root and we are not root.
+            "--no-same-owner",
+            # sed syntax, so a literal backslash is written \\.  The
+            # default scope also rewrites link targets, which is wanted --
+            # otherwise a symlink to one of these files would dangle at
+            # the un-nested name.
+            "--transform", "s|\\\\|/|g",
+            "-C", out,
+        ],
+        stdin=payload.stdout, stderr=subprocess.PIPE,
+    )
+    payload.stdout.close()
+    _, unpack_err = unpack.communicate()
+    _, payload_err = payload.communicate()
+
+    if payload.returncode != 0 or unpack.returncode != 0:
+        for label, err in (("dpkg-deb", payload_err), ("tar", unpack_err)):
+            if err:
+                print(
+                    "--- {} ---\n{}".format(label, err.decode(errors="replace")),
+                    file=sys.stderr,
+                )
+        sys.exit(
+            "failed to unpack {} (dpkg-deb={}, tar={})".format(
+                path, payload.returncode, unpack.returncode
+            )
+        )
+
+    # Belt and braces, and the half that reports: tar reshapes silently,
+    # so anything that reached the tree by another route is named here.
+    # Finds nothing and prints nothing in the normal case.
+    for before, after in nest_unrepresentable(out):
+        print(
+            "buckos-distro: {}: split {} into {} -- buck2 reads a backslash "
+            "as a path separator".format(os.path.basename(path), before, after),
+            file=sys.stderr,
+        )
 
 
 def payload_paths(deb: str) -> list[str]:
