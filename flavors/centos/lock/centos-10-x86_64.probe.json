@@ -15,6 +15,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "acl",
+        "acl-debuginfo",
+        "acl-debugsource",
+        "libacl",
+        "libacl-devel"
+      ],
       "spec": "acl.spec",
       "static": [
         "gawk",
@@ -38,6 +45,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "attr",
+        "attr-debuginfo",
+        "attr-debugsource",
+        "libattr",
+        "libattr-devel"
+      ],
       "spec": "attr.spec",
       "static": [
         "gettext",
@@ -67,6 +81,17 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "audispd-plugins",
+        "audispd-plugins-zos",
+        "audit",
+        "audit-debuginfo",
+        "audit-debugsource",
+        "audit-libs",
+        "audit-libs-devel",
+        "audit-rules",
+        "python3-audit"
+      ],
       "spec": "audit.spec",
       "static": [
         "autoconf",
@@ -104,6 +129,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "authselect",
+        "authselect-debuginfo",
+        "authselect-debugsource",
+        "authselect-devel",
+        "authselect-libs"
+      ],
       "spec": "authselect.spec",
       "static": [
         "/usr/bin/a2x",
@@ -126,6 +158,9 @@
       "buildrequires": [],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "basesystem"
+      ],
       "spec": "basesystem.spec",
       "static": [],
       "unmet": false
@@ -145,6 +180,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "bash",
+        "bash-debuginfo",
+        "bash-debugsource",
+        "bash-devel",
+        "bash-doc"
+      ],
       "spec": "bash.spec",
       "static": [
         "audit-libs-devel",
@@ -168,6 +210,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "bzip2",
+        "bzip2-debuginfo",
+        "bzip2-debugsource",
+        "bzip2-devel",
+        "bzip2-libs",
+        "bzip2-static"
+      ],
       "spec": "bzip2.spec",
       "static": [
         "gcc",
@@ -186,6 +236,9 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "ca-certificates"
+      ],
       "spec": "ca-certificates.spec",
       "static": [
         "asciidoc",
@@ -200,6 +253,12 @@
       "buildrequires": [],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "centos-gpg-keys",
+        "centos-sb-certs",
+        "centos-stream-release",
+        "centos-stream-repos"
+      ],
       "spec": "centos-stream-release.spec",
       "static": [],
       "unmet": false
@@ -216,6 +275,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "alternatives",
+        "chkconfig",
+        "chkconfig-debuginfo",
+        "chkconfig-debugsource",
+        "ntsysv"
+      ],
       "spec": "chkconfig.spec",
       "static": [
         "gcc",
@@ -261,6 +327,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "coreutils",
+        "coreutils-common",
+        "coreutils-debuginfo",
+        "coreutils-debugsource",
+        "coreutils-single"
+      ],
       "spec": "coreutils.spec",
       "static": [
         "acl",
@@ -308,6 +381,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "cpio",
+        "cpio-debuginfo",
+        "cpio-debugsource"
+      ],
       "spec": "cpio.spec",
       "static": [
         "autoconf",
@@ -337,6 +415,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "cracklib",
+        "cracklib-debuginfo",
+        "cracklib-debugsource",
+        "cracklib-devel",
+        "cracklib-dicts"
+      ],
       "spec": "cracklib.spec",
       "static": [
         "autoconf",
@@ -369,6 +454,10 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "crypto-policies",
+        "crypto-policies-scripts"
+      ],
       "spec": "crypto-policies.spec",
       "static": [
         "asciidoc",
@@ -405,6 +494,15 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "cryptsetup",
+        "cryptsetup-debuginfo",
+        "cryptsetup-debugsource",
+        "cryptsetup-devel",
+        "cryptsetup-libs",
+        "integritysetup",
+        "veritysetup"
+      ],
       "spec": "cryptsetup.spec",
       "static": [
         "asciidoctor",
@@ -483,6 +581,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "curl",
+        "curl-debuginfo",
+        "curl-debugsource",
+        "libcurl",
+        "libcurl-devel",
+        "libcurl-minimal"
+      ],
       "spec": "curl.spec",
       "static": [
         "automake",
@@ -565,6 +671,20 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "cyrus-sasl",
+        "cyrus-sasl-debuginfo",
+        "cyrus-sasl-debugsource",
+        "cyrus-sasl-devel",
+        "cyrus-sasl-gs2",
+        "cyrus-sasl-gssapi",
+        "cyrus-sasl-ldap",
+        "cyrus-sasl-lib",
+        "cyrus-sasl-md5",
+        "cyrus-sasl-plain",
+        "cyrus-sasl-scram",
+        "cyrus-sasl-sql"
+      ],
       "spec": "cyrus-sasl.spec",
       "static": [
         "autoconf",
@@ -614,6 +734,19 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "dbus",
+        "dbus-common",
+        "dbus-daemon",
+        "dbus-debuginfo",
+        "dbus-debugsource",
+        "dbus-devel",
+        "dbus-doc",
+        "dbus-libs",
+        "dbus-tests",
+        "dbus-tools",
+        "dbus-x11"
+      ],
       "spec": "dbus.spec",
       "static": [
         "/usr/bin/ducktype",
@@ -656,6 +789,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "dbus-broker",
+        "dbus-broker-debuginfo",
+        "dbus-broker-debugsource"
+      ],
       "spec": "dbus-broker.spec",
       "static": [
         "gcc",
@@ -683,6 +821,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "diffutils",
+        "diffutils-debuginfo",
+        "diffutils-debugsource"
+      ],
       "spec": "diffutils.spec",
       "static": [
         "autoconf",
@@ -713,6 +856,19 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "e2fsprogs",
+        "e2fsprogs-debuginfo",
+        "e2fsprogs-debugsource",
+        "e2fsprogs-devel",
+        "e2fsprogs-libs",
+        "e2fsprogs-static",
+        "e2scrub",
+        "libcom_err",
+        "libcom_err-devel",
+        "libss",
+        "libss-devel"
+      ],
       "spec": "e2fsprogs.spec",
       "static": [
         "fuse3-devel",
@@ -771,6 +927,19 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "elfutils",
+        "elfutils-debuginfo",
+        "elfutils-debuginfod",
+        "elfutils-debuginfod-client",
+        "elfutils-debuginfod-client-devel",
+        "elfutils-debugsource",
+        "elfutils-default-yama-scope",
+        "elfutils-devel",
+        "elfutils-libelf",
+        "elfutils-libelf-devel",
+        "elfutils-libs"
+      ],
       "spec": "elfutils.spec",
       "static": [
         "autoconf",
@@ -821,6 +990,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "expat",
+        "expat-debuginfo",
+        "expat-debugsource",
+        "expat-devel",
+        "expat-static"
+      ],
       "spec": "expat.spec",
       "static": [
         "autoconf",
@@ -845,6 +1021,15 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "file",
+        "file-debuginfo",
+        "file-debugsource",
+        "file-devel",
+        "file-libs",
+        "file-static",
+        "python3-file-magic"
+      ],
       "spec": "file.spec",
       "static": [
         "autoconf",
@@ -864,6 +1049,10 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "filesystem",
+        "filesystem-content"
+      ],
       "spec": "filesystem.spec",
       "static": [
         "iso-codes"
@@ -884,6 +1073,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "findutils",
+        "findutils-debuginfo",
+        "findutils-debugsource"
+      ],
       "spec": "findutils.spec",
       "static": [
         "automake",
@@ -910,6 +1104,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "fuse-common",
+        "fuse3",
+        "fuse3-debuginfo",
+        "fuse3-debugsource",
+        "fuse3-devel",
+        "fuse3-libs"
+      ],
       "spec": "fuse3.spec",
       "static": [
         "gcc",
@@ -940,6 +1142,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "gawk",
+        "gawk-all-langpacks",
+        "gawk-debuginfo",
+        "gawk-debugsource",
+        "gawk-devel",
+        "gawk-doc"
+      ],
       "spec": "gawk.spec",
       "static": [
         "automake",
@@ -1008,6 +1218,82 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "cpp",
+        "cross-gcc-aarch64",
+        "cross-gcc-c++-aarch64",
+        "cross-gcc-c++-ppc64le",
+        "cross-gcc-c++-s390x",
+        "cross-gcc-plugin-aarch64",
+        "cross-gcc-plugin-ppc64le",
+        "cross-gcc-plugin-s390x",
+        "cross-gcc-ppc64le",
+        "cross-gcc-s390x",
+        "gcc",
+        "gcc-c++",
+        "gcc-debuginfo",
+        "gcc-debugsource",
+        "gcc-gdb-plugin",
+        "gcc-gdc",
+        "gcc-gfortran",
+        "gcc-gm2",
+        "gcc-gnat",
+        "gcc-go",
+        "gcc-objc",
+        "gcc-objc++",
+        "gcc-offload-amdgcn",
+        "gcc-offload-nvptx",
+        "gcc-plugin-annobin",
+        "gcc-plugin-devel",
+        "libasan",
+        "libasan-static",
+        "libatomic",
+        "libatomic-static",
+        "libgcc",
+        "libgccjit",
+        "libgccjit-devel",
+        "libgfortran",
+        "libgfortran-static",
+        "libgm2",
+        "libgm2-static",
+        "libgnat",
+        "libgnat-devel",
+        "libgnat-static",
+        "libgo",
+        "libgo-devel",
+        "libgo-static",
+        "libgomp",
+        "libgomp-offload-amdgcn",
+        "libgomp-offload-nvptx",
+        "libgphobos",
+        "libgphobos-static",
+        "libhwasan",
+        "libhwasan-static",
+        "libitm",
+        "libitm-devel",
+        "libitm-static",
+        "liblsan",
+        "liblsan-static",
+        "libobjc",
+        "libquadmath",
+        "libquadmath-devel",
+        "libquadmath-static",
+        "libstdc++",
+        "libstdc++-devel",
+        "libstdc++-docs",
+        "libstdc++-static",
+        "libtsan",
+        "libtsan-static",
+        "libubsan",
+        "libubsan-static",
+        "sysroot-x86_64-el10-libatomic",
+        "sysroot-x86_64-el10-libgcc",
+        "sysroot-x86_64-el10-libgomp",
+        "sysroot-x86_64-el10-libitm",
+        "sysroot-x86_64-el10-libsanitizer",
+        "sysroot-x86_64-el10-libstdc++",
+        "sysroot-x86_64-el10-test-support"
+      ],
       "spec": "gcc.spec",
       "static": [
         "(glibc32 or glibc-devel(x86-32))",
@@ -1068,6 +1354,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "gdbm",
+        "gdbm-debuginfo",
+        "gdbm-debugsource",
+        "gdbm-devel",
+        "gdbm-libs"
+      ],
       "spec": "gdbm.spec",
       "static": [
         "gcc",
@@ -1108,6 +1401,15 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "glib2",
+        "glib2-debuginfo",
+        "glib2-debugsource",
+        "glib2-devel",
+        "glib2-doc",
+        "glib2-static",
+        "glib2-tests"
+      ],
       "spec": "glib2.spec",
       "static": [
         "/usr/bin/dbus-daemon",
@@ -1171,6 +1473,234 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "compat-libpthread-nonshared",
+        "glibc",
+        "glibc-all-langpacks",
+        "glibc-benchtests",
+        "glibc-common",
+        "glibc-debuginfo",
+        "glibc-debugsource",
+        "glibc-devel",
+        "glibc-doc",
+        "glibc-gconv-extra",
+        "glibc-langpack-aa",
+        "glibc-langpack-af",
+        "glibc-langpack-agr",
+        "glibc-langpack-ak",
+        "glibc-langpack-am",
+        "glibc-langpack-an",
+        "glibc-langpack-anp",
+        "glibc-langpack-ar",
+        "glibc-langpack-as",
+        "glibc-langpack-ast",
+        "glibc-langpack-ayc",
+        "glibc-langpack-az",
+        "glibc-langpack-be",
+        "glibc-langpack-bem",
+        "glibc-langpack-ber",
+        "glibc-langpack-bg",
+        "glibc-langpack-bhb",
+        "glibc-langpack-bho",
+        "glibc-langpack-bi",
+        "glibc-langpack-bn",
+        "glibc-langpack-bo",
+        "glibc-langpack-br",
+        "glibc-langpack-brx",
+        "glibc-langpack-bs",
+        "glibc-langpack-byn",
+        "glibc-langpack-ca",
+        "glibc-langpack-ce",
+        "glibc-langpack-chr",
+        "glibc-langpack-ckb",
+        "glibc-langpack-cmn",
+        "glibc-langpack-crh",
+        "glibc-langpack-cs",
+        "glibc-langpack-csb",
+        "glibc-langpack-cv",
+        "glibc-langpack-cy",
+        "glibc-langpack-da",
+        "glibc-langpack-de",
+        "glibc-langpack-doi",
+        "glibc-langpack-dsb",
+        "glibc-langpack-dv",
+        "glibc-langpack-dz",
+        "glibc-langpack-el",
+        "glibc-langpack-en",
+        "glibc-langpack-eo",
+        "glibc-langpack-es",
+        "glibc-langpack-et",
+        "glibc-langpack-eu",
+        "glibc-langpack-fa",
+        "glibc-langpack-ff",
+        "glibc-langpack-fi",
+        "glibc-langpack-fil",
+        "glibc-langpack-fo",
+        "glibc-langpack-fr",
+        "glibc-langpack-fur",
+        "glibc-langpack-fy",
+        "glibc-langpack-ga",
+        "glibc-langpack-gbm",
+        "glibc-langpack-gd",
+        "glibc-langpack-gez",
+        "glibc-langpack-gl",
+        "glibc-langpack-gu",
+        "glibc-langpack-gv",
+        "glibc-langpack-ha",
+        "glibc-langpack-hak",
+        "glibc-langpack-he",
+        "glibc-langpack-hi",
+        "glibc-langpack-hif",
+        "glibc-langpack-hne",
+        "glibc-langpack-hr",
+        "glibc-langpack-hsb",
+        "glibc-langpack-ht",
+        "glibc-langpack-hu",
+        "glibc-langpack-hy",
+        "glibc-langpack-ia",
+        "glibc-langpack-id",
+        "glibc-langpack-ig",
+        "glibc-langpack-ik",
+        "glibc-langpack-is",
+        "glibc-langpack-it",
+        "glibc-langpack-iu",
+        "glibc-langpack-ja",
+        "glibc-langpack-ka",
+        "glibc-langpack-kab",
+        "glibc-langpack-kk",
+        "glibc-langpack-kl",
+        "glibc-langpack-km",
+        "glibc-langpack-kn",
+        "glibc-langpack-ko",
+        "glibc-langpack-kok",
+        "glibc-langpack-ks",
+        "glibc-langpack-ku",
+        "glibc-langpack-kv",
+        "glibc-langpack-kw",
+        "glibc-langpack-ky",
+        "glibc-langpack-lb",
+        "glibc-langpack-lg",
+        "glibc-langpack-li",
+        "glibc-langpack-lij",
+        "glibc-langpack-ln",
+        "glibc-langpack-lo",
+        "glibc-langpack-lt",
+        "glibc-langpack-lv",
+        "glibc-langpack-lzh",
+        "glibc-langpack-mag",
+        "glibc-langpack-mai",
+        "glibc-langpack-mfe",
+        "glibc-langpack-mg",
+        "glibc-langpack-mhr",
+        "glibc-langpack-mi",
+        "glibc-langpack-miq",
+        "glibc-langpack-mjw",
+        "glibc-langpack-mk",
+        "glibc-langpack-ml",
+        "glibc-langpack-mn",
+        "glibc-langpack-mni",
+        "glibc-langpack-mnw",
+        "glibc-langpack-mr",
+        "glibc-langpack-ms",
+        "glibc-langpack-mt",
+        "glibc-langpack-my",
+        "glibc-langpack-nan",
+        "glibc-langpack-nb",
+        "glibc-langpack-nds",
+        "glibc-langpack-ne",
+        "glibc-langpack-nhn",
+        "glibc-langpack-niu",
+        "glibc-langpack-nl",
+        "glibc-langpack-nn",
+        "glibc-langpack-nr",
+        "glibc-langpack-nso",
+        "glibc-langpack-oc",
+        "glibc-langpack-om",
+        "glibc-langpack-or",
+        "glibc-langpack-os",
+        "glibc-langpack-pa",
+        "glibc-langpack-pap",
+        "glibc-langpack-pl",
+        "glibc-langpack-ps",
+        "glibc-langpack-pt",
+        "glibc-langpack-quz",
+        "glibc-langpack-raj",
+        "glibc-langpack-rif",
+        "glibc-langpack-ro",
+        "glibc-langpack-ru",
+        "glibc-langpack-rw",
+        "glibc-langpack-sa",
+        "glibc-langpack-sah",
+        "glibc-langpack-sat",
+        "glibc-langpack-sc",
+        "glibc-langpack-sd",
+        "glibc-langpack-se",
+        "glibc-langpack-sgs",
+        "glibc-langpack-shn",
+        "glibc-langpack-shs",
+        "glibc-langpack-si",
+        "glibc-langpack-sid",
+        "glibc-langpack-sk",
+        "glibc-langpack-sl",
+        "glibc-langpack-sm",
+        "glibc-langpack-so",
+        "glibc-langpack-sq",
+        "glibc-langpack-sr",
+        "glibc-langpack-ss",
+        "glibc-langpack-ssy",
+        "glibc-langpack-st",
+        "glibc-langpack-su",
+        "glibc-langpack-sv",
+        "glibc-langpack-sw",
+        "glibc-langpack-syr",
+        "glibc-langpack-szl",
+        "glibc-langpack-ta",
+        "glibc-langpack-tcy",
+        "glibc-langpack-te",
+        "glibc-langpack-tg",
+        "glibc-langpack-th",
+        "glibc-langpack-the",
+        "glibc-langpack-ti",
+        "glibc-langpack-tig",
+        "glibc-langpack-tk",
+        "glibc-langpack-tl",
+        "glibc-langpack-tn",
+        "glibc-langpack-to",
+        "glibc-langpack-tok",
+        "glibc-langpack-tpi",
+        "glibc-langpack-tr",
+        "glibc-langpack-ts",
+        "glibc-langpack-tt",
+        "glibc-langpack-ug",
+        "glibc-langpack-uk",
+        "glibc-langpack-unm",
+        "glibc-langpack-ur",
+        "glibc-langpack-uz",
+        "glibc-langpack-ve",
+        "glibc-langpack-vi",
+        "glibc-langpack-wa",
+        "glibc-langpack-wae",
+        "glibc-langpack-wal",
+        "glibc-langpack-wo",
+        "glibc-langpack-xh",
+        "glibc-langpack-yi",
+        "glibc-langpack-yo",
+        "glibc-langpack-yue",
+        "glibc-langpack-yuw",
+        "glibc-langpack-zgh",
+        "glibc-langpack-zh",
+        "glibc-langpack-zu",
+        "glibc-locale-source",
+        "glibc-minimal-langpack",
+        "glibc-nss-devel",
+        "glibc-static",
+        "glibc-utils",
+        "glibc32",
+        "libnsl",
+        "nss_db",
+        "nss_hesiod",
+        "sysroot-x86_64-el10-glibc"
+      ],
       "spec": "glibc.spec",
       "static": [
         "audit-libs-devel >= 1.1.3",
@@ -1217,6 +1747,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "gmp",
+        "gmp-c++",
+        "gmp-debuginfo",
+        "gmp-debugsource",
+        "gmp-devel",
+        "gmp-static"
+      ],
       "spec": "gmp.spec",
       "static": [
         "autoconf",
@@ -1263,6 +1801,16 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "gnutls",
+        "gnutls-c++",
+        "gnutls-dane",
+        "gnutls-debuginfo",
+        "gnutls-debugsource",
+        "gnutls-devel",
+        "gnutls-fips",
+        "gnutls-utils"
+      ],
       "spec": "gnutls.spec",
       "static": [
         "autoconf",
@@ -1312,6 +1860,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "grep",
+        "grep-debuginfo",
+        "grep-debugsource"
+      ],
       "spec": "grep.spec",
       "static": [
         "autoconf",
@@ -1339,6 +1892,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "gzip",
+        "gzip-debuginfo",
+        "gzip-debugsource"
+      ],
       "spec": "gzip.spec",
       "static": [
         "autoconf",
@@ -1365,6 +1923,12 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "ima-evm-utils",
+        "ima-evm-utils-debuginfo",
+        "ima-evm-utils-debugsource",
+        "ima-evm-utils-devel"
+      ],
       "spec": "ima-evm-utils.spec",
       "static": [
         "asciidoc",
@@ -1396,6 +1960,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "iproute",
+        "iproute-debuginfo",
+        "iproute-debugsource",
+        "iproute-devel",
+        "iproute-doc",
+        "iproute-tc"
+      ],
       "spec": "iproute.spec",
       "static": [
         "bison",
@@ -1427,6 +1999,12 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "jq",
+        "jq-debuginfo",
+        "jq-debugsource",
+        "jq-devel"
+      ],
       "spec": "jq.spec",
       "static": [
         "autoconf",
@@ -1453,6 +2031,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "json-c",
+        "json-c-debuginfo",
+        "json-c-debugsource",
+        "json-c-devel",
+        "json-c-doc"
+      ],
       "spec": "json-c.spec",
       "static": [
         "cmake",
@@ -1479,6 +2064,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "kbd",
+        "kbd-debuginfo",
+        "kbd-debugsource",
+        "kbd-legacy",
+        "kbd-misc"
+      ],
       "spec": "kbd.spec",
       "static": [
         "automake",
@@ -1503,6 +2095,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "keyutils",
+        "keyutils-debuginfo",
+        "keyutils-debugsource",
+        "keyutils-libs",
+        "keyutils-libs-devel"
+      ],
       "spec": "keyutils.spec",
       "static": [
         "g++",
@@ -1527,6 +2126,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "kmod",
+        "kmod-debuginfo",
+        "kmod-debugsource",
+        "kmod-devel",
+        "kmod-libs"
+      ],
       "spec": "kmod.spec",
       "static": [
         "automake",
@@ -1581,6 +2187,20 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "krb5",
+        "krb5-debuginfo",
+        "krb5-debugsource",
+        "krb5-devel",
+        "krb5-libs",
+        "krb5-pkinit",
+        "krb5-server",
+        "krb5-server-ldap",
+        "krb5-tests",
+        "krb5-workstation",
+        "krb5-xrealmauthz",
+        "libkadm5"
+      ],
       "spec": "krb5.spec",
       "static": [
         "autoconf",
@@ -1630,6 +2250,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "less",
+        "less-debuginfo",
+        "less-debugsource"
+      ],
       "spec": "less.spec",
       "static": [
         "autoconf",
@@ -1662,6 +2287,16 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "bsdcat",
+        "bsdcpio",
+        "bsdtar",
+        "bsdunzip",
+        "libarchive",
+        "libarchive-debuginfo",
+        "libarchive-debugsource",
+        "libarchive-devel"
+      ],
       "spec": "libarchive.spec",
       "static": [
         "autoconf",
@@ -1694,6 +2329,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libbpf",
+        "libbpf-debuginfo",
+        "libbpf-debugsource",
+        "libbpf-devel",
+        "libbpf-static"
+      ],
       "spec": "libbpf.spec",
       "static": [
         "elfutils-devel",
@@ -1715,6 +2357,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libcap",
+        "libcap-debuginfo",
+        "libcap-debugsource",
+        "libcap-devel",
+        "libcap-static"
+      ],
       "spec": "libcap.spec",
       "static": [
         "gcc",
@@ -1745,6 +2394,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libcap-ng",
+        "libcap-ng-debuginfo",
+        "libcap-ng-debugsource",
+        "libcap-ng-devel",
+        "libcap-ng-python3",
+        "libcap-ng-utils"
+      ],
       "spec": "libcap-ng.spec",
       "static": [
         "audit-libs-devel",
@@ -1772,6 +2429,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libeconf",
+        "libeconf-debuginfo",
+        "libeconf-debugsource",
+        "libeconf-devel",
+        "libeconf-utils"
+      ],
       "spec": "libeconf.spec",
       "static": [
         "cmake >= 3.12",
@@ -1792,6 +2456,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libevent",
+        "libevent-debuginfo",
+        "libevent-debugsource",
+        "libevent-devel",
+        "libevent-doc"
+      ],
       "spec": "libevent.spec",
       "static": [
         "automake",
@@ -1813,6 +2484,12 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libffi",
+        "libffi-debuginfo",
+        "libffi-debugsource",
+        "libffi-devel"
+      ],
       "spec": "libffi.spec",
       "static": [
         "dejagnu",
@@ -1833,6 +2510,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "idn2",
+        "libidn2",
+        "libidn2-debuginfo",
+        "libidn2-debugsource",
+        "libidn2-devel"
+      ],
       "spec": "libidn2.spec",
       "static": [
         "gcc",
@@ -1852,6 +2536,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libmnl",
+        "libmnl-debuginfo",
+        "libmnl-debugsource",
+        "libmnl-devel",
+        "libmnl-static"
+      ],
       "spec": "libmnl.spec",
       "static": [
         "gcc",
@@ -1873,6 +2564,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libpwquality",
+        "libpwquality-debuginfo",
+        "libpwquality-debugsource",
+        "libpwquality-devel",
+        "python3-pwquality"
+      ],
       "spec": "libpwquality.spec",
       "static": [
         "/usr/bin/pod2man",
@@ -1895,6 +2593,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libseccomp",
+        "libseccomp-debuginfo",
+        "libseccomp-debugsource",
+        "libseccomp-devel",
+        "libseccomp-static"
+      ],
       "spec": "libseccomp.spec",
       "static": [
         "gcc",
@@ -1923,6 +2628,16 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libselinux",
+        "libselinux-debuginfo",
+        "libselinux-debugsource",
+        "libselinux-devel",
+        "libselinux-ruby",
+        "libselinux-static",
+        "libselinux-utils",
+        "python3-libselinux"
+      ],
       "spec": "libselinux.spec",
       "static": [
         "(python3-wheel if python3-setuptools < 71)",
@@ -1960,6 +2675,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libsemanage",
+        "libsemanage-debuginfo",
+        "libsemanage-debugsource",
+        "libsemanage-devel",
+        "libsemanage-static",
+        "python3-libsemanage"
+      ],
       "spec": "libsemanage.spec",
       "static": [
         "audit-libs-devel",
@@ -1987,6 +2710,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libsepol",
+        "libsepol-debuginfo",
+        "libsepol-debugsource",
+        "libsepol-devel",
+        "libsepol-static",
+        "libsepol-utils"
+      ],
       "spec": "libsepol.spec",
       "static": [
         "flex",
@@ -2013,6 +2744,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libtasn1",
+        "libtasn1-debuginfo",
+        "libtasn1-debugsource",
+        "libtasn1-devel",
+        "libtasn1-tools"
+      ],
       "spec": "libtasn1.spec",
       "static": [
         "autoconf",
@@ -2037,6 +2775,12 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libunistring",
+        "libunistring-debuginfo",
+        "libunistring-debugsource",
+        "libunistring-devel"
+      ],
       "spec": "libunistring.spec",
       "static": [
         "gcc",
@@ -2051,6 +2795,12 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libutempter",
+        "libutempter-debuginfo",
+        "libutempter-debugsource",
+        "libutempter-devel"
+      ],
       "spec": "libutempter.spec",
       "static": [
         "gcc",
@@ -2071,6 +2821,18 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libverto",
+        "libverto-debuginfo",
+        "libverto-debugsource",
+        "libverto-devel",
+        "libverto-glib",
+        "libverto-glib-devel",
+        "libverto-libev",
+        "libverto-libev-devel",
+        "libverto-libevent",
+        "libverto-libevent-devel"
+      ],
       "spec": "libverto.spec",
       "static": [
         "autoconf",
@@ -2095,6 +2857,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libxml2",
+        "libxml2-debuginfo",
+        "libxml2-debugsource",
+        "libxml2-devel",
+        "libxml2-static",
+        "python3-libxml2"
+      ],
       "spec": "libxml2.spec",
       "static": [
         "cmake-rpm-macros",
@@ -2117,6 +2887,12 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libyaml",
+        "libyaml-debuginfo",
+        "libyaml-debugsource",
+        "libyaml-devel"
+      ],
       "spec": "libyaml.spec",
       "static": [
         "autoconf",
@@ -2139,6 +2915,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "lua",
+        "lua-debuginfo",
+        "lua-debugsource",
+        "lua-devel",
+        "lua-libs",
+        "lua-static"
+      ],
       "spec": "lua.spec",
       "static": [
         "autoconf",
@@ -2175,6 +2959,21 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "device-mapper",
+        "device-mapper-devel",
+        "device-mapper-event",
+        "device-mapper-event-devel",
+        "device-mapper-event-libs",
+        "device-mapper-libs",
+        "lvm2",
+        "lvm2-dbusd",
+        "lvm2-debuginfo",
+        "lvm2-debugsource",
+        "lvm2-devel",
+        "lvm2-libs",
+        "lvm2-lockd"
+      ],
       "spec": "lvm2.spec",
       "static": [
         "device-mapper-persistent-data >= 0.7.0-0.1.rc6",
@@ -2208,6 +3007,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "lz4",
+        "lz4-debuginfo",
+        "lz4-debugsource",
+        "lz4-devel",
+        "lz4-libs",
+        "lz4-static"
+      ],
       "spec": "lz4.spec",
       "static": [
         "gcc",
@@ -2225,6 +3032,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "mpdecimal",
+        "mpdecimal++",
+        "mpdecimal-debuginfo",
+        "mpdecimal-debugsource",
+        "mpdecimal-devel",
+        "mpdecimal-doc"
+      ],
       "spec": "mpdecimal.spec",
       "static": [
         "gcc",
@@ -2243,6 +3058,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "mpfr",
+        "mpfr-debuginfo",
+        "mpfr-debugsource",
+        "mpfr-devel",
+        "mpfr-doc"
+      ],
       "spec": "mpfr.spec",
       "static": [
         "gcc",
@@ -2262,6 +3084,17 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "ncurses",
+        "ncurses-base",
+        "ncurses-c++-libs",
+        "ncurses-debuginfo",
+        "ncurses-debugsource",
+        "ncurses-devel",
+        "ncurses-libs",
+        "ncurses-static",
+        "ncurses-term"
+      ],
       "spec": "ncurses.spec",
       "static": [
         "gcc",
@@ -2288,6 +3121,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libnghttp2",
+        "libnghttp2-devel",
+        "nghttp2",
+        "nghttp2-debuginfo",
+        "nghttp2-debugsource"
+      ],
       "spec": "nghttp2.spec",
       "static": [
         "CUnit-devel",
@@ -2311,6 +3151,12 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "oniguruma",
+        "oniguruma-debuginfo",
+        "oniguruma-debugsource",
+        "oniguruma-devel"
+      ],
       "spec": "oniguruma.spec",
       "static": [
         "gcc",
@@ -2340,6 +3186,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "openldap",
+        "openldap-clients",
+        "openldap-compat",
+        "openldap-debuginfo",
+        "openldap-debugsource",
+        "openldap-devel"
+      ],
       "spec": "openldap.spec",
       "static": [
         "cracklib-devel",
@@ -2393,6 +3247,17 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "openssh",
+        "openssh-askpass",
+        "openssh-clients",
+        "openssh-debuginfo",
+        "openssh-debugsource",
+        "openssh-keycat",
+        "openssh-keysign",
+        "openssh-server",
+        "openssh-sk-dummy"
+      ],
       "spec": "openssh.spec",
       "static": [
         "audit-libs >= 1.0.8",
@@ -2457,6 +3322,15 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "openssl",
+        "openssl-debuginfo",
+        "openssl-debugsource",
+        "openssl-devel",
+        "openssl-fips-provider",
+        "openssl-libs",
+        "openssl-perl"
+      ],
       "spec": "openssl.spec",
       "static": [
         "/usr/bin/cmp",
@@ -2507,6 +3381,15 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "p11-kit",
+        "p11-kit-client",
+        "p11-kit-debuginfo",
+        "p11-kit-debugsource",
+        "p11-kit-devel",
+        "p11-kit-server",
+        "p11-kit-trust"
+      ],
       "spec": "p11-kit.spec",
       "static": [
         "/usr/bin/xsltproc",
@@ -2553,6 +3436,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "pam",
+        "pam-debuginfo",
+        "pam-debugsource",
+        "pam-devel",
+        "pam-doc",
+        "pam-libs"
+      ],
       "spec": "pam.spec",
       "static": [
         "audit-libs-devel",
@@ -2596,6 +3487,17 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "pcre2",
+        "pcre2-debuginfo",
+        "pcre2-debugsource",
+        "pcre2-devel",
+        "pcre2-static",
+        "pcre2-syntax",
+        "pcre2-tools",
+        "pcre2-utf16",
+        "pcre2-utf32"
+      ],
       "spec": "pcre2.spec",
       "static": [
         "autoconf",
@@ -2636,6 +3538,19 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "policycoreutils",
+        "policycoreutils-dbus",
+        "policycoreutils-debuginfo",
+        "policycoreutils-debugsource",
+        "policycoreutils-devel",
+        "policycoreutils-gui",
+        "policycoreutils-newrole",
+        "policycoreutils-python-utils",
+        "policycoreutils-restorecond",
+        "policycoreutils-sandbox",
+        "python3-policycoreutils"
+      ],
       "spec": "policycoreutils.spec",
       "static": [
         "(python3-wheel if python3-setuptools < 71)",
@@ -2670,6 +3585,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "popt",
+        "popt-debuginfo",
+        "popt-debugsource",
+        "popt-devel",
+        "popt-static"
+      ],
       "spec": "popt.spec",
       "static": [
         "gcc",
@@ -2693,6 +3615,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "procps-ng",
+        "procps-ng-debuginfo",
+        "procps-ng-debugsource",
+        "procps-ng-devel",
+        "procps-ng-i18n"
+      ],
       "spec": "procps-ng.spec",
       "static": [
         "autoconf",
@@ -2721,6 +3650,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "psmisc",
+        "psmisc-debuginfo",
+        "psmisc-debugsource"
+      ],
       "spec": "psmisc.spec",
       "static": [
         "autoconf",
@@ -2745,6 +3679,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "python-pip",
+        "python3-pip",
+        "python3-pip-wheel"
+      ],
       "spec": "python-pip.spec",
       "static": [
         "bash-completion",
@@ -2807,6 +3746,19 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "python-unversioned-command",
+        "python3",
+        "python3-debug",
+        "python3-devel",
+        "python3-idle",
+        "python3-libs",
+        "python3-test",
+        "python3-tkinter",
+        "python3.12",
+        "python3.12-debuginfo",
+        "python3.12-debugsource"
+      ],
       "spec": "python3.12.spec",
       "static": [
         "/usr/bin/dtrace",
@@ -2866,6 +3818,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "readline",
+        "readline-debuginfo",
+        "readline-debugsource",
+        "readline-devel",
+        "readline-static"
+      ],
       "spec": "readline.spec",
       "static": [
         "gcc",
@@ -2909,6 +3868,28 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "python3-rpm",
+        "rpm",
+        "rpm-apidocs",
+        "rpm-build",
+        "rpm-build-libs",
+        "rpm-cron",
+        "rpm-debuginfo",
+        "rpm-debugsource",
+        "rpm-devel",
+        "rpm-libs",
+        "rpm-plugin-audit",
+        "rpm-plugin-dbus-announce",
+        "rpm-plugin-fapolicyd",
+        "rpm-plugin-ima",
+        "rpm-plugin-prioreset",
+        "rpm-plugin-selinux",
+        "rpm-plugin-syslog",
+        "rpm-plugin-systemd-inhibit",
+        "rpm-sign",
+        "rpm-sign-libs"
+      ],
       "spec": "rpm.spec",
       "static": [
         "audit-libs-devel",
@@ -2952,6 +3933,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "rpm-sequoia",
+        "rpm-sequoia-devel",
+        "rust-rpm-sequoia",
+        "rust-rpm-sequoia-debuginfo",
+        "rust-rpm-sequoia-debugsource"
+      ],
       "spec": "rust-rpm-sequoia.spec",
       "static": [
         "clang-devel",
@@ -2978,6 +3966,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "sed",
+        "sed-debuginfo",
+        "sed-debugsource"
+      ],
       "spec": "sed.spec",
       "static": [
         "autoconf",
@@ -3006,6 +3999,9 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "setup"
+      ],
       "spec": "setup.spec",
       "static": [
         "bash",
@@ -3041,6 +4037,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "shadow-utils",
+        "shadow-utils-debuginfo",
+        "shadow-utils-debugsource",
+        "shadow-utils-subid",
+        "shadow-utils-subid-devel"
+      ],
       "spec": "shadow-utils.spec",
       "static": [
         "audit-libs-devel >= 1.6.5",
@@ -3079,6 +4082,18 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "lemon",
+        "sqlite",
+        "sqlite-analyzer",
+        "sqlite-debuginfo",
+        "sqlite-debugsource",
+        "sqlite-devel",
+        "sqlite-doc",
+        "sqlite-libs",
+        "sqlite-tcl",
+        "sqlite-tools"
+      ],
       "spec": "sqlite.spec",
       "static": [
         "/usr/bin/tclsh",
@@ -3161,6 +4176,23 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "systemd",
+        "systemd-boot-unsigned",
+        "systemd-container",
+        "systemd-debuginfo",
+        "systemd-debugsource",
+        "systemd-devel",
+        "systemd-journal-remote",
+        "systemd-libs",
+        "systemd-oomd",
+        "systemd-pam",
+        "systemd-resolved",
+        "systemd-rpm-macros",
+        "systemd-tests",
+        "systemd-udev",
+        "systemd-ukify"
+      ],
       "spec": "systemd.spec",
       "static": [
         "acl",
@@ -3246,6 +4278,11 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "tar",
+        "tar-debuginfo",
+        "tar-debugsource"
+      ],
       "spec": "tar.spec",
       "static": [
         "acl",
@@ -3283,6 +4320,13 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "tpm2-tss",
+        "tpm2-tss-debuginfo",
+        "tpm2-tss-debugsource",
+        "tpm2-tss-devel",
+        "tpm2-tss-fapi"
+      ],
       "spec": "tpm2-tss.spec",
       "static": [
         "autoconf",
@@ -3316,6 +4360,10 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "tzdata",
+        "tzdata-java"
+      ],
       "spec": "tzdata.spec",
       "static": [
         "gawk",
@@ -3356,6 +4404,25 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libblkid",
+        "libblkid-devel",
+        "libfdisk",
+        "libfdisk-devel",
+        "libmount",
+        "libmount-devel",
+        "libsmartcols",
+        "libsmartcols-devel",
+        "libuuid",
+        "libuuid-devel",
+        "python3-libmount",
+        "util-linux",
+        "util-linux-core",
+        "util-linux-debuginfo",
+        "util-linux-debugsource",
+        "util-linux-i18n",
+        "uuidd"
+      ],
       "spec": "util-linux.spec",
       "static": [
         "audit-libs-devel >= 1.0.6",
@@ -3415,6 +4482,19 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "vim",
+        "vim-X11",
+        "vim-common",
+        "vim-data",
+        "vim-debuginfo",
+        "vim-debugsource",
+        "vim-enhanced",
+        "vim-filesystem",
+        "vim-minimal",
+        "vim-spell",
+        "xxd"
+      ],
       "spec": "vim.spec",
       "static": [
         "autoconf",
@@ -3459,6 +4539,15 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "xz",
+        "xz-debuginfo",
+        "xz-debugsource",
+        "xz-devel",
+        "xz-libs",
+        "xz-lzma-compat",
+        "xz-static"
+      ],
       "spec": "xz.spec",
       "static": [
         "autoconf",
@@ -3481,6 +4570,15 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "zlib-ng",
+        "zlib-ng-compat",
+        "zlib-ng-compat-devel",
+        "zlib-ng-compat-static",
+        "zlib-ng-debuginfo",
+        "zlib-ng-debugsource",
+        "zlib-ng-devel"
+      ],
       "spec": "zlib-ng.spec",
       "static": [
         "cmake >= 3.1",
@@ -3502,6 +4600,14 @@
       ],
       "dynamic": [],
       "generated": false,
+      "produces": [
+        "libzstd",
+        "libzstd-devel",
+        "libzstd-static",
+        "zstd",
+        "zstd-debuginfo",
+        "zstd-debugsource"
+      ],
       "spec": "zstd.spec",
       "static": [
         "execstack",

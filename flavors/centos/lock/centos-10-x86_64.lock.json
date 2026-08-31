@@ -8737,7 +8737,7 @@
       "name": "sysroot-aarch64-el10-glibc",
       "repo": "buildroot-koji",
       "sha256": "d23db60e141044549a05464751e165f2b68a38c25ca10c062a0310697a382f03",
-      "source": "glibc"
+      "source": null
     },
     {
       "arch": "noarch",
@@ -8746,7 +8746,7 @@
       "name": "sysroot-ppc64le-el10-glibc",
       "repo": "buildroot-koji",
       "sha256": "3b96457c218537ce2361149d8356cd717080a766e9c31e6fc3fe42f350a1c870",
-      "source": "glibc"
+      "source": null
     },
     {
       "arch": "noarch",
@@ -8755,7 +8755,7 @@
       "name": "sysroot-s390x-el10-glibc",
       "repo": "buildroot-koji",
       "sha256": "2835b3cc0827b84c42c5e4f0f4960c4635d2de5208bf217ddc8c3ab906a39e9e",
-      "source": "glibc"
+      "source": null
     },
     {
       "arch": "x86_64",
@@ -49754,7 +49754,6 @@
       },
       "subpackages": [
         "crypto-policies",
-        "crypto-policies-pq-preview",
         "crypto-policies-scripts"
       ],
       "variant_of": null
@@ -92985,33 +92984,6 @@
           "source": "sqlite"
         },
         {
-          "arch": "noarch",
-          "evr": "2.39-137.el10",
-          "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-aarch64-el10-glibc-2.39-137.el10.noarch.rpm",
-          "name": "sysroot-aarch64-el10-glibc",
-          "repo": "buildroot-koji",
-          "sha256": "d23db60e141044549a05464751e165f2b68a38c25ca10c062a0310697a382f03",
-          "source": "glibc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "2.39-137.el10",
-          "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-ppc64le-el10-glibc-2.39-137.el10.noarch.rpm",
-          "name": "sysroot-ppc64le-el10-glibc",
-          "repo": "buildroot-koji",
-          "sha256": "3b96457c218537ce2361149d8356cd717080a766e9c31e6fc3fe42f350a1c870",
-          "source": "glibc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "2.39-137.el10",
-          "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-s390x-el10-glibc-2.39-137.el10.noarch.rpm",
-          "name": "sysroot-s390x-el10-glibc",
-          "repo": "buildroot-koji",
-          "sha256": "2835b3cc0827b84c42c5e4f0f4960c4635d2de5208bf217ddc8c3ab906a39e9e",
-          "source": "glibc"
-        },
-        {
           "arch": "x86_64",
           "evr": "257-33.el10",
           "location": "Packages/systemd-libs-257-33.el10.x86_64.rpm",
@@ -95415,6 +95387,33 @@
           "repo": "appstream",
           "sha256": "24c773938df073bcb4d69fed4623ba5a283a354a47e6757713124811f5bb22dc",
           "source": "source-highlight"
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.39-137.el10",
+          "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-aarch64-el10-glibc-2.39-137.el10.noarch.rpm",
+          "name": "sysroot-aarch64-el10-glibc",
+          "repo": "buildroot-koji",
+          "sha256": "d23db60e141044549a05464751e165f2b68a38c25ca10c062a0310697a382f03",
+          "source": null
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.39-137.el10",
+          "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-ppc64le-el10-glibc-2.39-137.el10.noarch.rpm",
+          "name": "sysroot-ppc64le-el10-glibc",
+          "repo": "buildroot-koji",
+          "sha256": "3b96457c218537ce2361149d8356cd717080a766e9c31e6fc3fe42f350a1c870",
+          "source": null
+        },
+        {
+          "arch": "noarch",
+          "evr": "2.39-137.el10",
+          "location": "toplink/vol/koji02/packages/glibc/2.39/137.el10/noarch/sysroot-s390x-el10-glibc-2.39-137.el10.noarch.rpm",
+          "name": "sysroot-s390x-el10-glibc",
+          "repo": "buildroot-koji",
+          "sha256": "2835b3cc0827b84c42c5e4f0f4960c4635d2de5208bf217ddc8c3ab906a39e9e",
+          "source": null
         },
         {
           "arch": "x86_64",
@@ -98054,27 +98053,6 @@
         "libtsan-static",
         "libubsan",
         "libubsan-static",
-        "sysroot-aarch64-el10-libatomic",
-        "sysroot-aarch64-el10-libgcc",
-        "sysroot-aarch64-el10-libgomp",
-        "sysroot-aarch64-el10-libitm",
-        "sysroot-aarch64-el10-libsanitizer",
-        "sysroot-aarch64-el10-libstdc++",
-        "sysroot-aarch64-el10-test-support",
-        "sysroot-ppc64le-el10-libatomic",
-        "sysroot-ppc64le-el10-libgcc",
-        "sysroot-ppc64le-el10-libgomp",
-        "sysroot-ppc64le-el10-libitm",
-        "sysroot-ppc64le-el10-libsanitizer",
-        "sysroot-ppc64le-el10-libstdc++",
-        "sysroot-ppc64le-el10-test-support",
-        "sysroot-s390x-el10-libatomic",
-        "sysroot-s390x-el10-libgcc",
-        "sysroot-s390x-el10-libgomp",
-        "sysroot-s390x-el10-libitm",
-        "sysroot-s390x-el10-libsanitizer",
-        "sysroot-s390x-el10-libstdc++",
-        "sysroot-s390x-el10-test-support",
         "sysroot-x86_64-el10-libatomic",
         "sysroot-x86_64-el10-libgcc",
         "sysroot-x86_64-el10-libgomp",
@@ -105907,9 +105885,6 @@
         "libnsl",
         "nss_db",
         "nss_hesiod",
-        "sysroot-aarch64-el10-glibc",
-        "sysroot-ppc64le-el10-glibc",
-        "sysroot-s390x-el10-glibc",
         "sysroot-x86_64-el10-glibc"
       ],
       "variant_of": null
@@ -318881,13 +318856,13 @@
     }
   ],
   "summary": {
-    "built_from_source": 310,
+    "built_from_source": 307,
     "cycles": 1,
     "dynamic_buildrequires": 0,
     "dynamic_unmet": 0,
     "dynamic_unprobed": 0,
-    "fraction_built": 0.2319,
-    "from_seed": 1027,
+    "fraction_built": 0.2296,
+    "from_seed": 1030,
     "image_sets": {
       "image-tools": 172,
       "live": 190
