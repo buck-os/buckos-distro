@@ -181,6 +181,12 @@ class TestBubblewrapUserNamespace(unittest.TestCase):
     def test_passes_mapped_namespace_fd_and_preserves_bwrap_shape(self):
         child = self._child()
         events = []
+        # A real work area: run_isolated creates <work>/tmp before it
+        # dispatches, so an invented absolute path fails on the filesystem
+        # rather than on anything this test is about.
+        scratch = tempfile.TemporaryDirectory(prefix="buckos-bwrap-")
+        self.addCleanup(scratch.cleanup)
+        work = scratch.name
 
         def map_ids(pid):
             events.append(("map", pid))
@@ -210,8 +216,8 @@ class TestBubblewrapUserNamespace(unittest.TestCase):
             result = _isolation.run_isolated(
                 ["/bin/true"],
                 "bwrap",
-                "/work",
-                "/work/source",
+                work,
+                os.path.join(work, "source"),
                 "/root",
                 env={"PATH": "/usr/bin"},
             )
@@ -242,7 +248,7 @@ class TestBubblewrapUserNamespace(unittest.TestCase):
                 "--unshare-ipc",
                 "--die-with-parent",
                 "--bind", "/root", "/",
-                "--bind", "/work", "/build",
+                "--bind", work, "/build",
                 "--ro-bind", "/proc", "/proc",
                 "--ro-bind", "/sys", "/sys",
                 "--dev", "/dev",
@@ -261,9 +267,9 @@ class TestBubblewrapUserNamespace(unittest.TestCase):
         # when the bind moved to /build and these three moved with it.
         #
         # Every path in this argv and this environment is now either a
-        # constant or the caller's own sysroot.  "/work" appears once, as
-        # the *source* of the bind, which is the only place the host's
-        # scratch name is allowed to survive.
+        # constant or the caller's own sysroot.  The work area appears
+        # once, as the *source* of the bind, which is the only place the
+        # host's scratch name is allowed to survive.
         self.assertEqual(
             events[2][2]["env"],
             {
@@ -443,9 +449,25 @@ class TestActionTemporariesLandOnDisk(unittest.TestCase):
     charging a build to RAM.
     """
 
+    def setUp(self):
+        """Real directories, because the helper creates <work>/tmp to answer.
+
+        An invented absolute path such as /work makes these assertions
+        about naming fail with a permission error against the filesystem
+        root instead, which says nothing about the name.  Two temporary
+        directories serve exactly as the invented pair did: what matters is
+        that they differ from each other, not what they are called.
+        """
+        work = tempfile.TemporaryDirectory(prefix="buckos-work-")
+        other = tempfile.TemporaryDirectory(prefix="buckos-other-")
+        self.addCleanup(work.cleanup)
+        self.addCleanup(other.cleanup)
+        self.work = work.name
+        self.other = other.name
+
     def test_temporary_variables_point_into_the_work_area(self):
         env = _isolation._with_action_tmpdir(
-            {"PATH": "/usr/bin"}, "/work", "bwrap")
+            {"PATH": "/usr/bin"}, self.work, "bwrap")
         for name in ("TMPDIR", "TMP", "TEMP"):
             with self.subTest(variable=name):
                 self.assertEqual("/build/tmp", env[name])
@@ -458,8 +480,9 @@ class TestActionTemporariesLandOnDisk(unittest.TestCase):
         one's own name, and that name reached every tool that called
         mktemp -- and, through %_topdir, every DW_AT_comp_dir.
         """
-        first = _isolation._with_action_tmpdir({}, "/scratch/a-9f3c1e", "bwrap")
-        second = _isolation._with_action_tmpdir({}, "/var/tmp/b-0011ff", "bwrap")
+        first = _isolation._with_action_tmpdir({}, self.work, "bwrap")
+        second = _isolation._with_action_tmpdir({}, self.other, "bwrap")
+        self.assertNotEqual(self.work, self.other)
         self.assertEqual(first["TMPDIR"], second["TMPDIR"])
         self.assertEqual("/build/tmp", first["TMPDIR"])
 
@@ -470,8 +493,8 @@ class TestActionTemporariesLandOnDisk(unittest.TestCase):
         function returned a constant unconditionally, and that would put a
         path into the environment of the one mode where it does not exist.
         """
-        env = _isolation._with_action_tmpdir({}, "/scratch/a-9f3c1e", "none")
-        self.assertEqual("/scratch/a-9f3c1e/tmp", env["TMPDIR"])
+        env = _isolation._with_action_tmpdir({}, self.work, "none")
+        self.assertEqual(os.path.join(self.work, "tmp"), env["TMPDIR"])
 
     def test_a_deliberate_caller_value_is_not_overridden(self):
         """rpmbuild_replay pairs its own with rpm's %_tmppath define.
@@ -481,17 +504,18 @@ class TestActionTemporariesLandOnDisk(unittest.TestCase):
         because nothing in this dict is inherited any more.
         """
         env = _isolation._with_action_tmpdir(
-            {"TMPDIR": "/build/topdir/tmp"}, "/work", "bwrap")
+            {"TMPDIR": "/build/topdir/tmp"}, self.work, "bwrap")
         self.assertEqual("/build/topdir/tmp", env["TMPDIR"])
 
     def test_the_caller_dict_is_not_mutated(self):
         original = {"PATH": "/usr/bin"}
-        _isolation._with_action_tmpdir(original, "/work", "bwrap")
+        _isolation._with_action_tmpdir(original, self.work, "bwrap")
         self.assertEqual({"PATH": "/usr/bin"}, original)
 
     def test_no_environment_stays_no_environment(self):
         """A caller passing none inherits the process env; leave that alone."""
-        self.assertIsNone(_isolation._with_action_tmpdir(None, "/work", "bwrap"))
+        self.assertIsNone(
+            _isolation._with_action_tmpdir(None, self.work, "bwrap"))
 
     def test_the_directory_is_created_before_the_sandbox_is_entered(self):
         """Nothing inside creates it, and a TMPDIR naming nothing is the
@@ -655,15 +679,19 @@ class TestHostPathsCannotEnterTheSandbox(unittest.TestCase):
         test would pass even if the call were placed above the early
         return, which is the mistake worth catching.
         """
-        with patch("_isolation.run", return_value="ran") as ran:
-            result = _isolation.run_isolated(
-                ["/bin/sh", "-c", "cat {}/marker".format(self.WORK)],
-                "none",
-                self.WORK,
-                self.WORK,
-                None,
-                env={"TMPDIR": "{}/tmp".format(self.WORK)},
-            )
+        # A real work area, because run_isolated creates <work>/tmp before
+        # it dispatches.  WORK above is a name used to assert on messages;
+        # this test is the one that actually enters the function.
+        with tempfile.TemporaryDirectory(prefix="buckos-none-") as work:
+            with patch("_isolation.run", return_value="ran") as ran:
+                result = _isolation.run_isolated(
+                    ["/bin/sh", "-c", "cat {}/marker".format(work)],
+                    "none",
+                    work,
+                    work,
+                    None,
+                    env={"TMPDIR": "{}/tmp".format(work)},
+                )
         self.assertEqual("ran", result)
         ran.assert_called_once()
 
