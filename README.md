@@ -2,6 +2,8 @@
 
 `buckos-distro` is a Buck2 repository for replaying upstream Linux package builds and assembling bootable distribution images.
 
+This project is licensed under the GNU General Public License, version 2 only (`GPL-2.0-only`). See [LICENSE](LICENSE). Upstream packages, generated distribution metadata, and other third-party materials retain their respective licenses.
+
 Fedora 44 and 45, CentOS Stream 9 and 10, CentOS Hyperscale 9 and 10, Debian 13, and Ubuntu 26.04 have checked-in package graphs for both x86_64 and AArch64. Every one has binary-seeded buildroots, source replay targets, bootable root filesystems, and live ISO targets. BuckOS remains a declared flavor without a build frontend.
 
 ## Quick start
