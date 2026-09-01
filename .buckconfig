@@ -153,11 +153,29 @@
   releases = 9,10
   buildroot = binary-seed
 
+  # The same libkcapi documentation build that the Fedora section above
+  # excludes.  Enterprise Linux carries the same upstream source and the
+  # same bcond -- libkcapi.spec declares `%bcond_without doc` and guards
+  # `%make_build all doc` behind `%if %{with doc}` -- so the LaTeX half
+  # fails here for the same reason, and `--without doc` removes that make
+  # invocation rather than working around it.
+  #
+  # Costs nothing either release asks for: libkcapi-doc appears in no
+  # image set on 9 or 10.  Release 9 installs libkcapi and
+  # libkcapi-hmaccalc, release 10 adds libkcapi-hasher, and all of those
+  # are unaffected.
+  without = libkcapi:doc
+
 # CentOS Hyperscale layers its main SIG repository and release package on
 # CentOS Stream. Release 9 uses EPEL and EPEL Next; release 10 uses EPEL.
 [buckos.centos-hyperscale]
   releases = 9,10
   buildroot = binary-seed
+
+  # As for [buckos.centos]: Hyperscale layers a SIG repository on the same
+  # Stream base and builds the same libkcapi source, with libkcapi-doc in
+  # no image set on either release.
+  without = libkcapi:doc
 
 [buckos.ubuntu]
   releases = 26.04
