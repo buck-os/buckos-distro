@@ -136,6 +136,9 @@
   # older compiler may not have the bug.  Narrowing it needs a
   # per-release form of this setting, which does not exist yet.
   #
+  # p11-kit also enables MinGW subpackages that are not used by either image
+  # set.  Suppress those cross-builds so the native package can be rebuilt.
+  #
   # libkcapi:doc is the same shape and a different cause.  Its C build
   # succeeds; what fails is the LaTeX half, where pdf-stamp and ps-stamp
   # both die with "Error 9" under the replay's `make -O -j316`, and the
@@ -145,7 +148,7 @@
   # documentation targets fail.  Dropping them costs libkcapi-doc, which
   # neither image set installs; the three subpackages the live image does
   # use (libkcapi, libkcapi-hasher, libkcapi-hmaccalc) are unaffected.
-  without = gnutls:mingw, libkcapi:doc
+  without = gnutls:mingw, p11-kit:mingw, libkcapi:doc
 
 # Release 9 layers EPEL and EPEL Next; release 10 is plain Stream and stays
 # the default because releases are listed oldest first.

@@ -7246,15 +7246,6 @@
     },
     {
       "arch": "noarch",
-      "evr": "4.21.0-3.fc45",
-      "location": "Packages/m/mingw32-libtasn1-4.21.0-3.fc45.noarch.rpm",
-      "name": "mingw32-libtasn1",
-      "repo": "binary-releases",
-      "sha256": "7a090901d62a99d0f248b7cdf55dd2d1fab59db136b7cd16a6a498f77d3103e7",
-      "source": "mingw-libtasn1"
-    },
-    {
-      "arch": "noarch",
       "evr": "2.12.10-4.fc45",
       "location": "Packages/m/mingw32-libxml2-2.12.10-4.fc45.noarch.rpm",
       "name": "mingw32-libxml2",
@@ -7450,15 +7441,6 @@
       "repo": "binary-releases",
       "sha256": "ade4d51ef79c0f5e703a3cfd37fc8ae43d92249ce0756c1bc22ce27575221735",
       "source": "mingw-gcc"
-    },
-    {
-      "arch": "noarch",
-      "evr": "4.21.0-3.fc45",
-      "location": "Packages/m/mingw64-libtasn1-4.21.0-3.fc45.noarch.rpm",
-      "name": "mingw64-libtasn1",
-      "repo": "binary-releases",
-      "sha256": "0f92d10b05ed57ec7f6dbf11c1a3483123a61d7d80278da260311c45decd2e2f",
-      "source": "mingw-libtasn1"
     },
     {
       "arch": "noarch",
@@ -24916,6 +24898,7 @@
         "bash": "bash",
         "binutils": "binutils",
         "bluez-libs-devel": "bluez-libs-devel",
+        "bpftool": "bpftool",
         "bzip2": "bzip2",
         "clang": "clang",
         "coreutils": "coreutils",
@@ -24939,6 +24922,7 @@
         "iproute": "iproute",
         "iproute-tc": "iproute-tc",
         "jansson-devel": "jansson-devel",
+        "libbpf-devel": "libbpf-devel",
         "libcurl-devel": "libcurl-devel",
         "libndp-devel": "libndp-devel",
         "libnvme-devel": "libnvme-devel",
@@ -25233,6 +25217,15 @@
           "name": "elfutils-libelf",
           "repo": "binary-releases",
           "sha256": "d3ce1645856f608637d2b9cabdb223e402179aa7bf1403830bf9f93aeb4d5fd8",
+          "source": "elfutils"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "0.195-3.fc45",
+          "location": "Packages/e/elfutils-libelf-devel-0.195-3.fc45.x86_64.rpm",
+          "name": "elfutils-libelf-devel",
+          "repo": "binary-releases",
+          "sha256": "234987dc6a9fb5a24b218452875a52675daee97318ef56fd9dd8efee833f68a3",
           "source": "elfutils"
         },
         {
@@ -25674,6 +25667,15 @@
           "name": "libbpf",
           "repo": "binary-releases",
           "sha256": "4c578ab0705da8dbeb72cdc9937360cf685c4ac012e728fc49c40a2000a45f69",
+          "source": "libbpf"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "2:1.7.0-2.fc45",
+          "location": "Packages/l/libbpf-devel-1.7.0-2.fc45.x86_64.rpm",
+          "name": "libbpf-devel",
+          "repo": "binary-releases",
+          "sha256": "2688189b84708e59875795f8209126384286e326ac9636512f330270f6a83f8a",
           "source": "libbpf"
         },
         {
@@ -26883,6 +26885,15 @@
           "repo": "binary-releases",
           "sha256": "70695eaf504052c2398c460d76e9cd606033249ef0fd8b9c2412932ee497906a",
           "source": "bluez"
+        },
+        {
+          "arch": "x86_64",
+          "evr": "7.7.0-3.fc45",
+          "location": "Packages/b/bpftool-7.7.0-3.fc45.x86_64.rpm",
+          "name": "bpftool",
+          "repo": "binary-releases",
+          "sha256": "473e1a8aadc941378d423a414b279c55a786b5ad8e2607d26c99c53ceec0d545",
+          "source": "bpftool"
         },
         {
           "arch": "x86_64",
@@ -28993,7 +29004,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -69528,7 +69539,7 @@
         "capabilities": [],
         "source": "probe",
         "suspected": [],
-        "unmet": true
+        "unmet": false
       },
       "source": {
         "evr": "8.21.0-5.fc45",
@@ -88930,7 +88941,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -91161,7 +91172,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -97242,7 +97253,7 @@
         "capabilities": [],
         "source": "probe",
         "suspected": [],
-        "unmet": true
+        "unmet": false
       },
       "source": {
         "evr": "0.195-3.fc45",
@@ -118960,7 +118971,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -135432,7 +135443,7 @@
         "capabilities": [],
         "source": "probe",
         "suspected": [],
-        "unmet": true
+        "unmet": false
       },
       "source": {
         "evr": "16.2.1-2.fc45",
@@ -146311,10 +146322,6 @@
         "libnsl",
         "nss_db",
         "nss_hesiod",
-        "sysroot-aarch64-fc45-glibc",
-        "sysroot-i386-fc45-glibc",
-        "sysroot-ppc64le-fc45-glibc",
-        "sysroot-s390x-fc45-glibc",
         "sysroot-x86_64-fc45-glibc"
       ],
       "variant_of": null
@@ -154375,9 +154382,7 @@
         "gnutls-dane",
         "gnutls-devel",
         "gnutls-fips",
-        "gnutls-utils",
-        "mingw32-gnutls",
-        "mingw64-gnutls"
+        "gnutls-utils"
       ],
       "variant_of": null
     },
@@ -164278,7 +164283,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -192477,7 +192482,7 @@
         "capabilities": [],
         "source": "probe",
         "suspected": [],
-        "unmet": true
+        "unmet": false
       },
       "source": {
         "evr": "0.9.5-1.fc45",
@@ -212089,7 +212094,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -281783,7 +281788,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -294432,17 +294437,6 @@
         "libtasn1-devel": "libtasn1-devel",
         "make": "make",
         "meson": "meson",
-        "mingw32-binutils": "mingw32-binutils",
-        "mingw32-filesystem": "mingw32-filesystem",
-        "mingw32-gcc": "mingw32-gcc",
-        "mingw32-libffi": "mingw32-libffi",
-        "mingw32-libtasn1": "mingw32-libtasn1",
-        "mingw64-binutils": "mingw64-binutils",
-        "mingw64-filesystem": "mingw64-filesystem",
-        "mingw64-gcc": "mingw64-gcc",
-        "mingw64-libffi": "mingw64-libffi",
-        "mingw64-libtasn1": "mingw64-libtasn1",
-        "ninja-build": "ninja-build",
         "patch": "patch",
         "pkgconfig(bash-completion)": "bash-completion-devel",
         "pkgconfig(glib-2.0)": "glib2-devel",
@@ -295940,15 +295934,6 @@
         {
           "arch": "noarch",
           "evr": "4.3.0-5.fc45",
-          "location": "Packages/c/cmake-rpm-macros-4.3.0-5.fc45.noarch.rpm",
-          "name": "cmake-rpm-macros",
-          "repo": "binary-releases",
-          "sha256": "3b2bc0b348d94f35587148ecb968042ea2e027e62e3da238cef03d8ca1ad8509",
-          "source": "cmake"
-        },
-        {
-          "arch": "noarch",
-          "evr": "4.3.0-5.fc45",
           "location": "Packages/c/cmake-srpm-macros-4.3.0-5.fc45.noarch.rpm",
           "name": "cmake-srpm-macros",
           "repo": "binary-releases",
@@ -296449,222 +296434,6 @@
           "repo": "binary-releases",
           "sha256": "2031f41d348978b9260ed7b06c80116e1cbc73fbca55b145b2bff6d72b589141",
           "source": "meson"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "2.46.0-2.fc45",
-          "location": "Packages/m/mingw-binutils-generic-2.46.0-2.fc45.x86_64.rpm",
-          "name": "mingw-binutils-generic",
-          "repo": "binary-releases",
-          "sha256": "ab1ad7b0f2172d231a21b1a28eb31d695db2b546f062d6177daf955ddcac8dcd",
-          "source": "mingw-binutils"
-        },
-        {
-          "arch": "noarch",
-          "evr": "152-1.fc45",
-          "location": "Packages/m/mingw-filesystem-base-152-1.fc45.noarch.rpm",
-          "name": "mingw-filesystem-base",
-          "repo": "binary-releases",
-          "sha256": "32e8202d0e2c817eb66eae4522cd301ea341ca3e80c412d82b3f43972c7e7d04",
-          "source": "mingw-filesystem"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "2.46.0-2.fc45",
-          "location": "Packages/m/mingw32-binutils-2.46.0-2.fc45.x86_64.rpm",
-          "name": "mingw32-binutils",
-          "repo": "binary-releases",
-          "sha256": "97b7bc148bd5b1948466278f3efec0bff967db247bba28774a7654cd65cdc845",
-          "source": "mingw-binutils"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw32-cpp-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw32-cpp",
-          "repo": "binary-releases",
-          "sha256": "58a61afa187037b035dbdbfb937bb1b68936805d46f97fc69aff00ab5a5b1f3e",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-3.fc45",
-          "location": "Packages/m/mingw32-crt-14.0.0-3.fc45.noarch.rpm",
-          "name": "mingw32-crt",
-          "repo": "binary-releases",
-          "sha256": "b65153f80f2b566bf19e46762c5b5bb48233ce9dbd0fb6d777fc3a0b4200b14b",
-          "source": "mingw-crt"
-        },
-        {
-          "arch": "noarch",
-          "evr": "152-1.fc45",
-          "location": "Packages/m/mingw32-filesystem-152-1.fc45.noarch.rpm",
-          "name": "mingw32-filesystem",
-          "repo": "binary-releases",
-          "sha256": "e3ba3910911a6eba007aa6bde42d7c2fd67a549ec6eabf5d6305e778ed8ea991",
-          "source": "mingw-filesystem"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw32-gcc-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw32-gcc",
-          "repo": "binary-releases",
-          "sha256": "4548571b0d6a747fc39cdbc1ea0452c4a9beecc2a3017f3f87875bf576643cb6",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw32-headers-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw32-headers",
-          "repo": "binary-releases",
-          "sha256": "3b2aa66a3ec4609f812c9d173655ebaa3160c64107a2a98dd3fa97b32e513de4",
-          "source": "mingw-headers"
-        },
-        {
-          "arch": "noarch",
-          "evr": "3.5.2-3.fc45",
-          "location": "Packages/m/mingw32-libffi-3.5.2-3.fc45.noarch.rpm",
-          "name": "mingw32-libffi",
-          "repo": "binary-releases",
-          "sha256": "62ace66e441a2615caf257086c4e32d723dbe53ffadd853212ab30cdfb75dfc3",
-          "source": "mingw-libffi"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw32-libgcc-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw32-libgcc",
-          "repo": "binary-releases",
-          "sha256": "4b26cc360da63234e1eb91ec7fb1ce7c00ea0260df39609b8b2014c0bd169f85",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "4.21.0-3.fc45",
-          "location": "Packages/m/mingw32-libtasn1-4.21.0-3.fc45.noarch.rpm",
-          "name": "mingw32-libtasn1",
-          "repo": "binary-releases",
-          "sha256": "7a090901d62a99d0f248b7cdf55dd2d1fab59db136b7cd16a6a498f77d3103e7",
-          "source": "mingw-libtasn1"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw32-winpthreads-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw32-winpthreads",
-          "repo": "binary-releases",
-          "sha256": "93982f7144ff3428433f55d5b48c739ae75416a248c64cab1c9522e3b6889c27",
-          "source": "mingw-winpthreads"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw32-winpthreads-static-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw32-winpthreads-static",
-          "repo": "binary-releases",
-          "sha256": "c0acb2251cdb37b03699d35cd163afe2b774e0b02238f6b082c39046e71121f2",
-          "source": "mingw-winpthreads"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "2.46.0-2.fc45",
-          "location": "Packages/m/mingw64-binutils-2.46.0-2.fc45.x86_64.rpm",
-          "name": "mingw64-binutils",
-          "repo": "binary-releases",
-          "sha256": "ff53f08fe60fcb1152f978b83e344ab9da62ba1822f366ab9c99d1cc501d33eb",
-          "source": "mingw-binutils"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw64-cpp-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw64-cpp",
-          "repo": "binary-releases",
-          "sha256": "4c5d22f10a4f0a407fd2ea7c092b98c050c847984b2b8075804673665bfcc688",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-3.fc45",
-          "location": "Packages/m/mingw64-crt-14.0.0-3.fc45.noarch.rpm",
-          "name": "mingw64-crt",
-          "repo": "binary-releases",
-          "sha256": "ef7ec99f135bb872a8a4be233fc71df18a5b39245454109a33537a13c34b8f2d",
-          "source": "mingw-crt"
-        },
-        {
-          "arch": "noarch",
-          "evr": "152-1.fc45",
-          "location": "Packages/m/mingw64-filesystem-152-1.fc45.noarch.rpm",
-          "name": "mingw64-filesystem",
-          "repo": "binary-releases",
-          "sha256": "e02dd4c52b363553b95297767ea6631db9f97c4a4218f8db2fa29fb6389d35b6",
-          "source": "mingw-filesystem"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw64-gcc-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw64-gcc",
-          "repo": "binary-releases",
-          "sha256": "83e1dba4446744f39dd7823179551afa7cf88d1d1824a630da97be392e8ad3f1",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw64-headers-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw64-headers",
-          "repo": "binary-releases",
-          "sha256": "9e7b07fefb247b6889685b834560820b1f9a06ca769fb82a96e6abe5a71ef063",
-          "source": "mingw-headers"
-        },
-        {
-          "arch": "noarch",
-          "evr": "3.5.2-3.fc45",
-          "location": "Packages/m/mingw64-libffi-3.5.2-3.fc45.noarch.rpm",
-          "name": "mingw64-libffi",
-          "repo": "binary-releases",
-          "sha256": "1ef450dde704e9b64f78f79cdb9b7812b0f4d80832354af6d3c029421cdb40dd",
-          "source": "mingw-libffi"
-        },
-        {
-          "arch": "x86_64",
-          "evr": "16.1.1-3.fc45",
-          "location": "Packages/m/mingw64-libgcc-16.1.1-3.fc45.x86_64.rpm",
-          "name": "mingw64-libgcc",
-          "repo": "binary-releases",
-          "sha256": "d1db1d60a4d82ea673beb88daf08af97cbcc735539fbb7888363579ab79ca949",
-          "source": "mingw-gcc"
-        },
-        {
-          "arch": "noarch",
-          "evr": "4.21.0-3.fc45",
-          "location": "Packages/m/mingw64-libtasn1-4.21.0-3.fc45.noarch.rpm",
-          "name": "mingw64-libtasn1",
-          "repo": "binary-releases",
-          "sha256": "0f92d10b05ed57ec7f6dbf11c1a3483123a61d7d80278da260311c45decd2e2f",
-          "source": "mingw-libtasn1"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw64-winpthreads-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw64-winpthreads",
-          "repo": "binary-releases",
-          "sha256": "abc461a3453b525a3c585d4e2eb9a46e53e46db6bb26ce5f0511a8fac5ba4288",
-          "source": "mingw-winpthreads"
-        },
-        {
-          "arch": "noarch",
-          "evr": "14.0.0-2.fc45",
-          "location": "Packages/m/mingw64-winpthreads-static-14.0.0-2.fc45.noarch.rpm",
-          "name": "mingw64-winpthreads-static",
-          "repo": "binary-releases",
-          "sha256": "1d4a77aa12259baf88896dc59f990952fb01fddc0431187e47dacf93b99ffdc1",
-          "source": "mingw-winpthreads"
         },
         {
           "arch": "x86_64",
@@ -297501,8 +297270,6 @@
         "source_name": "p11-kit"
       },
       "subpackages": [
-        "mingw32-p11-kit",
-        "mingw64-p11-kit",
         "p11-kit",
         "p11-kit-client",
         "p11-kit-devel",
@@ -303555,7 +303322,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -326157,7 +325924,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -354411,7 +354178,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -357145,7 +356912,7 @@
       ],
       "dynamic_buildrequires": {
         "capabilities": [],
-        "source": "repodata",
+        "source": "probe",
         "suspected": [],
         "unmet": false
       },
@@ -361493,7 +361260,7 @@
         "capabilities": [],
         "source": "probe",
         "suspected": [],
-        "unmet": true
+        "unmet": false
       },
       "source": {
         "evr": "261.2-1.fc45",
@@ -423721,23 +423488,23 @@
     "built_from_source": 338,
     "cycles": 1,
     "dynamic_buildrequires": 2,
-    "dynamic_unmet": 5,
+    "dynamic_unmet": 0,
     "dynamic_unprobed": 0,
-    "fraction_built": 0.1422,
-    "from_seed": 2039,
+    "fraction_built": 0.1423,
+    "from_seed": 2037,
     "image_sets": {
       "image-tools": 160,
       "live": 193
     },
     "pins_by_repo": {
-      "binary-releases": 42461,
+      "binary-releases": 42437,
       "source-releases": 129
     },
     "problems": 0,
     "source_packages_built": 129,
     "staged_targets": 351,
     "superseded": 0,
-    "total_build_deps": 2377
+    "total_build_deps": 2375
   },
   "target_cpu": "x86_64",
   "variant_seed": []
