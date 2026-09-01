@@ -30,6 +30,24 @@ deb_packages_for(
         # Its generated sudoers parser rule races through shared y.tab
         # files, which is the same rule Debian 13 already serializes.
         "sudo": ["parallel=1"],
+        # The image takes three binaries from this source -- gcc-16-base,
+        # libgcc-s1 and libstdc++6 -- and no compiler at all; the buildroot
+        # compiles with the seeded gcc-15. The default build produces
+        # twelve front ends (Ada, D, Go, Modula-2, Rust, COBOL, Algol 68
+        # and more) plus nvptx and amdgcn offload compilers, none of which
+        # reach any image set, and it fails: `debian/rules2 stamps/05
+        # -build-stamp` exits 1 after the top level reports the
+        # configuration unsupported in a subdirectory.
+        #
+        # lang= is the package's own selector and overrides nolang=, so
+        # this states what to build rather than enumerating what to skip
+        # and having a new front end appear on the next upload. The
+        # runtimes the image ships come from exactly these two.
+        #
+        # Deliberately not touching nolto or nopgo: those change the code
+        # generation of the libraries we do ship, and the point is to
+        # build what the archive builds, minus what we do not install.
+        "gcc-16": ["lang=c,c++"],
     },
 )
 deb_images_for("ubuntu", RELEASES, DEFAULT_RELEASE, DATA_BY_RELEASE_ARCH)
