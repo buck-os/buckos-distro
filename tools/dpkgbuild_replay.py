@@ -141,6 +141,60 @@ def dpkg_source_directory(work, tree):
     return renamed
 
 
+_TEST_OVERRIDES = (
+    "override_dh_auto_test",
+    "override_dh_auto_test-arch",
+    "override_dh_auto_test-indep",
+)
+_OVERRIDE_RE = re.compile(r"^(override_dh_auto_test(?:-arch|-indep)?)\s*:", re.M)
+
+
+def neutralise_test_overrides(source):
+    """Make DEB_BUILD_OPTIONS=nocheck mean what it says.
+
+    nocheck is honoured by dh_auto_test, not by dh.  The shipped dh only
+    hoists the profile into the build options and warns about cross
+    builds; it has no logic that skips a step.  So a package defining
+    override_dh_auto_test replaces the very command that does the
+    checking, dh calls the override, and the whole test suite runs even
+    though we asked for none of it.
+
+    rust-coreutils is the case that found this.  Its override runs the
+    upstream `make test`, which builds a test-only crate that fails to
+    link -- `undefined reference to __rustc::__rust_start_panic` -- so a
+    package we do ship was unbuildable because of a test we never wanted
+    to run.
+
+    Appending an empty recipe rather than editing the existing one: make
+    takes the last definition of a target, so this is the documented way
+    to win without rewriting somebody else's rules file.  It costs an
+    "overriding recipe" warning per target, which is why the neutralised
+    names are printed -- an unexplained warning of that shape is exactly
+    what someone would later chase.
+
+    Returns the names neutralised, for the caller to report.
+    """
+    rules = os.path.join(source, "debian", "rules")
+    try:
+        with open(rules, encoding="utf-8", errors="replace") as stream:
+            text = stream.read()
+    except OSError as exc:
+        sys.exit("cannot read {}: {}".format(rules, exc))
+
+    present = [n for n in _OVERRIDE_RE.findall(text) if n in _TEST_OVERRIDES]
+    if not present:
+        return []
+
+    with open(rules, "a", encoding="utf-8") as stream:
+        stream.write(
+            "\n# Appended by buckos-distro: nocheck was requested, and dh\n"
+            "# honours it in dh_auto_test, which these targets replace.\n"
+        )
+        for name in sorted(set(present)):
+            stream.write("{}:\n".format(name))
+    return sorted(set(present))
+
+
 def compose_buildroot(seed_root, dep_roots, dest):
     os.makedirs(dest, exist_ok=True)
     layers = ([seed_root] if seed_root else []) + list(dep_roots)
@@ -317,6 +371,12 @@ def main():
         if "nocheck" not in current:
             current.append("nocheck")
         env["DEB_BUILD_OPTIONS"] = " ".join(current)
+        for name in neutralise_test_overrides(source):
+            print(
+                "buckos-distro: neutralised {} -- nocheck is honoured by "
+                "dh_auto_test, which this target replaces".format(name),
+                file=sys.stderr,
+            )
     if args.build_profile:
         env["DEB_BUILD_PROFILES"] = " ".join(sorted(set(args.build_profile)))
 
