@@ -5,6 +5,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import shutil
 import sys
 
@@ -89,6 +90,55 @@ def copy_source(src, dst):
     if not os.path.isfile(os.path.join(dst, "debian", "rules")):
         sys.exit("source tree has no debian/rules: {}".format(src))
     make_dirs_writable(dst)
+
+
+_CHANGELOG_RE = re.compile(r"^(?P<name>[a-z0-9][a-z0-9+.\-]*) \((?P<version>[^)]+)\)")
+
+
+def dpkg_source_directory(work, tree):
+    """Rename the unpacked tree to the name dpkg-source would have given it.
+
+    `dpkg-source -x` unpacks to <source>-<upstream version>, and packages
+    are entitled to rely on that.  plymouth's scripts/generate-version.sh
+    recovers its own version with
+
+        basename "$PWD" | sed -n 's/^plymouth-\\([^-]*\\)$/\\1/p'
+
+    and exits 1 when that yields nothing, which stops meson at
+    meson.build:3 before a single file is compiled.  Unpacking to a fixed
+    "source" made the package unbuildable for a reason that has nothing to
+    do with the package, and any other package deriving its version the
+    same way was equally unbuildable.
+
+    Epoch and Debian revision are dropped because upstream's directory
+    name carries neither: 1:24.004.60+git20250831-0ubuntu8 unpacks to
+    24.004.60+git20250831.  A native package has no revision to drop.
+
+    The name is still a function of the package alone, so the work area
+    remains reproducible: two builds of the same source agree, and the
+    path no longer depends on the scratch directory.
+    """
+    changelog = os.path.join(tree, "debian", "changelog")
+    try:
+        with open(changelog, encoding="utf-8", errors="replace") as stream:
+            first = stream.readline()
+    except OSError as exc:
+        sys.exit("cannot read {}: {}".format(changelog, exc))
+
+    match = _CHANGELOG_RE.match(first)
+    if not match:
+        sys.exit(
+            "debian/changelog does not start with a package stanza, so the "
+            "source directory cannot be named the way dpkg-source would: "
+            "{!r}".format(first.strip())
+        )
+
+    version = match.group("version").split(":", 1)[-1]
+    if "-" in version:
+        version = version.rsplit("-", 1)[0]
+    renamed = os.path.join(work, "{}-{}".format(match.group("name"), version))
+    os.rename(tree, renamed)
+    return renamed
 
 
 def compose_buildroot(seed_root, dep_roots, dest):
@@ -250,6 +300,7 @@ def main():
     source = os.path.join(work, "source")
     sysroot = os.path.join(work, "sysroot")
     copy_source(args.source, source)
+    source = dpkg_source_directory(work, source)
     compose_buildroot(args.buildroot_tree, args.dep_installroot, sysroot)
     if args.dep_deb:
         register_debs(args.dep_deb, sysroot)
