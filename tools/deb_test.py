@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import shutil
 import stat
 import tempfile
 import unittest
@@ -22,6 +23,7 @@ from dpkgbuild_replay import (
     build_environment,
     build_option,
     copy_source,
+    dpkg_source_directory,
     select_installroot_debs,
 )
 from deb_lock import (
@@ -816,6 +818,77 @@ class TestStarlarkGeneration(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "does not match"):
             validate_lock(lock)
+
+
+class TestSourceDirectoryIsNamedLikeDpkgSource(unittest.TestCase):
+    """`dpkg-source -x` names the tree <source>-<upstream>, and packages use it.
+
+    plymouth recovers its own version from `basename $PWD` and exits 1
+    when the name does not match, which stopped meson before it compiled
+    anything.  Building in a directory called "source" made that package
+    unbuildable for a reason that was not about the package.
+    """
+
+    def name_for(self, stanza):
+        work = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, work, True)
+        tree = os.path.join(work, "source")
+        os.makedirs(os.path.join(tree, "debian"))
+        with open(os.path.join(tree, "debian", "changelog"), "w") as stream:
+            stream.write(stanza + "\n")
+        return os.path.basename(dpkg_source_directory(work, tree))
+
+    def test_the_debian_revision_is_not_part_of_the_name(self):
+        self.assertEqual(
+            "plymouth-24.004.60+git20250831.4a3c171d",
+            self.name_for(
+                "plymouth (24.004.60+git20250831.4a3c171d-0ubuntu8) "
+                "resolute; urgency=medium"),
+        )
+
+    def test_an_epoch_is_not_part_of_the_name(self):
+        self.assertEqual(
+            "hello-2.10",
+            self.name_for("hello (1:2.10-3) unstable; urgency=low"))
+
+    def test_a_native_package_keeps_its_whole_version(self):
+        """No revision to strip, and stripping one would corrupt the name."""
+        self.assertEqual(
+            "nativepkg-1.2.3",
+            self.name_for("nativepkg (1.2.3) unstable; urgency=low"))
+
+    def test_a_hyphenated_name_and_version_split_at_the_last_hyphen(self):
+        """gcc-16 is the case that would break a naive split.
+
+        Both the package name and the upstream version contain hyphens, so
+        only the final one separates the Debian revision.
+        """
+        self.assertEqual(
+            "gcc-16-16-20260322",
+            self.name_for("gcc-16 (16-20260322-1ubuntu1) resolute; urgency=medium"))
+
+    def test_the_tree_is_actually_renamed(self):
+        """The caller builds in the returned path, so it has to exist."""
+        work = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, work, True)
+        tree = os.path.join(work, "source")
+        os.makedirs(os.path.join(tree, "debian"))
+        with open(os.path.join(tree, "debian", "changelog"), "w") as stream:
+            stream.write("hello (2.10-3) unstable; urgency=low\n")
+        renamed = dpkg_source_directory(work, tree)
+        self.assertTrue(os.path.isdir(renamed))
+        self.assertFalse(os.path.exists(tree))
+
+    def test_a_changelog_that_is_not_a_stanza_stops_the_build(self):
+        """Silently falling back would reintroduce the plymouth failure."""
+        work = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, work, True)
+        tree = os.path.join(work, "source")
+        os.makedirs(os.path.join(tree, "debian"))
+        with open(os.path.join(tree, "debian", "changelog"), "w") as stream:
+            stream.write("this is not a changelog\n")
+        with self.assertRaises(SystemExit):
+            dpkg_source_directory(work, tree)
 
 
 if __name__ == "__main__":
