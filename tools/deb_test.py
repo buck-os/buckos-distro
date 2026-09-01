@@ -24,6 +24,7 @@ from dpkgbuild_replay import (
     build_option,
     copy_source,
     dpkg_source_directory,
+    neutralise_test_overrides,
     select_installroot_debs,
 )
 from deb_lock import (
@@ -818,6 +819,54 @@ class TestStarlarkGeneration(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "does not match"):
             validate_lock(lock)
+
+
+class TestNocheckReachesPackagesThatOverrideTheTest(unittest.TestCase):
+    """dh has no nocheck logic; dh_auto_test does, and an override replaces it.
+
+    So asking for nocheck did nothing for any package defining
+    override_dh_auto_test, and rust-coreutils failed building a test-only
+    crate we never wanted built.
+    """
+
+    def rules(self, text):
+        work = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, work, True)
+        os.makedirs(os.path.join(work, "debian"))
+        self.path = os.path.join(work, "debian", "rules")
+        with open(self.path, "w") as stream:
+            stream.write(text)
+        return work
+
+    def test_a_plain_override_is_neutralised(self):
+        work = self.rules(
+            "#!/usr/bin/make -f\n%:\n\tdh $@\n\noverride_dh_auto_test:\n\tmake test\n")
+        self.assertEqual(["override_dh_auto_test"],
+                         neutralise_test_overrides(work))
+        with open(self.path) as stream:
+            self.assertIn("\noverride_dh_auto_test:\n", stream.read())
+
+    def test_arch_and_indep_variants_are_both_neutralised(self):
+        work = self.rules(
+            "%:\n\tdh $@\noverride_dh_auto_test-arch:\n\tfoo\n"
+            "override_dh_auto_test-indep:\n\tbar\n")
+        self.assertEqual(
+            ["override_dh_auto_test-arch", "override_dh_auto_test-indep"],
+            neutralise_test_overrides(work),
+        )
+
+    def test_a_package_without_a_test_override_is_left_alone(self):
+        """Most packages: dh_auto_test honours nocheck by itself."""
+        text = "#!/usr/bin/make -f\n%:\n\tdh $@\noverride_dh_auto_build:\n\tmake\n"
+        work = self.rules(text)
+        self.assertEqual([], neutralise_test_overrides(work))
+        with open(self.path) as stream:
+            self.assertEqual(text, stream.read())
+
+    def test_other_auto_overrides_are_not_touched(self):
+        """Only the test step is unwanted; configure and build are the build."""
+        work = self.rules("override_dh_auto_configure:\n\t:\n")
+        self.assertEqual([], neutralise_test_overrides(work))
 
 
 class TestSourceDirectoryIsNamedLikeDpkgSource(unittest.TestCase):
