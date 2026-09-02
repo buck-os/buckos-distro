@@ -50,7 +50,12 @@ from initramfs_build import (
     write_ima_certificate_der,
 )
 from rootfs_overlay import append_file, parse_file
-from squashfs_build import _build_mksquashfs_script, _mksquashfs_script, write_pseudo
+from squashfs_build import (
+    _build_mksquashfs_script,
+    _mksquashfs_script,
+    image_paths,
+    write_pseudo,
+)
 
 
 ISO_MATRIX = (
@@ -402,6 +407,33 @@ class TestSquashfsScratchLeak(unittest.TestCase):
 
 
 class TestSquashfsPseudoFile(unittest.TestCase):
+    def test_deduplicates_paths_appended_by_an_overlay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rootfs = os.path.join(tmp, "rootfs.tar")
+            with tarfile.open(rootfs, "w") as archive:
+                for path in (
+                    "./usr",
+                    "./usr/lib",
+                    "./usr/lib/modules",
+                    "usr",
+                    "usr/lib",
+                    "usr/lib/modules",
+                    "usr/lib/modules/kernel-version",
+                ):
+                    member = tarfile.TarInfo(path)
+                    member.type = tarfile.DIRTYPE
+                    archive.addfile(member)
+
+            self.assertEqual(
+                [
+                    "/usr",
+                    "/usr/lib",
+                    "/usr/lib/modules",
+                    "/usr/lib/modules/kernel-version",
+                ],
+                image_paths(rootfs),
+            )
+
     def test_skips_archive_root_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             contexts = os.path.join(tmp, "contexts")
