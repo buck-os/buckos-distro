@@ -73,6 +73,22 @@
   # available mechanism; constrained hosts may override it locally.
   isolation = auto
 
+# ── Image signing ────────────────────────────────────────────────────
+# A site can select any target providing SigningKeyInfo + RunInfo.  Test-key
+# targets may wrap local PEM files; production targets should call an HSM/KMS
+# signer and keep private bytes out of Buck's inputs and shared caches.
+#
+[buckos.security]
+  # Empty keeps existing images unsigned. For a local proof, put this in
+  # .buckconfig.local:
+  #   [buckos.security]
+  #     ima_signing_key = //tests/fixtures/keys:ima-test-key
+  ima_signing_key =
+  # `all` matches the default appraise_tcb policy. `executables` is for a
+  # custom policy limited to BPRM_CHECK and executable FILE_MMAP hooks.
+  ima_signing_mode = all
+  ima_kernel_args = ima_appraise=enforce ima_policy=appraise_tcb
+
 # ── Fedora flavor configuration ──────────────────────────────────────
 # releases     Every release to define targets for, oldest first.  Each one
 #              gets its own :buildroot-*-<release> targets, and they coexist

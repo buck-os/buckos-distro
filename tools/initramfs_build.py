@@ -39,6 +39,8 @@ image is fine and the target machine is broken.
 """
 
 import argparse
+import base64
+import binascii
 import os
 import shlex
 import shutil
@@ -61,6 +63,7 @@ from _rpm import make_dirs_writable, reproducible_env, scratch_dir
 _ROOTFS = "image.tar"
 _ROOT = "root"
 _IMAGE = "initramfs.img"
+_IMA_CERTIFICATE = "x509_ima.der"
 
 
 def stage_image_tool(buildroot, work, name):
@@ -146,7 +149,7 @@ def _unpack_script(rootfs, root):
     ])
 
 
-def _dracut_script(args, kver, image):
+def _dracut_script(args, kver, image, ima_certificate=None):
     """Run dracut inside the unpacked image."""
     cmd = [
         "/usr/bin/dracut",
@@ -169,6 +172,8 @@ def _dracut_script(args, kver, image):
         cmd += ["--omit", module]
     if args.no_compress:
         cmd.append("--no-compress")
+    if ima_certificate:
+        cmd += ["--include", ima_certificate, "/etc/keys/x509_ima.der"]
     cmd += args.dracut_arg
     cmd.append(image)
 
@@ -182,25 +187,59 @@ def _dracut_script(args, kver, image):
     ])
 
 
-def _initramfs_tools_script(args, kver, image):
+def _initramfs_tools_script(args, kver, image, ima_certificate=None):
     hook = {
         "live-boot": "/usr/share/initramfs-tools/scripts/live",
         "casper": "/usr/share/initramfs-tools/scripts/casper",
     }[args.generator]
-    return "\n".join([
+    lines = [
         "set -e",
         "test -e {} || {{ echo {} >&2; exit 1; }}".format(
             shlex.quote(hook),
             shlex.quote("buckos-distro: {} initramfs hook missing at {}".format(args.generator, hook)),
         ),
         "export TMPDIR=/tmp",
+    ]
+    if ima_certificate:
+        lines += [
+            "mkdir -p /etc/initramfs-tools/hooks",
+            "cat > /etc/initramfs-tools/hooks/buckos-ima <<'BUCKOS_IMA_HOOK'",
+            "#!/bin/sh",
+            "set -e",
+            "mkdir -p \"$DESTDIR/etc/keys\"",
+            "cp {} \"$DESTDIR/etc/keys/x509_ima.der\"".format(
+                shlex.quote(ima_certificate)
+            ),
+            "BUCKOS_IMA_HOOK",
+            "chmod 0755 /etc/initramfs-tools/hooks/buckos-ima",
+        ]
+    lines += [
         "/usr/sbin/update-initramfs -c -k {}".format(shlex.quote(kver)),
         "cp {} {}".format(
             shlex.quote("/boot/initrd.img-{}".format(kver)),
             shlex.quote(image),
         ),
         "test -s {}".format(shlex.quote(image)),
-    ])
+    ]
+    return "\n".join(lines)
+
+
+def write_ima_certificate_der(source, destination):
+    """Normalize a PEM or DER public certificate for CONFIG_IMA_LOAD_X509."""
+    with open(source, "rb") as stream:
+        data = stream.read()
+    begin = b"-----BEGIN CERTIFICATE-----"
+    end = b"-----END CERTIFICATE-----"
+    if begin in data:
+        body = data.split(begin, 1)[1].split(end, 1)[0]
+        try:
+            data = base64.b64decode(b"".join(body.split()), validate=True)
+        except (ValueError, binascii.Error) as error:
+            raise ValueError("invalid PEM IMA certificate") from error
+    if not data or data[0] != 0x30:
+        raise ValueError("IMA certificate is not DER X.509 data")
+    with open(destination, "wb") as stream:
+        stream.write(data)
 
 
 def _cleanup_script(root):
@@ -225,6 +264,9 @@ def main():
     ap.add_argument("--dracut-arg", action="append", default=[],
                     metavar="ARG",
                     help="passed through to dracut verbatim (repeatable)")
+    ap.add_argument("--ima-certificate", default=None,
+                    help="PEM or DER public certificate to install as "
+                         "/etc/keys/x509_ima.der in the initramfs")
     ap.add_argument("--generator", default="dracut",
                     choices=("dracut", "live-boot", "casper"))
     ap.add_argument("--no-compress", action="store_true",
@@ -308,6 +350,13 @@ def _build(args, isolation, rootfs, kver, work, out):
         # therefore in the resulting image.
         image_cp = stage_image_tool(sysroot, work, "cp")
 
+    ima_certificate = None
+    if args.ima_certificate:
+        ima_certificate = os.path.join(work, _IMA_CERTIFICATE)
+        write_ima_certificate_der(
+            os.path.abspath(args.ima_certificate), ima_certificate
+        )
+
     staged = stage_rootfs(rootfs, work)
 
     print(
@@ -343,9 +392,19 @@ def _build(args, isolation, rootfs, kver, work, out):
         # The unpacked image is the sysroot here, so /proc, /sys, /dev and
         # /tmp land inside *it* -- which is what dracut needs and what a
         # nested chroot would not have.
-        script = _dracut_script(args, kver, inside(image))
+        script = _dracut_script(
+            args,
+            kver,
+            inside(image),
+            inside(ima_certificate) if ima_certificate else None,
+        )
         if args.generator != "dracut":
-            script = _initramfs_tools_script(args, kver, inside(image))
+            script = _initramfs_tools_script(
+                args,
+                kver,
+                inside(image),
+                inside(ima_certificate) if ima_certificate else None,
+            )
         run_isolated(
             fakeroot_command(
                 fakeroot,

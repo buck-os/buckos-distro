@@ -39,7 +39,13 @@ from iso_boot_test import (
     validate_production_capture,
     validate_verification_capture,
 )
-from initramfs_build import _install_image_tool_script, stage_image_tool
+from initramfs_build import (
+    _dracut_script,
+    _initramfs_tools_script,
+    _install_image_tool_script,
+    stage_image_tool,
+    write_ima_certificate_der,
+)
 from rootfs_overlay import append_file, parse_file
 from squashfs_build import _build_mksquashfs_script, _mksquashfs_script, write_pseudo
 
@@ -285,6 +291,42 @@ class TestDebRootfsTransaction(unittest.TestCase):
 
 
 class TestInitramfsTools(unittest.TestCase):
+    def test_normalizes_pem_ima_certificate_to_der(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, "cert.pem")
+            destination = os.path.join(tmp, "cert.der")
+            with open(source, "w", encoding="ascii") as stream:
+                stream.write(
+                    "-----BEGIN CERTIFICATE-----\n"
+                    "MAMCAQE=\n"
+                    "-----END CERTIFICATE-----\n"
+                )
+
+            write_ima_certificate_der(source, destination)
+
+            with open(destination, "rb") as stream:
+                self.assertEqual(b"\x30\x03\x02\x01\x01", stream.read())
+
+    def test_dracut_includes_the_ima_certificate_at_the_kernel_path(self):
+        args = type("Args", (), {
+            "add_module": [],
+            "dracut_arg": [],
+            "no_compress": False,
+            "omit_module": [],
+        })()
+        script = _dracut_script(args, "1.2.3", "/work/initrd", "/work/cert.der")
+        self.assertIn(
+            "--include /work/cert.der /etc/keys/x509_ima.der", script
+        )
+
+    def test_initramfs_tools_installs_an_ima_hook(self):
+        args = type("Args", (), {"generator": "live-boot"})()
+        script = _initramfs_tools_script(
+            args, "1.2.3", "/work/initrd", "/work/cert.der"
+        )
+        self.assertIn("/etc/initramfs-tools/hooks/buckos-ima", script)
+        self.assertIn("$DESTDIR/etc/keys/x509_ima.der", script)
+
     def test_stages_binary_seeded_construction_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
             buildroot = os.path.join(tmp, "buildroot")
@@ -388,9 +430,10 @@ class TestSquashfsPseudoFile(unittest.TestCase):
             "processors": "",
         })()
         script = _mksquashfs_script(
-            args, "/root", "/image", "/pseudo", "/work/mksquashfs"
+            args, "/root", "/image", ["/ima", "/selinux"], "/work/mksquashfs"
         )
         self.assertIn("MKSQUASHFS=/work/mksquashfs", script)
+        self.assertIn("-pf /ima -pf /selinux", script)
         self.assertNotIn("for _c in", script)
 
 

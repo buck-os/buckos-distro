@@ -72,6 +72,11 @@ def _squashfs_impl(ctx: AnalysisContext) -> list[Provider]:
     cmd.add(buildroot_sysroot_args(ctx))
     for path in ctx.attrs.exclude:
         cmd.add("--exclude", path)
+    if ctx.attrs.ima_manifest != None:
+        cmd.add(
+            "--xattr-pseudo",
+            _single_output(ctx.attrs.ima_manifest, "IMA xattr manifest"),
+        )
     if ctx.attrs.selinux_relabel:
         cmd.add("--selinux-relabel")
     if ctx.attrs.mksquashfs_source != None:
@@ -108,6 +113,11 @@ squashfs = rule(
         # mean the image no longer matches the package list that was
         # reviewed.  A caller that wants /var/cache gone can say so.
         "exclude": attrs.list(attrs.string(), default = []),
+        # A pseudo-file produced by signing.ima_manifest.  Keeping signing
+        # separate from compression lets production use an HSM-backed,
+        # non-cacheable signer while this deterministic image action only
+        # consumes public signature bytes.
+        "ima_manifest": attrs.option(attrs.dep(), default = None),
         "rootfs": attrs.dep(),
         # Optional source archive for releases whose packaged mksquashfs is
         # too old to add per-file xattrs through a pseudo file.  The source

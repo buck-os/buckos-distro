@@ -247,6 +247,18 @@ python_binary(
 )
 
 python_binary(
+    name = "signing_helper",
+    main = "signing_helper.py",
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "uki_assemble",
+    main = "uki_assemble.py",
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
     name = "iso_boot_test",
     main = "iso_boot_test.py",
     visibility = ["PUBLIC"],
@@ -306,6 +318,24 @@ python_test(
     srcs = ["source_policy_test.py"],
     base_module = "",
     deps = [":source_policy"],
+)
+
+python_test(
+    name = "signing_test",
+    srcs = [
+        "signing_helper.py",
+        "signing_test.py",
+    ],
+    base_module = "",
+)
+
+python_test(
+    name = "uki_assemble_test",
+    srcs = [
+        "uki_assemble.py",
+        "uki_assemble_test.py",
+    ],
+    base_module = "",
 )
 
 python_test(

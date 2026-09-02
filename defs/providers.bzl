@@ -117,6 +117,20 @@ BootInfo = provider(fields = [
     "kver",             # artifact: the kernel version, no trailing newline
 ])
 
+# ── Signing identities ───────────────────────────────────────────────
+#
+# A consumer invokes the target's RunInfo rather than reading private key
+# bytes.  A development target may wrap a checked-in test key; a production
+# target can instead call an HSM/KMS-backed signer.  Only the public certificate
+# is part of this provider and safe for downstream image/verification rules.
+
+SigningKeyInfo = provider(fields = [
+    "certificate",      # artifact: public X.509 certificate
+    "key_id",           # str: stable operator-facing identity
+    "cacheable",        # bool: signed outputs may enter a shared action cache
+    "local_only",       # bool: signer must execute on the local machine
+])
+
 # ── Native binary package artifacts ──────────────────────────────────
 
 RpmArtifactInfo = provider(fields = [
