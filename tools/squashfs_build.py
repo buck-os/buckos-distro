@@ -173,6 +173,7 @@ def image_paths(rootfs):
     import tarfile
 
     paths = []
+    seen = set()
     with tarfile.open(rootfs) as tar:
         for member in tar:
             name = member.name
@@ -194,7 +195,8 @@ def image_paths(rootfs):
                 name = name[1:]
             elif not name.startswith("/"):
                 name = "/" + name
-            if name not in ("/", "/."):
+            if name not in ("/", "/.") and name not in seen:
+                seen.add(name)
                 paths.append(name)
     return paths
 
