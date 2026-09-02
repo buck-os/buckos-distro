@@ -30,7 +30,7 @@ load(
     "buildroot_local_only",
     "buildroot_sysroot_args",
 )
-load("//defs:providers.bzl", "BootInfo")
+load("//defs:providers.bzl", "BootInfo", "SigningKeyInfo")
 
 def _rootfs_artifact(dep):
     """The tarball out of a rootfs target.
@@ -118,6 +118,11 @@ def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
         cmd.add("--omit-module", module)
     for arg in ctx.attrs.dracut_args:
         cmd.add("--dracut-arg", arg)
+    if ctx.attrs.ima_signing_key != None:
+        cmd.add(
+            "--ima-certificate",
+            ctx.attrs.ima_signing_key[SigningKeyInfo].certificate,
+        )
     cmd.add("--generator", ctx.attrs.generator)
     cmd.add("--source-date-epoch", ctx.attrs.source_date_epoch)
 
@@ -148,6 +153,13 @@ initramfs = rule(
         "add_modules": attrs.list(attrs.string(), default = []),
         "dracut_args": attrs.list(attrs.string(), default = []),
         "generator": attrs.enum(["dracut", "live-boot", "casper"], default = "dracut"),
+        # Public certificate for the IMA signing identity.  Custom kernels
+        # should set CONFIG_IMA_LOAD_X509=y and
+        # CONFIG_IMA_X509_PATH=/etc/keys/x509_ima.der.
+        "ima_signing_key": attrs.option(
+            attrs.dep(providers = [SigningKeyInfo]),
+            default = None,
+        ),
         "kver": attrs.string(default = ""),
         "omit_modules": attrs.list(attrs.string(), default = []),
         "rootfs": attrs.dep(),

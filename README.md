@@ -187,7 +187,24 @@ The image pipeline has separate targets for work with different invalidation cos
 
 The rootfs is a tar archive because package ownership and valid RPM filenames cannot always be represented safely as a Buck directory artifact. Image actions unpack it inside their isolated work areas.
 
-The live squashfs is used directly as the root filesystem. x86_64 ISOs contain BIOS and UEFI boot entries. AArch64 ISOs contain the removable-media `BOOTAA64.EFI` UEFI path. Images are not signed for Secure Boot.
+The live squashfs is used directly as the root filesystem. x86_64 ISOs contain BIOS and UEFI boot entries. AArch64 ISOs contain the removable-media `BOOTAA64.EFI` UEFI path. Default images are not signed for Secure Boot.
+
+### Signing and IMA
+
+Signing support is opt-in while the custom-kernel and Secure Boot image paths are completed. Signing identities are Buck targets providing `SigningKeyInfo` and `RunInfo`; image rules invoke the target rather than reading a private key directly. `file_signing_key` supports test and local PEM keys, while `external_signing_key` lets a deployment select an HSM/KMS client implementing the same command interface.
+
+When `[buckos.security] ima_signing_key` is set, each live rootfs receives an IMA manifest after its package-manager transaction. Every regular file is signed by default to match the built-in `appraise_tcb` policy, binary signatures are written into the SquashFS as `security.ima` xattrs, the public X.509 certificate is included in the initramfs as `/etc/keys/x509_ima.der`, and IMA appraisal arguments are added to the kernel command line. The custom kernel must enable `CONFIG_IMA_LOAD_X509`, use that certificate path, and include the BuckOS IMA trust anchor. The narrower `executables` signing mode is available only for deployments that install a matching custom IMA policy.
+
+For local testing, add this to `.buckconfig.local`:
+
+```ini
+[buckos.security]
+  ima_signing_key = //tests/fixtures/keys:ima-test-key
+  ima_signing_mode = all
+  ima_kernel_args = ima_appraise=enforce ima_policy=appraise_tcb
+```
+
+The checked-in key is public test material and must never sign a release. Production private keys must remain outside the repository and shared Buck caches. Define an `external_signing_key` target backed by the deployment's signer and select that target instead. The same signing-key contract is consumed by the `efi_sign` rule. A tested UKI assembly helper is also present; its Buck rule will be wired through distro buildroots when the custom-kernel targets provide systemd's EFI stub and hermetic binutils.
 
 Build Fedora 44, CentOS Stream 9 with EPEL Next, CentOS Stream 10, or CentOS Hyperscale live media with:
 

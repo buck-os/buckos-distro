@@ -15,6 +15,7 @@ load("//defs/rules:buildroot.bzl", "host_buildroot", "seeded_deb_buildroot")
 load("//defs/rules:dsc.bzl", "prebuilt_deb")
 load("//defs/rules:image.bzl", "iso_image", "squashfs")
 load("//defs/rules:rootfs.bzl", "deb_rootfs")
+load("//defs/rules:signing.bzl", "ima_manifest")
 
 _DISTRO_SUPPLIERS = {
     "debian": "Organization: Debian",
@@ -22,6 +23,19 @@ _DISTRO_SUPPLIERS = {
 }
 
 _IMAGE_VARIANTS = ["", "-prebuilt"]
+
+def _ima_signing_key():
+    return read_config("buckos.security", "ima_signing_key", "")
+
+def _ima_signing_mode():
+    return read_config("buckos.security", "ima_signing_mode", "all")
+
+def _ima_kernel_args():
+    return read_config(
+        "buckos.security",
+        "ima_kernel_args",
+        "ima_appraise=enforce ima_policy=appraise_tcb",
+    )
 
 _PATH_ESCAPES = {
     " ": "%20",
@@ -257,6 +271,7 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
         return
     buildroot = deb_buildroot_target(flavor, suffix)
     tools = ":buildroot-image-tools" + suffix
+    signing_key = _ima_signing_key()
     seeded_deb_buildroot(
         name = "buildroot-image-tools" + suffix,
         seed_debs = [
@@ -324,13 +339,28 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
             buildroot = buildroot,
             rootfs = rootfs_target,
             generator = "casper" if flavor == "ubuntu" else "live-boot",
+            ima_signing_key = signing_key if signing_key else None,
             default_target_platform = platform,
             exec_compatible_with = exec_constraints,
             visibility = ["PUBLIC"],
         )
+        manifest_target = None
+        if signing_key:
+            manifest_name = "ima-manifest-live" + variant + suffix
+            ima_manifest(
+                name = manifest_name,
+                rootfs = rootfs_target,
+                signing_key = signing_key,
+                mode = _ima_signing_mode(),
+                default_target_platform = platform,
+                visibility = ["PUBLIC"],
+            )
+            manifest_target = ":" + manifest_name
+
         squashfs(
             name = "squashfs-live" + variant + suffix,
             buildroot = tools,
+            ima_manifest = manifest_target,
             rootfs = rootfs_target,
             default_target_platform = platform,
             exec_compatible_with = exec_constraints,
@@ -348,7 +378,10 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
                 "-PREBUILT" if variant else "",
             )),
             kernel_args = "console=tty0 {}".format(
-                "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
+                "{} {}".format(
+                    "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
+                    _ima_kernel_args() if signing_key else "",
+                ).strip(),
             ),
             boot_mode = "hybrid" if data.TARGET_CPU == "x86_64" else "uefi",
             layout = flavor,

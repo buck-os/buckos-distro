@@ -1,0 +1,43 @@
+load("//defs/rules:signing.bzl", "file_signing_key", "ima_manifest")
+
+# Public test identity used to exercise the IMA signing graph.  The private
+# key is intentionally committed because it protects no released artifact.
+# Production configurations must select an HSM/KMS-backed signing_key target.
+file_signing_key(
+    name = "ima-test-key",
+    private_key = "ima-test.priv",
+    certificate = "ima-test.x509",
+    key_id = "buckos-ima-test",
+    cacheable = True,
+    visibility = ["PUBLIC"],
+)
+
+# Small end-to-end fixture for the provider/RunInfo boundary.  Building the
+# manifest invokes the key target, signs the executable, and emits a binary
+# security.ima value in mksquashfs pseudo-file form.
+genrule(
+    name = "ima-test-rootfs",
+    out = "rootfs.tar",
+    cmd = "mkdir -p root/usr/bin && " +
+          "printf '#!/bin/sh\\necho signed\\n' > root/usr/bin/example && " +
+          "chmod 0755 root/usr/bin/example && " +
+          "tar -cf $OUT -C root .",
+)
+
+ima_manifest(
+    name = "ima-test-manifest",
+    rootfs = ":ima-test-rootfs",
+    signing_key = ":ima-test-key",
+    visibility = ["PUBLIC"],
+)
+
+# Separate identity for UEFI Authenticode tests.  Reusing the IMA key would
+# couple two independently rotated trust domains and is intentionally avoided.
+file_signing_key(
+    name = "secureboot-test-key",
+    private_key = "secureboot-test.key",
+    certificate = "secureboot-test.crt",
+    key_id = "buckos-secureboot-test",
+    cacheable = True,
+    visibility = ["PUBLIC"],
+)

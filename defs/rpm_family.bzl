@@ -25,6 +25,7 @@ load("//defs/rules:buildroot.bzl", "host_buildroot", "seeded_buildroot")
 load("//defs/rules:srpm.bzl", "prebuilt_rpm")
 load("//defs/rules:image.bzl", "iso_image", "squashfs")
 load("//defs/rules:rootfs.bzl", "rootfs")
+load("//defs/rules:signing.bzl", "ima_manifest")
 
 _RPM_FLAVORS = {
     "centos": {
@@ -142,6 +143,20 @@ _IMAGE_VARIANTS = ["", "-prebuilt"]
 # denials, login prompt reached.
 #
 _LIVE_KERNEL_ARGS = "rd.live.image console=tty0"
+
+def _ima_signing_key():
+    """Configured signing identity, or empty when IMA images are disabled."""
+    return read_config("buckos.security", "ima_signing_key", "")
+
+def _ima_signing_mode():
+    return read_config("buckos.security", "ima_signing_mode", "all")
+
+def _ima_kernel_args():
+    return read_config(
+        "buckos.security",
+        "ima_kernel_args",
+        "ima_appraise=enforce ima_policy=appraise_tcb",
+    )
 
 # ── Where an rpm is fetched from ─────────────────────────────────────
 #
@@ -1115,6 +1130,7 @@ def rpm_boot(flavor, data, suffix, platform, exec_constraints):
     "I cannot find the target that would tell me".
     """
     buildroot = rpm_buildroot_target(flavor, suffix)
+    signing_key = _ima_signing_key()
 
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
@@ -1134,6 +1150,7 @@ def rpm_boot(flavor, data, suffix, platform, exec_constraints):
                 buildroot = buildroot,
                 rootfs = rootfs_target,
                 add_modules = _INITRAMFS_MODULES.get(name, []),
+                ima_signing_key = signing_key if signing_key else None,
                 default_target_platform = platform,
                 exec_compatible_with = exec_constraints,
                 visibility = ["PUBLIC"],
@@ -1160,15 +1177,30 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
     old_squashfs = release == "9" and flavor in ("centos", "centos-hyperscale")
     squashfs_tools = ":buildroot-squashfs-tools" + suffix if old_squashfs else tools
     squashfs_source = "//tools:squashfs-tools-4.6.1-source" if old_squashfs else None
+    signing_key = _ima_signing_key()
 
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
             continue
         for variant in _IMAGE_VARIANTS:
+            manifest_target = None
+            if signing_key:
+                manifest_name = "ima-manifest-" + name + variant + suffix
+                ima_manifest(
+                    name = manifest_name,
+                    rootfs = ":rootfs-" + name + variant + suffix,
+                    signing_key = signing_key,
+                    mode = _ima_signing_mode(),
+                    default_target_platform = platform,
+                    visibility = ["PUBLIC"],
+                )
+                manifest_target = ":" + manifest_name
+
             squashfs(
                 name = "squashfs-" + name + variant + suffix,
                 buildroot = squashfs_tools,
                 mksquashfs_source = squashfs_source,
+                ima_manifest = manifest_target,
                 rootfs = ":rootfs-" + name + variant + suffix,
                 # Fedora ships selinux-policy-targeted in every bootable
                 # set and boots enforcing, so an unlabelled image does not
@@ -1205,7 +1237,10 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
                 squashfs = ":squashfs-" + name + variant + suffix,
                 volume_label = label,
                 kernel_args = "{} {}".format(
-                    _LIVE_KERNEL_ARGS,
+                    "{} {}".format(
+                        _LIVE_KERNEL_ARGS,
+                        _ima_kernel_args() if signing_key else "",
+                    ).strip(),
                     "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
                 ),
                 boot_mode = "hybrid" if data.TARGET_CPU == "x86_64" else "uefi",

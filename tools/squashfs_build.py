@@ -155,6 +155,7 @@ _MATCHPATHCON_CANDIDATES = ("/usr/sbin/matchpathcon", "/usr/bin/matchpathcon")
 _PATHS = "selinux-paths.txt"
 _CONTEXTS = "selinux-contexts.txt"
 _PSEUDO = "selinux-pseudo.txt"
+_EXTERNAL_PSEUDO_PREFIX = "xattr-pseudo-"
 
 
 def image_paths(rootfs):
@@ -268,7 +269,7 @@ def _build_mksquashfs_script(source, work, output):
     ])
 
 
-def _mksquashfs_script(args, root, image, pseudo=None, mksquashfs=None):
+def _mksquashfs_script(args, root, image, pseudos=None, mksquashfs=None):
     cmd = [
         "$MKSQUASHFS",
         root,
@@ -305,7 +306,7 @@ def _mksquashfs_script(args, root, image, pseudo=None, mksquashfs=None):
         cmd += ["-b", args.block_size]
     if args.processors:
         cmd += ["-processors", args.processors]
-    if pseudo:
+    for pseudo in pseudos or []:
         cmd += ["-pf", pseudo]
     # -e consumes everything after it, so it goes last.
     if args.exclude:
@@ -357,6 +358,9 @@ def main():
     ap.add_argument("--selinux-relabel", action="store_true",
                     help="write security.selinux into the image, computed "
                          "from the image's own policy")
+    ap.add_argument("--xattr-pseudo", action="append", default=[],
+                    help="mksquashfs pseudo-file containing additional "
+                         "per-path xattrs (repeatable)")
     ap.add_argument("--work", default=None,
                     help="scratch directory; a temp dir is used if omitted")
     ap.add_argument("--keep-work", action="store_true",
@@ -496,6 +500,15 @@ def _build(args, isolation, rootfs, work, out):
         )
 
     staged = stage_rootfs(rootfs, work)
+    pseudos = []
+    for index, source in enumerate(args.xattr_pseudo):
+        destination = os.path.join(
+            work, "{}{}.txt".format(_EXTERNAL_PSEUDO_PREFIX, index)
+        )
+        shutil.copy2(os.path.abspath(source), destination)
+        if not os.path.getsize(destination):
+            sys.exit("xattr pseudo-file is empty: {}".format(source))
+        pseudos.append(destination)
 
     print("buckos-distro: unpacking the image to compress it",
           file=sys.stderr, flush=True)
@@ -507,9 +520,8 @@ def _build(args, isolation, rootfs, work, out):
         isolation, work, work, sysroot, env=env,
     )
 
-    pseudo = None
     if args.selinux_relabel:
-        pseudo = _relabel(args, isolation, rootfs, root, work, env)
+        pseudos.append(_relabel(args, isolation, rootfs, root, work, env))
 
     print(
         "buckos-distro: mksquashfs (comp={}, exclude={})".format(
@@ -524,7 +536,7 @@ def _build(args, isolation, rootfs, work, out):
                 fakeroot,
                 ["/bin/sh", "-c", _mksquashfs_script(
                     args, inside(root), inside(image),
-                    inside(pseudo) if pseudo else None,
+                    [inside(pseudo) for pseudo in pseudos],
                     inside(mksquashfs) if mksquashfs else None,
                 )],
                 load=True,
