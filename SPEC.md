@@ -27,7 +27,7 @@ BuckOS is accepted by the flavor dispatcher but has no frontend. Selecting it ca
 
 ## Providers
 
-The implemented pipeline uses four providers from `defs/providers.bzl`.
+The implemented pipeline uses the shared providers from `defs/providers.bzl`.
 
 `PackageInfo` describes a built or unpacked package. It carries identity, the install-root artifact, compile and link flags, native package artifacts, runtime dependency names, and SBOM metadata.
 
@@ -35,7 +35,7 @@ The implemented pipeline uses four providers from `defs/providers.bzl`.
 
 `RpmArtifactInfo` accompanies Fedora package builds. It carries the binary RPM directory, optional source RPM, install root, and NEVRA.
 
-`BootInfo` carries a kernel artifact, an optional initramfs artifact, and the kernel-version artifact used by downstream image rules.
+`BootInfo` carries a kernel artifact, an optional initramfs artifact, and the kernel-version artifact used by downstream image rules. `KernelInfo` is the producer-neutral custom-kernel boundary: boot image, `kernelrelease` artifact, architecture, normalized module tree, and optional config, ELF, symbol, EFI-stub, and IMA trust artifacts. No image rule depends on the producer's build-system-specific providers or paths.
 
 `SourcePackageInfo` and `DebArtifactInfo` carry Debian-family source and binary artifacts. `FlavorInfo` remains reserved for a future addressable flavor abstraction.
 
@@ -147,7 +147,11 @@ Each bootable image set produces two target families from one package list. The 
 
 The rootfs output is a tar archive. The archive preserves ownership, capabilities, and RPM filenames without requiring Buck to own or represent every unpacked path.
 
-`kernel_image` reads the archive index and extracts the selected kernel and version without entering a buildroot.
+`kernel_image` reads the archive index and extracts the selected distro kernel and version without entering a buildroot, or re-exports one selected `KernelInfo` target under the same stable image target name.
+
+`kernel_artifacts` normalizes outputs from any external kernel producer into `KernelInfo`. `linux_kernel` is the native Kbuild producer and obtains its source, config, flags, and buildroot through ordinary configured attributes. That permits distro- and architecture-specific requirements through `select()` while keeping the image graph independent of the producer implementation. A hermetic buildroot makes the build remotely executable and eligible for shared-cache upload.
+
+When `[buckos.kernel] targets` is non-empty, `kernel_rootfs` installs every selected kernel and normalized module tree into the final rootfs before IMA signing and compression. Each kernel receives stable `-custom-N` kernel and initramfs targets. `[buckos.kernel] default` selects lightweight aliases at the existing unsuffixed target names; the remaining kernels become additional bootloader menu entries. Changing only the default therefore invalidates media assembly rather than rebuilding initramfs images.
 
 `initramfs` unpacks the rootfs into isolated scratch space and runs the image's own dracut, `update-initramfs` with live-boot, or `update-initramfs` with casper.
 
@@ -179,6 +183,7 @@ defs/rules/dsc.bzl          Debian source unpack, replay, and projection rules
 defs/rules/buildroot.bzl    Host and binary-seeded buildroots
 defs/rules/rootfs.bzl       RPM transaction and rootfs archive
 defs/rules/boot.bzl         Kernel and initramfs rules
+defs/rules/kernel.bzl       Custom-kernel provider, adapter, build, and rootfs rules
 defs/rules/image.bzl        Squashfs and ISO rules
 defs/rules/boot_test.bzl    Rootfs instrumentation and firmware boot tests
 flavors/fedora/             Fedora configuration, lockfiles, and generated data

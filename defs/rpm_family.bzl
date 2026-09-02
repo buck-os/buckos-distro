@@ -24,6 +24,11 @@ load("//defs/rules:boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules:buildroot.bzl", "host_buildroot", "seeded_buildroot")
 load("//defs/rules:srpm.bzl", "prebuilt_rpm")
 load("//defs/rules:image.bzl", "iso_image", "squashfs")
+load(
+    "//defs/rules:kernel.bzl",
+    "configured_kernel_set",
+    "kernel_rootfs",
+)
 load("//defs/rules:rootfs.bzl", "rootfs")
 load("//defs/rules:signing.bzl", "ima_manifest")
 
@@ -1131,30 +1136,83 @@ def rpm_boot(flavor, data, suffix, platform, exec_constraints):
     """
     buildroot = rpm_buildroot_target(flavor, suffix)
     signing_key = _ima_signing_key()
+    kernel_set = configured_kernel_set()
 
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
             continue
         for variant in _IMAGE_VARIANTS:
-            rootfs_target = ":rootfs-" + name + variant + suffix
+            base_rootfs_target = ":rootfs-" + name + variant + suffix
+            rootfs_target = base_rootfs_target
+            if kernel_set.targets:
+                kernel_rootfs_name = "rootfs-kernel-" + name + variant + suffix
+                kernel_rootfs(
+                    name = kernel_rootfs_name,
+                    architecture = data.TARGET_CPU,
+                    ima_signing_key = signing_key if signing_key else None,
+                    kernels = kernel_set.targets,
+                    rootfs = base_rootfs_target,
+                    default_target_platform = platform,
+                    visibility = ["PUBLIC"],
+                )
+                rootfs_target = ":" + kernel_rootfs_name
 
-            kernel_image(
-                name = "kernel-" + name + variant + suffix,
-                rootfs = rootfs_target,
-                default_target_platform = platform,
-                visibility = ["PUBLIC"],
-            )
-
-            initramfs(
-                name = "initramfs-" + name + variant + suffix,
-                buildroot = buildroot,
-                rootfs = rootfs_target,
-                add_modules = _INITRAMFS_MODULES.get(name, []),
-                ima_signing_key = signing_key if signing_key else None,
-                default_target_platform = platform,
-                exec_compatible_with = exec_constraints,
-                visibility = ["PUBLIC"],
-            )
+            kernel_name = "kernel-" + name + variant + suffix
+            initramfs_name = "initramfs-" + name + variant + suffix
+            if kernel_set.targets:
+                for index, kernel_target in enumerate(kernel_set.targets):
+                    custom_suffix = "-custom-{}".format(index)
+                    kernel_image(
+                        name = kernel_name + custom_suffix,
+                        architecture = data.TARGET_CPU,
+                        kernel = kernel_target,
+                        rootfs = rootfs_target,
+                        default_target_platform = platform,
+                        visibility = ["PUBLIC"],
+                    )
+                    initramfs(
+                        name = initramfs_name + custom_suffix,
+                        buildroot = buildroot,
+                        kernel = kernel_target,
+                        rootfs = rootfs_target,
+                        add_modules = _INITRAMFS_MODULES.get(name, []),
+                        ima_signing_key = signing_key if signing_key else None,
+                        default_target_platform = platform,
+                        exec_compatible_with = exec_constraints,
+                        visibility = ["PUBLIC"],
+                    )
+                native.alias(
+                    name = kernel_name,
+                    actual = ":{}-custom-{}".format(kernel_name, kernel_set.default_index),
+                    default_target_platform = platform,
+                    visibility = ["PUBLIC"],
+                )
+                native.alias(
+                    name = initramfs_name,
+                    actual = ":{}-custom-{}".format(initramfs_name, kernel_set.default_index),
+                    default_target_platform = platform,
+                    visibility = ["PUBLIC"],
+                )
+            else:
+                kernel_image(
+                    name = kernel_name,
+                    architecture = data.TARGET_CPU,
+                    kernel = None,
+                    rootfs = rootfs_target,
+                    default_target_platform = platform,
+                    visibility = ["PUBLIC"],
+                )
+                initramfs(
+                    name = initramfs_name,
+                    buildroot = buildroot,
+                    kernel = None,
+                    rootfs = rootfs_target,
+                    add_modules = _INITRAMFS_MODULES.get(name, []),
+                    ima_signing_key = signing_key if signing_key else None,
+                    default_target_platform = platform,
+                    exec_compatible_with = exec_constraints,
+                    visibility = ["PUBLIC"],
+                )
 
 def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
     """squashfs and ISO per bootable image set.
@@ -1178,17 +1236,23 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
     squashfs_tools = ":buildroot-squashfs-tools" + suffix if old_squashfs else tools
     squashfs_source = "//tools:squashfs-tools-4.6.1-source" if old_squashfs else None
     signing_key = _ima_signing_key()
+    kernel_set = configured_kernel_set()
 
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
             continue
         for variant in _IMAGE_VARIANTS:
+            rootfs_target = (
+                ":rootfs-kernel-" + name + variant + suffix
+                if kernel_set.targets
+                else ":rootfs-" + name + variant + suffix
+            )
             manifest_target = None
             if signing_key:
                 manifest_name = "ima-manifest-" + name + variant + suffix
                 ima_manifest(
                     name = manifest_name,
-                    rootfs = ":rootfs-" + name + variant + suffix,
+                    rootfs = rootfs_target,
                     signing_key = signing_key,
                     mode = _ima_signing_mode(),
                     default_target_platform = platform,
@@ -1201,7 +1265,7 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
                 buildroot = squashfs_tools,
                 mksquashfs_source = squashfs_source,
                 ima_manifest = manifest_target,
-                rootfs = ":rootfs-" + name + variant + suffix,
+                rootfs = rootfs_target,
                 # Fedora ships selinux-policy-targeted in every bootable
                 # set and boots enforcing, so an unlabelled image does not
                 # boot at all -- systemd freezes as PID 1 before starting a
@@ -1234,6 +1298,14 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
                 buildroot = tools,
                 kernel = ":kernel-" + name + variant + suffix,
                 initramfs = ":initramfs-" + name + variant + suffix,
+                additional_initramfs = [
+                    ":initramfs-{}{}{}-custom-{}".format(name, variant, suffix, index)
+                    for index in kernel_set.additional_indices
+                ],
+                additional_kernels = [
+                    ":kernel-{}{}{}-custom-{}".format(name, variant, suffix, index)
+                    for index in kernel_set.additional_indices
+                ],
                 squashfs = ":squashfs-" + name + variant + suffix,
                 volume_label = label,
                 kernel_args = "{} {}".format(

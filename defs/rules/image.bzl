@@ -142,6 +142,8 @@ squashfs = rule(
 
 def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
     out = ctx.actions.declare_output(ctx.attrs.name + ".iso")
+    if len(ctx.attrs.additional_kernels) != len(ctx.attrs.additional_initramfs):
+        fail("additional_kernels and additional_initramfs must have equal length")
 
     # The kernel target carries BootInfo, which is how the kver comes along
     # without a second action to ask for it -- boot.bzl's whole reason for
@@ -152,6 +154,8 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
         ctx.attrs._build[RunInfo],
         "--kernel",
         boot.vmlinuz,
+        "--kernel-version-file",
+        boot.kver,
         "--initramfs",
         _single_output(ctx.attrs.initramfs, "initramfs image"),
         "--squashfs",
@@ -169,6 +173,19 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
         "--layout",
         ctx.attrs.layout,
     )
+    for index in range(len(ctx.attrs.additional_kernels)):
+        additional_boot = ctx.attrs.additional_kernels[index][BootInfo]
+        cmd.add(
+            "--additional-kernel",
+            additional_boot.vmlinuz,
+            "--additional-kernel-version-file",
+            additional_boot.kver,
+            "--additional-initramfs",
+            _single_output(
+                ctx.attrs.additional_initramfs[index],
+                "additional initramfs image",
+            ),
+        )
     cmd.add(buildroot_sysroot_args(ctx))
 
     ctx.actions.run(
@@ -184,6 +201,11 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
 iso_image = rule(
     impl = _iso_image_impl,
     attrs = {
+        "additional_initramfs": attrs.list(attrs.dep(), default = []),
+        "additional_kernels": attrs.list(
+            attrs.dep(providers = [BootInfo]),
+            default = [],
+        ),
         # hybrid is both BIOS and UEFI.  Worth the extra El Torito catalog
         # entry: a live image that boots on one and not the other looks
         # like broken hardware to whoever tries it.

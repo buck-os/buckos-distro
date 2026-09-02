@@ -8,6 +8,7 @@ import signal
 import tarfile
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from _deb import fakeroot_command, stage_fakeroot_runtime
@@ -23,6 +24,8 @@ from iso_build import (
     _bios_script,
     _efi_script,
     _fat_volume_id,
+    _grub_cfg,
+    _isolinux_cfg,
     _pin_tree_times,
     _write_md5sums,
     _xorriso_script,
@@ -77,7 +80,7 @@ def repo_root():
     raise AssertionError("cannot locate repository root")
 
 
-def load_iso_test_graph():
+def load_iso_test_graph(kernel_set=None):
     rules = {
         "iso_boot_test": [],
         "iso_image": [],
@@ -92,6 +95,12 @@ def load_iso_test_graph():
         return record
 
     namespace = {
+        "configured_kernel_set": lambda: kernel_set or SimpleNamespace(
+            additional_indices=[],
+            default=None,
+            default_index=None,
+            targets=[],
+        ),
         "execution_compatible_with": lambda architecture: [architecture],
         "iso_boot_test": recorder("iso_boot_test"),
         "iso_image": recorder("iso_image"),
@@ -888,6 +897,32 @@ class TestIsoBootMatrix(unittest.TestCase):
         self.assertEqual(48, len(production_edges))
         self.assertEqual(48, len(verification_edges))
 
+    def test_custom_kernel_set_uses_kernelized_rootfs_and_alternate_entries(self):
+        rules = load_iso_test_graph(SimpleNamespace(
+            additional_indices=[0],
+            default="//kernels:debug",
+            default_index=1,
+            targets=["//kernels:stable", "//kernels:debug"],
+        ))
+        rootfs_rules = {
+            rule["name"]: rule for rule in rules["rootfs_overlay"]
+        }
+        iso_rules = {rule["name"]: rule for rule in rules["iso_image"]}
+
+        self.assertEqual(
+            "//flavors/fedora:rootfs-kernel-live-44-x86_64",
+            rootfs_rules["rootfs-verify-fedora-44-x86_64"]["rootfs"],
+        )
+        iso = iso_rules["iso-verify-fedora-44-x86_64"]
+        self.assertEqual(
+            ["//flavors/fedora:kernel-live-44-x86_64-custom-0"],
+            iso["additional_kernels"],
+        )
+        self.assertEqual(
+            ["//flavors/fedora:initramfs-live-44-x86_64-custom-0"],
+            iso["additional_initramfs"],
+        )
+
     def test_debian_prebuilt_boot_set_is_complete(self):
         self.assertEqual(
             {
@@ -993,6 +1028,32 @@ class TestIsoBootCommand(unittest.TestCase):
 
 
 class TestIsoBuildBootloaderPaths(unittest.TestCase):
+    def test_multiple_kernels_are_selectable_and_the_first_is_default(self):
+        entries = [
+            {
+                "initramfs": "live/initrd.img",
+                "kernel": "live/vmlinuz",
+                "version": "6.18.0-stable",
+            },
+            {
+                "initramfs": "live/initrd.img-1",
+                "kernel": "live/vmlinuz-1",
+                "version": "6.18.0-debug",
+            },
+        ]
+
+        isolinux = _isolinux_cfg(entries, "boot=live", 50)
+        grub = _grub_cfg("TEST", entries, "boot=live", 5)
+
+        self.assertIn("default linux", isolinux)
+        self.assertIn("prompt 1", isolinux)
+        self.assertIn("label linux-1", isolinux)
+        self.assertIn("kernel /live/vmlinuz-1", isolinux)
+        self.assertIn("set default=0", grub)
+        self.assertIn("Linux 6.18.0-stable (default)", grub)
+        self.assertIn("Linux 6.18.0-debug", grub)
+        self.assertIn("linux /live/vmlinuz-1 boot=live", grub)
+
     def test_staging_times_are_pinned_before_xorriso(self):
         # xorriso copies each staged entry's mtime into its ISO9660 directory
         # record, and --modification-date reaches only the volume

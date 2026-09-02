@@ -1,0 +1,111 @@
+load(
+    "//defs/rules:kernel.bzl",
+    "kernel_artifacts",
+    "kernel_rootfs",
+    "linux_kernel",
+)
+
+export_file(
+    name = "fake-linux-makefile",
+    src = "fake-linux.Makefile",
+)
+
+genrule(
+    name = "fake-linux-source",
+    out = "linux-6.18-test.tar",
+    cmd = "mkdir source && " +
+          "cp $(location :fake-linux-makefile) source/Makefile && " +
+          "tar -cf $OUT -C source .",
+)
+
+[
+    export_file(
+        name = "kernel-{}-{}".format(variant, architecture),
+        src = "kernel-image",
+    )
+    for variant in ("stable", "debug")
+    for architecture in ("x86_64", "aarch64")
+]
+
+genrule(
+    name = "base-rootfs",
+    out = "rootfs.tar",
+    cmd = "mkdir -p root/etc && " +
+          "printf 'NAME=BuckOS test\\n' > root/etc/os-release && " +
+          "tar -cf $OUT -C root .",
+)
+
+[
+    genrule(
+        name = "modules-{}-{}".format(variant, architecture),
+        out = "modules.tar",
+        cmd = "mkdir -p root/lib/modules/6.18.0-{}-{}/kernel && ".format(variant, architecture) +
+              "printf 'module {} {}\\n' > root/lib/modules/6.18.0-{}-{}/kernel/example.ko && ".format(variant, architecture, variant, architecture) +
+              "printf 'kernel/example.ko:\\n' > root/lib/modules/6.18.0-{}-{}/modules.dep && ".format(variant, architecture) +
+              "tar -cf $OUT -C root .",
+    )
+    for variant in ("stable", "debug")
+    for architecture in ("x86_64", "aarch64")
+]
+
+[
+    kernel_artifacts(
+        name = "kernel-{}".format(variant),
+        architecture = select({
+            "//platforms:is_aarch64": "aarch64",
+            "DEFAULT": "x86_64",
+        }),
+        config = "kernel.config",
+        image = select({
+            "//platforms:is_aarch64": ":kernel-{}-aarch64".format(variant),
+            "DEFAULT": ":kernel-{}-x86_64".format(variant),
+        }),
+        ima_certificate = "//tests/fixtures/keys:ima-test-key",
+        modules = select({
+            "//platforms:is_aarch64": ":modules-{}-aarch64".format(variant),
+            "DEFAULT": ":modules-{}-x86_64".format(variant),
+        }),
+        release = select({
+            "//platforms:is_aarch64": "6.18.0-{}-aarch64".format(variant),
+            "DEFAULT": "6.18.0-{}-x86_64".format(variant),
+        }),
+        visibility = ["PUBLIC"],
+    )
+    for variant in ("stable", "debug")
+]
+
+kernel_rootfs(
+    name = "multi-kernel-rootfs",
+    architecture = "x86_64",
+    ima_signing_key = "//tests/fixtures/keys:ima-test-key",
+    kernels = [
+        ":kernel-stable",
+        ":kernel-debug",
+    ],
+    rootfs = ":base-rootfs",
+    visibility = ["PUBLIC"],
+)
+
+# Exercises the native Kbuild producer through Buck analysis and execution.
+# The source is intentionally tiny; Python tests cover the driver's behavior,
+# while this target catches provider, buildroot, and command-line wiring drift.
+linux_kernel(
+    name = "linux-kbuild-6.18",
+    architecture = select({
+        "//platforms:is_aarch64": "aarch64",
+        "DEFAULT": "x86_64",
+    }),
+    buildroot = select({
+        "//platforms:is_aarch64": "//flavors/fedora:buildroot-host-44-aarch64",
+        "DEFAULT": "//flavors/fedora:buildroot-host-44-x86_64",
+    }),
+    config = "kernel.config",
+    expected_release = select({
+        "//platforms:is_aarch64": "6.18.0-kbuild-aarch64",
+        "DEFAULT": "6.18.0-kbuild-x86_64",
+    }),
+    jobs = 1,
+    source = ":fake-linux-source",
+    default_target_platform = "//platforms:fedora-44-x86_64",
+    visibility = ["PUBLIC"],
+)

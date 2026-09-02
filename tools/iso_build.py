@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Lay out live media and call the target's xorriso over it.
 
-The kernel, the initramfs and the squashfs are already built; this is the
-cheap half that arranges them and stamps a bootloader on the front.  Why
-that is a separate rule at all is defs/rules/image.bzl's opening argument:
-changing a kernel argument should not recompress a root filesystem.
+The kernels, their initramfs images and the squashfs are already built;
+this is the cheap half that arranges them and stamps a bootloader on the
+front.  Why that is a separate rule at all is defs/rules/image.bzl's opening
+argument: changing a kernel argument should not recompress a root filesystem.
 
 Everything runs inside the image-tools buildroot rather than against host
 binaries.  Not purity -- capability.  xorriso, mkfs.vfat, mcopy and
@@ -23,8 +23,10 @@ The layout, which is Fedora's and is not arbitrary -- dracut's
 dmsquash-live module and the two firmware paths all look for exact names:
 
     /LiveOS/squashfs.img        the root filesystem
-    /isolinux/vmlinuz           kernel, shared by both boot paths
-    /isolinux/initrd.img        initramfs, likewise
+    /isolinux/vmlinuz           default kernel, shared by both boot paths
+    /isolinux/initrd.img        default initramfs, likewise
+    /isolinux/vmlinuz-N         additional kernels, when configured
+    /isolinux/initrd.img-N      their matching initramfs images
     /isolinux/isolinux.bin      BIOS stage 1, El Torito default entry
     /isolinux/ldlinux.c32       isolinux's own loader, mandatory since 5.x
     /isolinux/isolinux.cfg      BIOS boot config
@@ -62,6 +64,7 @@ from _isolation import (
     run_isolated,
     sandbox_path,
 )
+from _kernel import read_kernel_release
 from _rpm import (
     make_dirs_writable,
     reproducible_env,
@@ -153,26 +156,34 @@ _SYSLINUX_PATHS = {
 }
 
 
-def _isolinux_cfg(layout, kernel_args, timeout_deciseconds):
+def _isolinux_cfg(entries, kernel_args, timeout_deciseconds):
     """BIOS boot config.
 
     `prompt 0` with a timeout, rather than a menu: menu.c32 pulls in two
     more modules and a font, and the thing this image needs to prove is
     that it boots, not that it has a nice menu.
     """
-    return "\n".join([
+    lines = [
         "default linux",
-        "prompt 0",
+        "prompt {}".format(1 if len(entries) > 1 else 0),
         "timeout {}".format(timeout_deciseconds),
         "",
-        "label linux",
-        "  kernel /{}".format(layout["kernel"]),
-        "  append initrd=/{} {}".format(layout["initramfs"], kernel_args),
-        "",
-    ])
+    ]
+    for index, entry in enumerate(entries):
+        label = "linux" if index == 0 else "linux-{}".format(index)
+        lines += [
+            "label " + label,
+            "  menu label Linux {}{}".format(
+                entry["version"], " (default)" if index == 0 else ""
+            ),
+            "  kernel /{}".format(entry["kernel"]),
+            "  append initrd=/{} {}".format(entry["initramfs"], kernel_args),
+            "",
+        ]
+    return "\n".join(lines)
 
 
-def _grub_cfg(label, layout, kernel_args, timeout_seconds):
+def _grub_cfg(label, entries, kernel_args, timeout_seconds):
     """UEFI boot config.
 
     The `search` is load-bearing.  grub is loaded from efiboot.img, so its
@@ -181,18 +192,62 @@ def _grub_cfg(label, layout, kernel_args, timeout_seconds):
     ISO9660 filesystem by label, `linux /isolinux/vmlinuz` is a file-not-
     found and the boot stops at a grub prompt.
     """
-    return "\n".join([
+    lines = [
         "set default=0",
         "set timeout={}".format(timeout_seconds),
         "",
         "search --no-floppy --set=root -l {}".format(shlex.quote(label)),
         "",
-        "menuentry {} {{".format(shlex.quote("Start " + label)),
-        "    linux /{} {}".format(layout["kernel"], kernel_args),
-        "    initrd /{}".format(layout["initramfs"]),
-        "}",
-        "",
-    ])
+    ]
+    for index, entry in enumerate(entries):
+        title = "Start {} with Linux {}{}".format(
+            label,
+            entry["version"],
+            " (default)" if index == 0 else "",
+        )
+        lines += [
+            "menuentry {} {{".format(shlex.quote(title)),
+            "    linux /{} {}".format(entry["kernel"], kernel_args),
+            "    initrd /{}".format(entry["initramfs"]),
+            "}",
+            "",
+        ]
+    return "\n".join(lines)
+
+
+def _numbered_path(path, index):
+    directory, name = os.path.split(path)
+    return os.path.join(directory, "{}-{}".format(name, index))
+
+
+def _stage_boot_entries(args, iso_root, layout):
+    kernels = [args.kernel] + args.additional_kernel
+    versions = [args.kernel_version_file] + args.additional_kernel_version_file
+    initramfs = [args.initramfs] + args.additional_initramfs
+    if len(kernels) != len(versions) or len(kernels) != len(initramfs):
+        raise ValueError(
+            "kernel, version-file, and initramfs lists must have equal length"
+        )
+
+    entries = []
+    seen = set()
+    for index, (kernel, version_file, initrd) in enumerate(
+        zip(kernels, versions, initramfs)
+    ):
+        version = read_kernel_release(version_file)
+        if version in seen:
+            raise ValueError("kernel release {!r} is configured twice".format(version))
+        seen.add(version)
+        kernel_path = layout["kernel"] if index == 0 else _numbered_path(layout["kernel"], index)
+        initramfs_path = layout["initramfs"] if index == 0 else _numbered_path(layout["initramfs"], index)
+        _stage(os.path.abspath(kernel), os.path.join(iso_root, kernel_path))
+        _stage(os.path.abspath(initrd), os.path.join(iso_root, initramfs_path))
+        entries.append({
+            "initramfs": initramfs_path,
+            "kernel": kernel_path,
+            "version": version,
+        })
+    return entries
 
 
 def _stage(src, dest):
@@ -456,7 +511,11 @@ def _iso_timestamp(epoch):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--kernel", required=True, help="vmlinuz to boot")
+    ap.add_argument("--kernel-version-file", required=True)
     ap.add_argument("--initramfs", required=True, help="initramfs image")
+    ap.add_argument("--additional-kernel", action="append", default=[])
+    ap.add_argument("--additional-kernel-version-file", action="append", default=[])
+    ap.add_argument("--additional-initramfs", action="append", default=[])
     ap.add_argument("--squashfs", required=True, help="root filesystem image")
     ap.add_argument("--out", required=True, help="ISO to write")
     ap.add_argument("--buildroot-tree", default=None,
@@ -480,6 +539,16 @@ def main():
     ap.add_argument("--source-date-epoch", default="1700000000")
     args = ap.parse_args()
 
+    counts = (
+        len(args.additional_kernel),
+        len(args.additional_kernel_version_file),
+        len(args.additional_initramfs),
+    )
+    if len(set(counts)) != 1:
+        ap.error(
+            "--additional-kernel, --additional-kernel-version-file, and "
+            "--additional-initramfs must be supplied the same number of times"
+        )
     if args.target_cpu == "aarch64" and args.boot_mode != "uefi":
         ap.error("AArch64 ISO images support UEFI boot only")
     require_target_execution(args.target_cpu)
@@ -541,21 +610,20 @@ def _build(args, isolation, label, work, out):
     # target's tools -- they are bytes Buck already produced and two text
     # files.
     layout = _LAYOUTS[args.layout]
-    _stage(os.path.abspath(args.kernel), os.path.join(iso_root, layout["kernel"]))
-    _stage(os.path.abspath(args.initramfs), os.path.join(iso_root, layout["initramfs"]))
+    entries = _stage_boot_entries(args, iso_root, layout)
     _stage(os.path.abspath(args.squashfs), os.path.join(iso_root, layout["squashfs"]))
 
     root_args = layout["root_args"].format(label=label)
     kernel_args = "{} {}".format(root_args, args.kernel_args).strip()
 
     _write(os.path.join(iso_root, "isolinux", "isolinux.cfg"),
-           _isolinux_cfg(layout, kernel_args, args.timeout * 10))
+           _isolinux_cfg(entries, kernel_args, args.timeout * 10))
     _write(os.path.join(iso_root, "EFI", "BOOT", "grub.cfg"),
-           _grub_cfg(label, layout, kernel_args, args.timeout))
+           _grub_cfg(label, entries, kernel_args, args.timeout))
 
     print(
-        "buckos-distro: assembling {} ({}), cmdline: {}".format(
-            label, args.boot_mode, kernel_args
+        "buckos-distro: assembling {} ({}, kernels={}), cmdline: {}".format(
+            label, args.boot_mode, len(entries), kernel_args
         ),
         file=sys.stderr,
         flush=True,

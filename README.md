@@ -189,11 +189,29 @@ The rootfs is a tar archive because package ownership and valid RPM filenames ca
 
 The live squashfs is used directly as the root filesystem. x86_64 ISOs contain BIOS and UEFI boot entries. AArch64 ISOs contain the removable-media `BOOTAA64.EFI` UEFI path. Default images are not signed for Secure Boot.
 
+### Custom kernels
+
+Custom kernels are selected as ordinary Buck targets through `[buckos.kernel]`. Each target provides the public `KernelInfo` contract: a boot image, an artifact containing `kernelrelease`, its architecture, an optional normalized module tree, and optional development and trust artifacts. Image rules do not depend on the producer's source layout, build rule, toolchain, or repository.
+
+One or more kernels may be selected, with an explicit default when the set has multiple entries:
+
+```ini
+[buckos.kernel]
+  targets = //kernels:stable,//kernels:debug
+  default = //kernels:stable
+```
+
+Every selected kernel is installed into the final rootfs and receives stable `-custom-N` kernel and initramfs targets, so changing only the default does not rebuild those artifacts. The existing unsuffixed `kernel-*` and `initramfs-*` names are lightweight aliases to the selected default. The remaining kernels become additional BIOS and UEFI boot-menu entries. With no configured targets, images continue using the distro-packaged kernel.
+
+`kernel_artifacts` adapts declared outputs from another build system. Its module input may be a rootfs-shaped tree/archive or the contents of one kernel-release directory; the rule normalizes both to `usr/lib/modules/<release>`. `linux_kernel` builds an upstream-style Linux source tree with Kbuild. Its `source`, `config`, explicit `buildroot`, flags, and signing certificate are configurable attributes, so a producer target can use `select()` for distro-, release-, and architecture-specific build requirements without exposing those decisions to the image pipeline. Requiring an explicit buildroot prevents a kernel configured for one distro from silently inheriting another distro's compiler or build dependencies.
+
+Kernel compilation inherits remote-execution and cache-upload policy from its buildroot. With a hermetic seeded buildroot, compilation, module normalization, rootfs composition, per-kernel initramfs generation, SquashFS construction, and ISO construction are all cacheable. Host-provenance builds remain local and are not uploaded to shared caches.
+
 ### Signing and IMA
 
 Signing support is opt-in while the custom-kernel and Secure Boot image paths are completed. Signing identities are Buck targets providing `SigningKeyInfo` and `RunInfo`; image rules invoke the target rather than reading a private key directly. `file_signing_key` supports test and local PEM keys, while `external_signing_key` lets a deployment select an HSM/KMS client implementing the same command interface.
 
-When `[buckos.security] ima_signing_key` is set, each live rootfs receives an IMA manifest after its package-manager transaction. Every regular file is signed by default to match the built-in `appraise_tcb` policy, binary signatures are written into the SquashFS as `security.ima` xattrs, the public X.509 certificate is included in the initramfs as `/etc/keys/x509_ima.der`, and IMA appraisal arguments are added to the kernel command line. The custom kernel must enable `CONFIG_IMA_LOAD_X509`, use that certificate path, and include the BuckOS IMA trust anchor. The narrower `executables` signing mode is available only for deployments that install a matching custom IMA policy.
+When `[buckos.security] ima_signing_key` is set, each live rootfs receives an IMA manifest after its package-manager transaction. Every regular file is signed by default to match the built-in `appraise_tcb` policy, binary signatures are written into the SquashFS as `security.ima` xattrs, the public X.509 certificate is included in every selected kernel's initramfs as `/etc/keys/x509_ima.der`, and IMA appraisal arguments are added to the kernel command line. Custom kernel targets must declare the same public certificate in `KernelInfo`; rootfs composition compares the certificates and fails before producing an image if they differ. `linux_kernel` also enables the required IMA configuration and embeds that certificate into the kernel trust keyring. The narrower `executables` signing mode is available only for deployments that install a matching custom IMA policy.
 
 For local testing, add this to `.buckconfig.local`:
 
