@@ -66,10 +66,10 @@ class TestFindKernels(ImageTarTest):
         )
 
     def test_finds_a_debian_family_kernel_under_boot(self):
-        path = self.tar(["boot/vmlinuz-6.12.0-4-arm64"])
+        path = self.tar(["boot/vmlinuz-6.18.0-4-arm64"])
         self.assertEqual(
             find_kernels(path),
-            [("6.12.0-4-arm64", "./boot/vmlinuz-6.12.0-4-arm64")],
+            [("6.18.0-4-arm64", "./boot/vmlinuz-6.18.0-4-arm64")],
         )
 
     def test_sorted_so_the_result_does_not_depend_on_tar_order(self):

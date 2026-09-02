@@ -30,7 +30,7 @@ load(
     "buildroot_local_only",
     "buildroot_sysroot_args",
 )
-load("//defs:providers.bzl", "BootInfo", "SigningKeyInfo")
+load("//defs:providers.bzl", "BootInfo", "KernelInfo", "SigningKeyInfo")
 
 def _rootfs_artifact(dep):
     """The tarball out of a rootfs target.
@@ -45,6 +45,58 @@ def _rootfs_artifact(dep):
     return outputs[0]
 
 def _kernel_image_impl(ctx: AnalysisContext) -> list[Provider]:
+    if ctx.attrs.kernel != None:
+        kernel = ctx.attrs.kernel[KernelInfo]
+        if ctx.attrs.kver:
+            fail("kver cannot be combined with a custom kernel target")
+        if kernel.architecture != ctx.attrs.architecture:
+            fail("kernel {} is {}, but {} expects {}".format(
+                ctx.attrs.kernel.label,
+                kernel.architecture,
+                ctx.attrs.name,
+                ctx.attrs.architecture,
+            ))
+        other_outputs = [kernel.version]
+        sub_targets = {
+            "kver": [DefaultInfo(default_output = kernel.version)],
+        }
+        for name, artifact in {
+            "config": kernel.config,
+            "efi-stub": kernel.efi_stub,
+            "ima-certificate": kernel.ima_certificate,
+            "module-symvers": kernel.module_symvers,
+            "modules": kernel.modules,
+            "system-map": kernel.system_map,
+            "vmlinux": kernel.vmlinux,
+        }.items():
+            if artifact != None:
+                other_outputs.append(artifact)
+                sub_targets[name] = [DefaultInfo(default_output = artifact)]
+        return [
+            DefaultInfo(
+                default_output = kernel.image,
+                other_outputs = other_outputs,
+                sub_targets = sub_targets,
+            ),
+            BootInfo(
+                vmlinuz = kernel.image,
+                initramfs = None,
+                kver = kernel.version,
+            ),
+            KernelInfo(
+                image = kernel.image,
+                version = kernel.version,
+                architecture = kernel.architecture,
+                modules = kernel.modules,
+                config = kernel.config,
+                vmlinux = kernel.vmlinux,
+                system_map = kernel.system_map,
+                module_symvers = kernel.module_symvers,
+                efi_stub = kernel.efi_stub,
+                ima_certificate = kernel.ima_certificate,
+            ),
+        ]
+
     vmlinuz = ctx.actions.declare_output("vmlinuz")
     kver = ctx.actions.declare_output("kver.txt")
     rootfs = _rootfs_artifact(ctx.attrs.rootfs)
@@ -86,6 +138,13 @@ def _kernel_image_impl(ctx: AnalysisContext) -> list[Provider]:
 kernel_image = rule(
     impl = _kernel_image_impl,
     attrs = {
+        "architecture": attrs.enum(["x86_64", "aarch64"], default = "x86_64"),
+        # A configured custom producer. When absent, extract the distro
+        # kernel from rootfs exactly as before.
+        "kernel": attrs.option(
+            attrs.dep(providers = [KernelInfo]),
+            default = None,
+        ),
         # Optional, and only meaningful for an image with more than one
         # kernel.  Left unset the tool refuses to guess, which is the right
         # failure: "which kernel boots" is a decision, not a detail.
@@ -98,6 +157,8 @@ kernel_image = rule(
 )
 
 def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
+    if ctx.attrs.kver and ctx.attrs.kernel != None:
+        fail("kver cannot be combined with a custom kernel target")
     out = ctx.actions.declare_output(ctx.attrs.name + ".img")
     rootfs = _rootfs_artifact(ctx.attrs.rootfs)
 
@@ -112,6 +173,8 @@ def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
 
     if ctx.attrs.kver:
         cmd.add("--kver", ctx.attrs.kver)
+    if ctx.attrs.kernel != None:
+        cmd.add("--kver-file", ctx.attrs.kernel[KernelInfo].version)
     for module in ctx.attrs.add_modules:
         cmd.add("--add-module", module)
     for module in ctx.attrs.omit_modules:
@@ -158,6 +221,10 @@ initramfs = rule(
         # CONFIG_IMA_X509_PATH=/etc/keys/x509_ima.der.
         "ima_signing_key": attrs.option(
             attrs.dep(providers = [SigningKeyInfo]),
+            default = None,
+        ),
+        "kernel": attrs.option(
+            attrs.dep(providers = [KernelInfo]),
             default = None,
         ),
         "kver": attrs.string(default = ""),

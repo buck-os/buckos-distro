@@ -117,6 +117,28 @@ BootInfo = provider(fields = [
     "kver",             # artifact: the kernel version, no trailing newline
 ])
 
+# A producer-neutral custom-kernel contract.  Image rules deliberately know
+# nothing about how these artifacts were built: an upstream Linux build, a
+# different repository, and a site-specific build system all cross the same
+# boundary.  Optional development artifacts are carried here so downstream
+# module/BPF rules can grow without changing the boot-image contract.
+#
+# `modules` is a rootfs-shaped tree containing
+# usr/lib/modules/<release>/... .  Requiring one canonical layout here keeps
+# distro image rules free of producer-specific paths.
+KernelInfo = provider(fields = [
+    "image",            # artifact: bootable bzImage/Image-style kernel
+    "version",          # artifact: uname -r value, no trailing newline
+    "architecture",     # str: x86_64 or aarch64
+    "modules",          # artifact | None: rootfs-shaped module tree
+    "config",           # artifact | None: final kernel .config
+    "vmlinux",          # artifact | None: uncompressed kernel ELF
+    "system_map",       # artifact | None: System.map
+    "module_symvers",   # artifact | None: Module.symvers
+    "efi_stub",         # artifact | None: systemd EFI stub for UKI assembly
+    "ima_certificate",  # artifact | None: public cert trusted for IMA
+])
+
 # ── Signing identities ───────────────────────────────────────────────
 #
 # A consumer invokes the target's RunInfo rather than reading private key

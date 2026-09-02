@@ -7,6 +7,7 @@ load(
 )
 load("//defs/rules:boot_test.bzl", "iso_boot_test", "rootfs_overlay")
 load("//defs/rules:image.bzl", "iso_image", "squashfs")
+load("//defs/rules:kernel.bzl", "configured_kernel_set")
 
 
 def live_iso_boot_tests(
@@ -44,9 +45,14 @@ def live_iso_boot_tests(
         else flavor_package + "buildroot-image-tools" + release_arch_suffix
     )
 
+    kernel_set = configured_kernel_set()
+    production_rootfs = flavor_package + "rootfs-live" + image_suffix
+    if kernel_set.targets:
+        production_rootfs = flavor_package + "rootfs-kernel-live" + image_suffix
+
     rootfs_overlay(
         name = rootfs_name,
-        rootfs = flavor_package + "rootfs-live" + image_suffix,
+        rootfs = production_rootfs,
         files = {
             "/etc/systemd/system/buckos-verify.service": "fixtures/buckos-verify.service",
             "/usr/local/bin/buckos-boot-verify": "fixtures/boot-verify.sh",
@@ -71,6 +77,14 @@ def live_iso_boot_tests(
         buildroot = flavor_package + "buildroot-image-tools" + release_arch_suffix,
         kernel = flavor_package + "kernel-live" + image_suffix,
         initramfs = flavor_package + "initramfs-live" + image_suffix,
+        additional_initramfs = [
+            flavor_package + "initramfs-live{}-custom-{}".format(image_suffix, index)
+            for index in kernel_set.additional_indices
+        ],
+        additional_kernels = [
+            flavor_package + "kernel-live{}-custom-{}".format(image_suffix, index)
+            for index in kernel_set.additional_indices
+        ],
         squashfs = ":" + squashfs_name,
         volume_label = "VERIFY-{}-{}-{}".format(flavor[:8], release, architecture),
         kernel_args = "console=tty0 {} systemd.unit=buckos-verify.service".format(

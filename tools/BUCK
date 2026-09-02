@@ -160,6 +160,13 @@ python_library(
     visibility = ["PUBLIC"],
 )
 
+python_library(
+    name = "_kernel",
+    srcs = ["_kernel.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
 python_binary(
     name = "rootfs_install",
     main = "rootfs_install.py",
@@ -189,12 +196,38 @@ python_binary(
 )
 
 python_binary(
+    name = "kernel_modules_normalize",
+    main = "kernel_modules_normalize.py",
+    deps = [":_kernel"],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "kernel_rootfs",
+    main = "kernel_rootfs.py",
+    deps = [":_kernel"],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "linux_kernel_build",
+    main = "linux_kernel_build.py",
+    deps = [
+        ":_isolation",
+        ":_kernel",
+        ":_rpm",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
     name = "initramfs_build",
     main = "initramfs_build.py",
     deps = [
         ":_deb",
         ":_image",
         ":_isolation",
+        ":_kernel",
         ":_rpm",
     ],
     visibility = ["PUBLIC"],
@@ -235,6 +268,7 @@ python_binary(
     main = "iso_build.py",
     deps = [
         ":_isolation",
+        ":_kernel",
         ":_rpm",
     ],
     visibility = ["PUBLIC"],
@@ -272,6 +306,22 @@ python_test(
 )
 
 python_test(
+    name = "kernel_test",
+    srcs = [
+        "_kernel.py",
+        "kernel_modules_normalize.py",
+        "kernel_rootfs.py",
+        "kernel_test.py",
+        "linux_kernel_build.py",
+    ],
+    base_module = "",
+    deps = [
+        ":_isolation",
+        ":_rpm",
+    ],
+)
+
+python_test(
     name = "iso_label_test",
     srcs = ["iso_label_test.py"],
     base_module = "",
@@ -293,6 +343,7 @@ python_test(
         ":_deb",
         ":_image",
         ":_isolation",
+        ":_kernel",
         ":_rpm",
     ],
 )

@@ -48,6 +48,7 @@ import sys
 
 from _deb import fakeroot_command, stage_fakeroot_runtime
 from _image import find_kernel
+from _kernel import read_kernel_release
 from _isolation import (
     ISOLATION_MODES,
     require_target_execution,
@@ -255,8 +256,11 @@ def main():
     ap.add_argument("--buildroot-tree", default=None,
                     help="tree providing the tar that unpacks the image")
     ap.add_argument("--isolation", default="auto", choices=ISOLATION_MODES)
-    ap.add_argument("--kver", default=None,
-                    help="which kernel, when the image has more than one")
+    kernel = ap.add_mutually_exclusive_group()
+    kernel.add_argument("--kver", default=None,
+                        help="which kernel, when the image has more than one")
+    kernel.add_argument("--kver-file", default=None,
+                        help="file containing the exact custom kernel release")
     ap.add_argument("--add-module", action="append", default=[],
                     metavar="NAME", help="dracut --add (repeatable)")
     ap.add_argument("--omit-module", action="append", default=[],
@@ -294,7 +298,11 @@ def main():
         )
 
     rootfs = os.path.abspath(args.rootfs)
-    kver, _member = find_kernel(rootfs, args.kver)
+    requested_kver = (
+        read_kernel_release(os.path.abspath(args.kver_file))
+        if args.kver_file else args.kver
+    )
+    kver, _member = find_kernel(rootfs, requested_kver)
 
     # Same reasoning as the replay and the rootfs install: a relative
     # --work would resolve against the action's cwd, which is the project

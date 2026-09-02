@@ -73,6 +73,16 @@
   # available mechanism; constrained hosts may override it locally.
   isolation = auto
 
+# ── Kernel selection ─────────────────────────────────────────────────
+# Empty boots the kernel installed by each distro package set. Configured
+# targets must provide the public KernelInfo contract; implementations may
+# live in this repository or another cell and remain opaque to image rules.
+[buckos.kernel]
+  # Comma-separated, ordered boot-menu set. A single target is its own default;
+  # multiple targets require `default` to name one member exactly.
+  targets =
+  default =
+
 # ── Image signing ────────────────────────────────────────────────────
 # A site can select any target providing SigningKeyInfo + RunInfo.  Test-key
 # targets may wrap local PEM files; production targets should call an HSM/KMS

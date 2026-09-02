@@ -14,6 +14,11 @@ load("//defs/rules:boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules:buildroot.bzl", "host_buildroot", "seeded_deb_buildroot")
 load("//defs/rules:dsc.bzl", "prebuilt_deb")
 load("//defs/rules:image.bzl", "iso_image", "squashfs")
+load(
+    "//defs/rules:kernel.bzl",
+    "configured_kernel_set",
+    "kernel_rootfs",
+)
 load("//defs/rules:rootfs.bzl", "deb_rootfs")
 load("//defs/rules:signing.bzl", "ima_manifest")
 
@@ -272,6 +277,7 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
     buildroot = deb_buildroot_target(flavor, suffix)
     tools = ":buildroot-image-tools" + suffix
     signing_key = _ima_signing_key()
+    kernel_set = configured_kernel_set()
     seeded_deb_buildroot(
         name = "buildroot-image-tools" + suffix,
         seed_debs = [
@@ -319,7 +325,7 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
                     fail("live package {} has no source recipe or approved exception".format(entry["package"]))
                 debs.append(":" + entry["target"] + suffix)
 
-        rootfs_target = ":rootfs-live" + variant + suffix
+        base_rootfs_target = ":rootfs-live" + variant + suffix
         deb_rootfs(
             name = "rootfs-live" + variant + suffix,
             buildroot = buildroot,
@@ -328,22 +334,75 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
             exec_compatible_with = exec_constraints,
             visibility = ["PUBLIC"],
         )
-        kernel_image(
-            name = "kernel-live" + variant + suffix,
-            rootfs = rootfs_target,
-            default_target_platform = platform,
-            visibility = ["PUBLIC"],
-        )
-        initramfs(
-            name = "initramfs-live" + variant + suffix,
-            buildroot = buildroot,
-            rootfs = rootfs_target,
-            generator = "casper" if flavor == "ubuntu" else "live-boot",
-            ima_signing_key = signing_key if signing_key else None,
-            default_target_platform = platform,
-            exec_compatible_with = exec_constraints,
-            visibility = ["PUBLIC"],
-        )
+        rootfs_target = base_rootfs_target
+        if kernel_set.targets:
+            kernel_rootfs_name = "rootfs-kernel-live" + variant + suffix
+            kernel_rootfs(
+                name = kernel_rootfs_name,
+                architecture = data.TARGET_CPU,
+                ima_signing_key = signing_key if signing_key else None,
+                kernels = kernel_set.targets,
+                rootfs = base_rootfs_target,
+                default_target_platform = platform,
+                visibility = ["PUBLIC"],
+            )
+            rootfs_target = ":" + kernel_rootfs_name
+        kernel_name = "kernel-live" + variant + suffix
+        initramfs_name = "initramfs-live" + variant + suffix
+        if kernel_set.targets:
+            for index, kernel_target in enumerate(kernel_set.targets):
+                custom_suffix = "-custom-{}".format(index)
+                kernel_image(
+                    name = kernel_name + custom_suffix,
+                    architecture = data.TARGET_CPU,
+                    kernel = kernel_target,
+                    rootfs = rootfs_target,
+                    default_target_platform = platform,
+                    visibility = ["PUBLIC"],
+                )
+                initramfs(
+                    name = initramfs_name + custom_suffix,
+                    buildroot = buildroot,
+                    kernel = kernel_target,
+                    rootfs = rootfs_target,
+                    generator = "casper" if flavor == "ubuntu" else "live-boot",
+                    ima_signing_key = signing_key if signing_key else None,
+                    default_target_platform = platform,
+                    exec_compatible_with = exec_constraints,
+                    visibility = ["PUBLIC"],
+                )
+            native.alias(
+                name = kernel_name,
+                actual = ":{}-custom-{}".format(kernel_name, kernel_set.default_index),
+                default_target_platform = platform,
+                visibility = ["PUBLIC"],
+            )
+            native.alias(
+                name = initramfs_name,
+                actual = ":{}-custom-{}".format(initramfs_name, kernel_set.default_index),
+                default_target_platform = platform,
+                visibility = ["PUBLIC"],
+            )
+        else:
+            kernel_image(
+                name = kernel_name,
+                architecture = data.TARGET_CPU,
+                kernel = None,
+                rootfs = rootfs_target,
+                default_target_platform = platform,
+                visibility = ["PUBLIC"],
+            )
+            initramfs(
+                name = initramfs_name,
+                buildroot = buildroot,
+                kernel = None,
+                rootfs = rootfs_target,
+                generator = "casper" if flavor == "ubuntu" else "live-boot",
+                ima_signing_key = signing_key if signing_key else None,
+                default_target_platform = platform,
+                exec_compatible_with = exec_constraints,
+                visibility = ["PUBLIC"],
+            )
         manifest_target = None
         if signing_key:
             manifest_name = "ima-manifest-live" + variant + suffix
@@ -371,6 +430,14 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
             buildroot = tools,
             kernel = ":kernel-live" + variant + suffix,
             initramfs = ":initramfs-live" + variant + suffix,
+            additional_initramfs = [
+                ":initramfs-live{}{}-custom-{}".format(variant, suffix, index)
+                for index in kernel_set.additional_indices
+            ],
+            additional_kernels = [
+                ":kernel-live{}{}-custom-{}".format(variant, suffix, index)
+                for index in kernel_set.additional_indices
+            ],
             squashfs = ":squashfs-live" + variant + suffix,
             volume_label = iso_volume_label("{}-{}-LIVE{}".format(
                 flavor.upper(),
