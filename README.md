@@ -119,6 +119,13 @@ being compared against.
 `@buildsys-build` closure, which is the environment packages are built in
 rather than a set anyone would ship.
 
+All implemented releases also expose `rootfs-base-<release>-<architecture>` and
+`rootfs-base-prebuilt-<release>-<architecture>`.  They contain the same
+userspace as the `live` image set with the distro kernel payload removed, for
+downstream systems that distribute the root filesystem and kernel separately.
+These are rootfs-only targets: they intentionally have no matching kernel,
+initramfs, SquashFS, or ISO targets.
+
 Release-only and unsuffixed compatibility targets remain x86_64. Release-and-architecture target platforms, such as `//platforms:fedora-44-aarch64`, carry the flavor, release, and CPU as constraints.
 
 Fedora 45 has branched from rawhide but has not reached GA, which changes where it is served from rather than how it is built. Upstream publishes a branched release under `development/<release>/` and gives it no `updates/` tree, because there have been no post-GA pushes. `tools/relock.py --branched 45` selects that layout:
