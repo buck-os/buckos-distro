@@ -87,6 +87,17 @@ _INITRAMFS_MODULES = {
 # a confusing dracut error rather than as "this set has no kernel".
 _TOOL_SETS = ["image-tools"]
 
+# A reusable root filesystem is the live package closure without the kernel
+# payload.  Keep this derived from `live` so it has exactly the same userspace
+# and does not introduce a second package-selection policy.  It is added only
+# to the rootfs targets below; boot and image targets continue to iterate the
+# lockfile's declared image sets, so `base` cannot accidentally grow an ISO.
+_BASE_IMAGE_SET = "base"
+_BASE_SOURCE_IMAGE_SET = "live"
+
+def _is_kernel_payload(package):
+    return package == "kernel" or package.startswith("kernel-")
+
 # What mksquashfs needs to compile that @buildsys-build does not already
 # provide.  One entry, and it is the header zstd_wrapper.c includes; see
 # the buildroot-squashfs-tools comment in rpm_buildroots_for.
@@ -1038,12 +1049,13 @@ def rpm_rootfs(flavor, data, suffix, platform, exec_constraints):
     )
 
 def rpm_image_rootfs(flavor, data, suffix, platform, exec_constraints):
-    """A rootfs per named image set: the thing an ISO is actually made of.
+    """A rootfs per named image set, plus a kernel-free reusable base.
 
     Same rule as rootfs-seed, different closure, and that is the whole
     point of having two.  rootfs-seed proves the mechanism against a list
     the solver derived for another purpose; these are the lists someone
-    chose, closed over their runtime Requires, and they contain a kernel.
+    chose, closed over their runtime Requires.  The synthetic base target
+    is the live closure with kernel payload packages omitted.
     """
     buildroot = rpm_buildroot_target(flavor, suffix)
 
@@ -1066,13 +1078,32 @@ def rpm_image_rootfs(flavor, data, suffix, platform, exec_constraints):
             recipe["name"] + suffix, recipe["source_name"], subpackage,
         )
 
-    for name in sorted(data.IMAGE_SETS):
+    image_sets = dict(data.IMAGE_SETS)
+    if _BASE_IMAGE_SET in image_sets:
+        fail("{} is reserved for the kernel-free {} rootfs".format(
+            _BASE_IMAGE_SET,
+            _BASE_SOURCE_IMAGE_SET,
+        ))
+    if _BASE_SOURCE_IMAGE_SET in image_sets:
+        source = image_sets[_BASE_SOURCE_IMAGE_SET]
+        base = [
+            entry
+            for entry in source
+            if not _is_kernel_payload(entry["name"])
+        ]
+        if len(base) == len(source):
+            fail("{} image set has no recognized kernel payload".format(
+                _BASE_SOURCE_IMAGE_SET,
+            ))
+        image_sets[_BASE_IMAGE_SET] = base
+
+    for name in sorted(image_sets):
         if name in _TOOL_SETS:
             continue
         for variant in _IMAGE_VARIANTS:
             rpms = []
             from_source = 0
-            for entry in data.IMAGE_SETS[name]:
+            for entry in image_sets[name]:
                 # The prebuilt variant consults no recipe at all.  Not even
                 # for packages this host could build: the point of it is a
                 # set with one provenance, so a half-source image cannot be

@@ -29,6 +29,16 @@ _DISTRO_SUPPLIERS = {
 
 _IMAGE_VARIANTS = ["", "-prebuilt"]
 
+def _is_kernel_payload(entry):
+    source = entry.get("source", "")
+    return (
+        source == "linux" or
+        source.startswith("linux@") or
+        source.startswith("linux-main-") or
+        source.startswith("linux-meta") or
+        source.startswith("linux-signed")
+    )
+
 def _ima_signing_key():
     return read_config("buckos.security", "ima_signing_key", "")
 
@@ -307,6 +317,7 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
 
     for variant in _IMAGE_VARIANTS:
         debs = []
+        base_debs = []
         for entry in data.IMAGE_SETS["live"]:
             local = built.get(entry["package"]) if variant == "" else None
             if local != None:
@@ -315,15 +326,29 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
                     fail("{} source recipe version does not match live package {}".format(
                         source["name"], entry["package"],
                     ))
-                debs.append(":" + subpackage_deb_target(
+                package = ":" + subpackage_deb_target(
                     source["name"] + suffix,
                     source["name"],
                     entry["package"],
-                ))
+                )
             else:
                 if variant == "" and "live" in policy_sets and entry["package"] not in exceptions:
                     fail("live package {} has no source recipe or approved exception".format(entry["package"]))
-                debs.append(":" + entry["target"] + suffix)
+                package = ":" + entry["target"] + suffix
+            debs.append(package)
+            if not _is_kernel_payload(entry):
+                base_debs.append(package)
+
+        if len(base_debs) == len(debs):
+            fail("live image set has no recognized kernel payload")
+        deb_rootfs(
+            name = "rootfs-base" + variant + suffix,
+            buildroot = buildroot,
+            debs = base_debs,
+            default_target_platform = platform,
+            exec_compatible_with = exec_constraints,
+            visibility = ["PUBLIC"],
+        )
 
         base_rootfs_target = ":rootfs-live" + variant + suffix
         deb_rootfs(
