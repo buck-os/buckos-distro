@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+repo=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$repo"
+if [ -x "$repo/buck2" ]; then
+    buck2_bin="$repo/buck2"
+else
+    buck2_bin=buck2
+fi
+exec "$buck2_bin" run //tools:lockfile -- "$@"

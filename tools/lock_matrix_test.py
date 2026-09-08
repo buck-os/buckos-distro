@@ -4,7 +4,7 @@
 import os
 import unittest
 
-from _lockfile import find_lockfile, load_lockfile
+from _lockfile import IMPORT_FILE_LIMIT, find_lockfile, load_lockfile
 from solve import rpm_source_policy_inputs
 from source_policy import validate_source_policy
 
@@ -18,9 +18,6 @@ MATRIX = {
 }
 ARCHITECTURES = ("x86_64", "aarch64")
 DEB_ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
-IMPORT_FILE_LIMIT = 5_000_000
-
-
 def repo_root():
     for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
         path = start

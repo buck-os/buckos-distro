@@ -71,6 +71,10 @@ Buck targets
 
 Lockfile storage may be plain JSON or deterministic gzip. The preferred format is configured with `[buckos.lockfiles] compression`; readers discover either encoding and reject a release that has both, so refresh and probe workflows cannot silently diverge onto different files.
 
+The supported inspection, editing, regeneration, validation, and conversion
+workflow is documented in [LOCKFILES.md](LOCKFILES.md). Automation should use
+its logical selectors instead of assuming a storage suffix.
+
 The solver resolves exact-name and unique providers directly. It defers ambiguous and Boolean requirements until the runtime closure reaches a fixed point. A provider already present in the closure satisfies the requirement. Remaining ambiguities are reported and require an explicit override.
 
 Source and binary packages form separate graphs. Build requirements resolve to binary packages, while Buck schedules source-package builds. The generated data records which binary dependencies come from source builds and which remain pinned seed packages.
