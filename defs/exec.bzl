@@ -140,6 +140,7 @@ def distro_execution_platforms(
         x86_64_platform,
         visibility = None):
     common = {
+        "aarch64_emulation_enabled": aarch64_emulation_enabled,
         "aarch64_execution_capability": aarch64_execution_capability,
         "remote_cache_enabled": remote_cache_enabled,
         "x86_64_execution_capability": x86_64_execution_capability,
@@ -148,7 +149,6 @@ def distro_execution_platforms(
     _distro_execution_platform(
         name = local,
         local_enabled = True,
-        aarch64_emulation_enabled = aarch64_emulation_enabled,
         remote_execution_properties = {"platform.OSFamily": "linux"},
         **common
     )
