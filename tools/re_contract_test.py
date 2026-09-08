@@ -249,6 +249,18 @@ class TestExecutorConfig(unittest.TestCase):
                 "attribute and schedule the work.".format(where),
             )
 
+    def test_aarch64_emulation_applies_to_remote_platforms(self):
+        with open(os.path.join(RULES_DIR, "exec.bzl")) as fh:
+            text = fh.read()
+        function_start = text.index("def distro_execution_platforms(")
+        common_start = text.index("    common = {", function_start)
+        common_end = text.index("    }", common_start)
+        common = text[common_start:common_end]
+        self.assertIn(
+            '"aarch64_emulation_enabled": aarch64_emulation_enabled',
+            common,
+        )
+
 
 class TestRemoteExecutionContract(unittest.TestCase):
     @classmethod
