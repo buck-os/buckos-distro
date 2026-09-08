@@ -77,6 +77,7 @@
 # `gzip` keeps checked-in lockfiles below importers' per-file size limits.
 # Lock readers accept both forms. This selects canonical names and the
 # converter's output; refreshes preserve the encoding already on disk.
+# See LOCKFILES.md and `./lockfiles --help` for the workflow.
 [buckos.lockfiles]
   compression = gzip
 

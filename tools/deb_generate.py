@@ -69,12 +69,12 @@ def validate_lock(lock):
     return distro, cpu
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("lockfile")
     parser.add_argument("--output", default=None)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="deb-generate: %(message)s",

@@ -5,11 +5,14 @@ import gzip
 import io
 import json
 import os
+import stat
+import tempfile
 
 
 PLAIN_SUFFIX = ".lock.json"
 GZIP_SUFFIX = PLAIN_SUFFIX + ".gz"
 LOCKFILE_SUFFIXES = (GZIP_SUFFIX, PLAIN_SUFFIX)
+IMPORT_FILE_LIMIT = 5_000_000
 _CONFIG_SECTION = "buckos.lockfiles"
 _CONFIG_KEY = "compression"
 _COMPRESSIONS = ("none", "gzip")
@@ -162,3 +165,48 @@ def dump_lockfile(value, path):
             ) as stream:
                 json.dump(value, stream, indent=2, sort_keys=True)
                 stream.write("\n")
+
+
+def atomic_dump_lockfile(value, path):
+    """Replace a lockfile without exposing a partially written file."""
+    destination = os.path.abspath(path)
+    mode = (
+        stat.S_IMODE(os.stat(destination).st_mode)
+        if os.path.exists(destination)
+        else 0o644
+    )
+    suffix = GZIP_SUFFIX if destination.endswith(GZIP_SUFFIX) else PLAIN_SUFFIX
+    fd, temporary = tempfile.mkstemp(
+        prefix=".lockfile-",
+        suffix=suffix,
+        dir=os.path.dirname(destination),
+    )
+    os.close(fd)
+    try:
+        dump_lockfile(value, temporary)
+        os.chmod(temporary, mode)
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def convert_lockfile(path, compression):
+    """Atomically convert a lockfile and return its destination path."""
+    if compression not in _COMPRESSIONS:
+        raise ValueError(
+            "unsupported lockfile compression {!r}".format(compression)
+        )
+    source = os.path.abspath(path)
+    suffix = GZIP_SUFFIX if compression == "gzip" else PLAIN_SUFFIX
+    destination = strip_lockfile_suffix(source) + suffix
+    if source != destination and os.path.exists(destination):
+        raise ValueError("destination already exists: {}".format(destination))
+
+    value = load_lockfile(source)
+    atomic_dump_lockfile(value, destination)
+    if load_lockfile(destination) != value:
+        raise ValueError("converted lockfile did not round trip")
+    if source != destination:
+        os.unlink(source)
+    return destination

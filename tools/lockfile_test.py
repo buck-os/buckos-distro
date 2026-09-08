@@ -5,7 +5,9 @@ import tempfile
 import unittest
 
 from _lockfile import (
+    atomic_dump_lockfile,
     configured_compression,
+    convert_lockfile,
     dump_lockfile,
     find_lockfile,
     load_lockfile,
@@ -13,7 +15,6 @@ from _lockfile import (
     lockfile_releases,
     strip_lockfile_suffix,
 )
-from lockfile_convert import convert
 
 
 def write(path, text):
@@ -89,16 +90,25 @@ class TestLockfileConfiguration(unittest.TestCase):
             plain = os.path.join(directory, "fedora-45-x86_64.lock.json")
             value = {"schema": 2}
             dump_lockfile(value, plain)
-            compressed = convert(plain, "gzip")
+            compressed = convert_lockfile(plain, "gzip")
             self.assertFalse(os.path.exists(plain))
             self.assertEqual(value, load_lockfile(compressed))
-            restored = convert(compressed, "none")
+            restored = convert_lockfile(compressed, "none")
             self.assertFalse(os.path.exists(compressed))
             self.assertEqual(value, load_lockfile(restored))
 
     def test_converter_rejects_unknown_compression(self):
         with self.assertRaisesRegex(ValueError, "unsupported"):
-            convert("unused.lock.json", "zstd")
+            convert_lockfile("unused.lock.json", "zstd")
+
+    def test_atomic_dump_preserves_existing_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "test.lock.json.gz")
+            dump_lockfile({"old": True}, path)
+            os.chmod(path, 0o640)
+            atomic_dump_lockfile({"new": True}, path)
+            self.assertEqual(0o640, os.stat(path).st_mode & 0o777)
+            self.assertEqual({"new": True}, load_lockfile(path))
 
 
 class TestLockfileDiscovery(unittest.TestCase):

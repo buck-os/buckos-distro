@@ -384,6 +384,13 @@ python_test(
 )
 
 python_test(
+    name = "lockfile_workflow_test",
+    srcs = ["lockfile_workflow_test.py"],
+    base_module = "",
+    deps = [":lockfile_lib"],
+)
+
+python_test(
     name = "documentation_policy_test",
     srcs = ["documentation_policy_test.py"],
     base_module = "",
@@ -514,11 +521,54 @@ python_binary(
 
 python_binary(
     name = "deb_generate",
-    main = "deb_generate.py",
+    main_module = "deb_generate",
+    deps = [":deb_generate_lib"],
+    visibility = ["PUBLIC"],
+)
+
+python_library(
+    name = "deb_generate_lib",
+    srcs = ["deb_generate.py"],
+    base_module = "",
     deps = [
         ":_lockfile",
         ":source_policy",
     ],
+)
+
+python_library(
+    name = "generate_lib",
+    srcs = ["generate.py"],
+    base_module = "",
+    deps = [
+        ":_lockfile",
+        ":solve_lib",
+        ":source_policy",
+    ],
+)
+
+python_binary(
+    name = "generate",
+    main_module = "generate",
+    deps = [":generate_lib"],
+    visibility = ["PUBLIC"],
+)
+
+python_library(
+    name = "lockfile_lib",
+    srcs = ["lockfile.py"],
+    base_module = "",
+    deps = [
+        ":_lockfile",
+        ":deb_generate_lib",
+        ":generate_lib",
+    ],
+)
+
+python_binary(
+    name = "lockfile",
+    main_module = "lockfile",
+    deps = [":lockfile_lib"],
     visibility = ["PUBLIC"],
 )
 
@@ -539,13 +589,13 @@ python_binary(
 python_library(
     name = "relock_lib",
     srcs = [
-        "generate.py",
         "probe.py",
         "relock.py",
     ],
     base_module = "",
     deps = [
         ":_lockfile",
+        ":generate_lib",
         ":solve_lib",
     ],
 )

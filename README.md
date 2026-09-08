@@ -72,7 +72,7 @@ Dependency resolution happens before Buck analysis:
 
 Debian and Ubuntu use the corresponding `tools/deb_lock.py` and `tools/deb_generate.py` pair. Debian 13 carries 86 source recipes and Ubuntu 26.04 carries 114.
 
-The lockfile records exact package locations, SHA-256 digests, repository origins, source recipes, bootstrap stages, overrides, and image sets. Buck verifies each downloaded package against its recorded digest. Lockfile tools accept plain `.lock.json` and gzip-compressed `.lock.json.gz` files. `[buckos.lockfiles] compression = gzip` selects compressed canonical names; `none` keeps plain JSON. An existing lockfile retains its encoding when refreshed, and an explicitly named output uses its extension. `buck2 run //tools:lockfile_convert -- <paths>` converts existing files to the configured format. Gzip output has a pinned header and is deterministic.
+The lockfile records exact package locations, SHA-256 digests, repository origins, source recipes, bootstrap stages, overrides, and image sets. Buck verifies each downloaded package against its recorded digest. Lockfile tools accept plain `.lock.json` and gzip-compressed `.lock.json.gz` files. `[buckos.lockfiles] compression = gzip` selects compressed canonical names; `none` keeps plain JSON. An existing lockfile retains its encoding when refreshed, and an explicitly named output uses its extension. Gzip output has a pinned header and is deterministic. See [LOCKFILES.md](LOCKFILES.md) for selector-based inspection, validation, editing, conversion, regeneration, and mirror-audit commands.
 
 `tools/relock.py` refreshes an existing release from Fedora's release and update repositories. It reuses the build list, overrides, and image roots already recorded in the lockfile.
 
@@ -401,7 +401,9 @@ flavors/debian/          Debian lockfile, generated package data, and replay tar
 flavors/ubuntu/          Ubuntu lockfile, generated package data, and replay targets
 flavors/buckos/          BuckOS implementation-status documentation
 platforms/               Target constraints and execution-platform registration
+lockfiles                Lockfile workflow command
 REMOTE_EXECUTION.md       NativeLink reference deployment and acceptance plan
+LOCKFILES.md              Lockfile inspection, update, validation, and mirror workflow
 infra/remote-execution/   NativeLink configuration, SDME provisioning, and validation tools
 tests/                   Checked-in source RPM replay fixtures
 toolchains/              Prelude toolchain registrations
