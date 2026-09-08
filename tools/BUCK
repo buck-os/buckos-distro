@@ -2,6 +2,13 @@
 # python_binary's main -- the same pattern as buckos-build's tools/BUCK.
 
 python_library(
+    name = "_repo",
+    srcs = ["_repo.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
+python_library(
     name = "_rpm",
     srcs = ["_rpm.py"],
     base_module = "",
@@ -54,6 +61,7 @@ python_library(
     name = "nativelink_config_lib",
     srcs = ["nativelink_config.py"],
     base_module = "",
+    deps = [":_repo"],
     visibility = ["PUBLIC"],
 )
 
@@ -171,6 +179,7 @@ python_library(
     name = "_lockfile",
     srcs = ["_lockfile.py"],
     base_module = "",
+    deps = [":_repo"],
     visibility = ["PUBLIC"],
 )
 
@@ -339,6 +348,7 @@ python_test(
     name = "iso_label_test",
     srcs = ["iso_label_test.py"],
     base_module = "",
+    deps = [":_repo"],
 )
 
 python_test(
@@ -358,6 +368,7 @@ python_test(
         ":_image",
         ":_isolation",
         ":_kernel",
+        ":_repo",
         ":_rpm",
     ],
 )
@@ -368,6 +379,7 @@ python_test(
     base_module = "",
     deps = [
         ":_lockfile",
+        ":_repo",
         ":solve_lib",
         ":source_policy",
     ],
@@ -394,6 +406,7 @@ python_test(
     name = "documentation_policy_test",
     srcs = ["documentation_policy_test.py"],
     base_module = "",
+    deps = [":_repo"],
 )
 
 python_test(
@@ -560,6 +573,7 @@ python_library(
     base_module = "",
     deps = [
         ":_lockfile",
+        ":_repo",
         ":deb_generate_lib",
         ":generate_lib",
     ],
@@ -595,6 +609,7 @@ python_library(
     base_module = "",
     deps = [
         ":_lockfile",
+        ":_repo",
         ":generate_lib",
         ":solve_lib",
     ],
@@ -732,6 +747,7 @@ python_test(
     name = "re_contract_test",
     srcs = ["re_contract_test.py"],
     base_module = "",
+    deps = [":_repo"],
 )
 
 # Also a source lint.  Guards where scratch trees live, which sounds like a
@@ -754,7 +770,10 @@ python_test(
     name = "scratch_contract_test",
     srcs = ["scratch_contract_test.py"],
     base_module = "",
-    deps = [":_rpm"],
+    deps = [
+        ":_repo",
+        ":_rpm",
+    ],
 )
 
 # The escalation itself, shared with the remote-execution tests.  A skip
@@ -776,5 +795,15 @@ python_test(
     name = "skip_contract_test",
     srcs = ["skip_contract_test.py"],
     base_module = "",
-    deps = [":_skips"],
+    deps = [
+        ":_repo",
+        ":_skips",
+    ],
+)
+
+python_test(
+    name = "repo_test",
+    srcs = ["repo_test.py"],
+    base_module = "",
+    deps = [":_repo"],
 )

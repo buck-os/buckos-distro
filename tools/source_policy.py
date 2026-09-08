@@ -10,6 +10,7 @@ SOURCE_EXCEPTION_KINDS = frozenset({
     "fedora-45-tar-incompatibility",
     "firmware",
     "host-kernel-capability",
+    "host-kernel-input",
     "signed-artifact",
 })
 
