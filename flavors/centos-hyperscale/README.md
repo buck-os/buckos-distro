@@ -17,13 +17,13 @@ Refresh each architecture from the public repositories recorded in its lockfile:
 
 ```sh
 python3 tools/rpm_relock.py \
-  --template flavors/centos-hyperscale/lock/centos-hyperscale-10-x86_64.lock.json \
+  --template flavors/centos-hyperscale/lock/centos-hyperscale-10-x86_64.lock.json.gz \
   --target-cpu x86_64 \
-  --output flavors/centos-hyperscale/lock/centos-hyperscale-10-x86_64.lock.json
+  --output flavors/centos-hyperscale/lock/centos-hyperscale-10-x86_64.lock.json.gz
 python3 tools/rpm_relock.py \
-  --template flavors/centos-hyperscale/lock/centos-hyperscale-10-aarch64.lock.json \
+  --template flavors/centos-hyperscale/lock/centos-hyperscale-10-aarch64.lock.json.gz \
   --target-cpu aarch64 \
-  --output flavors/centos-hyperscale/lock/centos-hyperscale-10-aarch64.lock.json
+  --output flavors/centos-hyperscale/lock/centos-hyperscale-10-aarch64.lock.json.gz
 ```
 
 Use the same command shape for release 9. `rpm_relock.py` regenerates the matching Starlark data unless `--no-generate` is passed.

@@ -206,7 +206,7 @@ class TestRpmPaths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             for name in (
                 "centos-9-x86_64.lock.json",
-                "centos-10-x86_64.lock.json",
+                "centos-10-x86_64.lock.json.gz",
                 "fedora-44-x86_64.lock.json",
                 "centos-9-aarch64.lock.json",
             ):
@@ -222,6 +222,11 @@ class TestRpmPaths(unittest.TestCase):
         self.assertEqual(
             probe.probe_path(
                 "/locks/centos-hyperscale-10-aarch64.lock.json"),
+            "/locks/centos-hyperscale-10-aarch64.probe.json",
+        )
+        self.assertEqual(
+            probe.probe_path(
+                "/locks/centos-hyperscale-10-aarch64.lock.json.gz"),
             "/locks/centos-hyperscale-10-aarch64.probe.json",
         )
 

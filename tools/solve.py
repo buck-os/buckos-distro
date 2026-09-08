@@ -23,7 +23,7 @@ Usage:
              --source-primary source-primary.xml.gz \
              --build zlib --build curl \
              --release 41 --dist-tag .fc41 \
-             --out flavors/fedora/lock/f41.lock.json
+             --out flavors/fedora/lock/f41.lock.json.gz
 
 For a buildroot-only flavor bootstrap, source metadata is not required:
 
@@ -31,7 +31,7 @@ For a buildroot-only flavor bootstrap, source metadata is not required:
              --binary-primary baseos-primary.xml.gz \
              --binary-base https://mirror.stream.centos.org/10-stream/BaseOS/x86_64/os \
              --release 10 --dist-tag .el10 \
-             --out flavors/centos/lock/centos-10.lock.json
+             --out flavors/centos/lock/centos-10.lock.json.gz
 """
 
 import argparse
@@ -44,6 +44,7 @@ import sys
 import urllib.parse
 import xml.etree.ElementTree as ET
 
+from _lockfile import dump_lockfile
 from rpmvercmp import package_is_newer
 from source_policy import SourcePolicyError, build_source_policy
 
@@ -2122,10 +2123,7 @@ def main(argv=None):
     except SourcePolicyError as exc:
         sys.exit("source policy: {}".format(exc))
 
-    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-    with open(args.out, "w") as fh:
-        json.dump(lock, fh, indent=2, sort_keys=True)
-        fh.write("\n")
+    dump_lockfile(lock, args.out)
 
     s = lock["summary"]
     print(

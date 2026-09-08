@@ -73,6 +73,13 @@
   # available mechanism; constrained hosts may override it locally.
   isolation = auto
 
+# ── Lockfile storage ─────────────────────────────────────────────────
+# `gzip` keeps checked-in lockfiles below importers' per-file size limits.
+# Lock readers accept both forms. This selects canonical names and the
+# converter's output; refreshes preserve the encoding already on disk.
+[buckos.lockfiles]
+  compression = gzip
+
 # ── Kernel selection ─────────────────────────────────────────────────
 # Empty boots the kernel installed by each distro package set. Configured
 # targets must provide the public KernelInfo contract; implementations may

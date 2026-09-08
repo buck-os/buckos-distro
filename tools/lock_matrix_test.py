@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Validate the checked-in release and architecture lock matrix."""
 
-import json
 import os
 import unittest
 
+from _lockfile import find_lockfile, load_lockfile
 from solve import rpm_source_policy_inputs
 from source_policy import validate_source_policy
 
@@ -18,6 +18,7 @@ MATRIX = {
 }
 ARCHITECTURES = ("x86_64", "aarch64")
 DEB_ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
+IMPORT_FILE_LIMIT = 5_000_000
 
 
 def repo_root():
@@ -33,22 +34,28 @@ def repo_root():
     raise AssertionError("cannot locate repository root")
 
 
+def checked_lock(flavor, release, architecture):
+    directory = os.path.join(repo_root(), "flavors", flavor, "lock")
+    path = find_lockfile(directory, flavor, release, architecture)
+    if path is None:
+        raise AssertionError(
+            "no lockfile for {} {} {}".format(flavor, release, architecture)
+        )
+    return path, load_lockfile(path)
+
+
 class TestLockMatrix(unittest.TestCase):
     def test_every_supported_release_has_both_architectures(self):
-        root = repo_root()
         for flavor, releases in MATRIX.items():
             for release in releases:
                 for architecture in ARCHITECTURES:
                     with self.subTest(flavor=flavor, release=release, architecture=architecture):
-                        path = os.path.join(
-                            root,
-                            "flavors",
-                            flavor,
-                            "lock",
-                            "{}-{}-{}.lock.json".format(flavor, release, architecture),
+                        path, lock = checked_lock(flavor, release, architecture)
+                        self.assertLess(
+                            os.path.getsize(path),
+                            IMPORT_FILE_LIMIT,
+                            "{} exceeds the downstream import file limit".format(path),
                         )
-                        with open(path, encoding="utf-8") as stream:
-                            lock = json.load(stream)
                         self.assertEqual(architecture, lock["target_cpu"])
                         if flavor in ("debian", "ubuntu"):
                             self.assertEqual(DEB_ARCH[architecture], lock["architecture"])
@@ -85,7 +92,6 @@ class TestLockMatrix(unittest.TestCase):
         self.assertFalse(any(name.startswith("fedora-43") for name in os.listdir(lock_dir)))
 
     def test_fedora_source_policy_covers_both_architectures(self):
-        root = repo_root()
         expected = {
             "44": {"pinned": 5, "source": 181, "total": 186},
             "45": {"pinned": 6, "source": 187, "total": 193},
@@ -93,15 +99,7 @@ class TestLockMatrix(unittest.TestCase):
         for release in MATRIX["fedora"]:
             locks = {}
             for architecture in ARCHITECTURES:
-                path = os.path.join(
-                    root,
-                    "flavors",
-                    "fedora",
-                    "lock",
-                    "fedora-{}-{}.lock.json".format(release, architecture),
-                )
-                with open(path, encoding="utf-8") as stream:
-                    lock = json.load(stream)
+                _path, lock = checked_lock("fedora", release, architecture)
                 images, producers = rpm_source_policy_inputs(lock)
                 validate_source_policy(lock["source_policy"], images, producers)
                 self.assertEqual(
@@ -132,7 +130,6 @@ class TestLockMatrix(unittest.TestCase):
             )
 
     def test_rpm_live_variants_keep_normal_producers(self):
-        root = repo_root()
         rpm_matrix = {
             "fedora": ("44", "45"),
             "centos": ("9", "10"),
@@ -142,17 +139,7 @@ class TestLockMatrix(unittest.TestCase):
         for flavor, releases in rpm_matrix.items():
             for release in releases:
                 for architecture in ARCHITECTURES:
-                    path = os.path.join(
-                        root,
-                        "flavors",
-                        flavor,
-                        "lock",
-                        "{}-{}-{}.lock.json".format(
-                            flavor, release, architecture
-                        ),
-                    )
-                    with open(path, encoding="utf-8") as stream:
-                        lock = json.load(stream)
+                    _path, lock = checked_lock(flavor, release, architecture)
                     normal = {}
                     variants = {}
                     for recipe_name, recipe in lock["packages"].items():
@@ -178,18 +165,9 @@ class TestLockMatrix(unittest.TestCase):
         )
 
     def test_fedora_44_tar_keeps_acl_compat_build_dependencies(self):
-        root = repo_root()
         for architecture in ARCHITECTURES:
             with self.subTest(architecture=architecture):
-                path = os.path.join(
-                    root,
-                    "flavors",
-                    "fedora",
-                    "lock",
-                    "fedora-44-{}.lock.json".format(architecture),
-                )
-                with open(path, encoding="utf-8") as stream:
-                    lock = json.load(stream)
+                _path, lock = checked_lock("fedora", "44", architecture)
                 live_libacl = next(
                     entry
                     for entry in lock["image_sets"]["live"]
@@ -257,12 +235,10 @@ class TestHyperscalePrecedence(unittest.TestCase):
     """
 
     def live_set(self, release, architecture):
-        path = os.path.join(
-            repo_root(), "flavors", "centos-hyperscale", "lock",
-            "centos-hyperscale-{}-{}.lock.json".format(release, architecture),
+        _path, lock = checked_lock(
+            "centos-hyperscale", release, architecture,
         )
-        with open(path, encoding="utf-8") as stream:
-            return json.load(stream)["image_sets"]["live"]
+        return lock["image_sets"]["live"]
 
     def test_every_replaced_source_comes_from_hyperscale(self):
         """The displacement check: a Stream build where Hyperscale is expected."""

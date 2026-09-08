@@ -167,6 +167,20 @@ python_library(
     visibility = ["PUBLIC"],
 )
 
+python_library(
+    name = "_lockfile",
+    srcs = ["_lockfile.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "lockfile_convert",
+    main = "lockfile_convert.py",
+    deps = [":_lockfile"],
+    visibility = ["PUBLIC"],
+)
+
 python_binary(
     name = "rootfs_install",
     main = "rootfs_install.py",
@@ -353,9 +367,20 @@ python_test(
     srcs = ["lock_matrix_test.py"],
     base_module = "",
     deps = [
+        ":_lockfile",
         ":solve_lib",
         ":source_policy",
     ],
+)
+
+python_test(
+    name = "lockfile_test",
+    srcs = [
+        "lockfile_convert.py",
+        "lockfile_test.py",
+    ],
+    base_module = "",
+    deps = [":_lockfile"],
 )
 
 python_test(
@@ -411,6 +436,7 @@ python_test(
     deps = [
         ":_deb",
         ":_isolation",
+        ":_lockfile",
         ":_rpm",
         ":source_policy",
     ],
@@ -461,6 +487,7 @@ python_library(
     srcs = ["solve.py"],
     base_module = "",
     deps = [
+        ":_lockfile",
         ":depgraph",
         ":rpmvercmp",
         ":source_policy",
@@ -479,6 +506,7 @@ python_binary(
     main = "deb_lock.py",
     deps = [
         ":_deb",
+        ":_lockfile",
         ":source_policy",
     ],
     visibility = ["PUBLIC"],
@@ -487,7 +515,10 @@ python_binary(
 python_binary(
     name = "deb_generate",
     main = "deb_generate.py",
-    deps = [":source_policy"],
+    deps = [
+        ":_lockfile",
+        ":source_policy",
+    ],
     visibility = ["PUBLIC"],
 )
 
@@ -513,7 +544,10 @@ python_library(
         "relock.py",
     ],
     base_module = "",
-    deps = [":solve_lib"],
+    deps = [
+        ":_lockfile",
+        ":solve_lib",
+    ],
 )
 
 python_binary(
@@ -527,7 +561,10 @@ python_library(
     name = "rpm_relock_lib",
     srcs = ["rpm_relock.py"],
     base_module = "",
-    deps = [":relock_lib"],
+    deps = [
+        ":_lockfile",
+        ":relock_lib",
+    ],
 )
 
 python_binary(

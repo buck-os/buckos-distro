@@ -12,6 +12,7 @@ import sys
 import tempfile
 import urllib.parse
 
+from _lockfile import dump_lockfile
 from _deb import dsc_files, parse_control_paragraphs, source_identity
 from source_policy import build_source_policy
 
@@ -575,10 +576,7 @@ def main():
         "sources": sorted(sources, key=lambda item: item["name"]),
         "target_cpu": target_cpu,
     }
-    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    with open(args.output, "w", encoding="utf-8") as stream:
-        json.dump(lock, stream, indent=2, sort_keys=True)
-        stream.write("\n")
+    dump_lockfile(lock, args.output)
     LOG.info(
         "wrote %s: %d base debs, %d sources, %d/%d selected binaries from source",
         args.output,
