@@ -74,12 +74,13 @@
   isolation = auto
 
 # ── Lockfile storage ─────────────────────────────────────────────────
-# `gzip` keeps checked-in lockfiles below importers' per-file size limits.
+# `gzip` keeps checked-in lockfiles below the repository file-size limit.
 # Lock readers accept both forms. This selects canonical names and the
 # converter's output; refreshes preserve the encoding already on disk.
 # See LOCKFILES.md and `./lockfiles --help` for the workflow.
 [buckos.lockfiles]
   compression = gzip
+  max_tracked_file_size = 5000000
 
 # ── Kernel selection ─────────────────────────────────────────────────
 # Empty boots the kernel installed by each distro package set. Configured

@@ -12,9 +12,10 @@ import tempfile
 PLAIN_SUFFIX = ".lock.json"
 GZIP_SUFFIX = PLAIN_SUFFIX + ".gz"
 LOCKFILE_SUFFIXES = (GZIP_SUFFIX, PLAIN_SUFFIX)
-IMPORT_FILE_LIMIT = 5_000_000
+DEFAULT_MAX_TRACKED_FILE_SIZE = 5_000_000
 _CONFIG_SECTION = "buckos.lockfiles"
 _CONFIG_KEY = "compression"
+_MAX_SIZE_CONFIG_KEY = "max_tracked_file_size"
 _COMPRESSIONS = ("none", "gzip")
 
 
@@ -49,6 +50,38 @@ def configured_compression(root=None):
                 _CONFIG_KEY,
                 ", ".join(_COMPRESSIONS),
                 value,
+            )
+        )
+    return value
+
+
+def configured_max_tracked_file_size(root=None):
+    """Read the canonical file-size policy from the checked-in config."""
+    root = root or _repo_root()
+    parser = configparser.ConfigParser(interpolation=None)
+    if root is not None:
+        parser.read([os.path.join(root, ".buckconfig")])
+    raw = parser.get(
+        _CONFIG_SECTION,
+        _MAX_SIZE_CONFIG_KEY,
+        fallback=str(DEFAULT_MAX_TRACKED_FILE_SIZE),
+    ).strip()
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise ValueError(
+            "[{}] {} must be a positive integer, got {!r}".format(
+                _CONFIG_SECTION,
+                _MAX_SIZE_CONFIG_KEY,
+                raw,
+            )
+        ) from error
+    if value <= 0:
+        raise ValueError(
+            "[{}] {} must be a positive integer, got {!r}".format(
+                _CONFIG_SECTION,
+                _MAX_SIZE_CONFIG_KEY,
+                raw,
             )
         )
     return value

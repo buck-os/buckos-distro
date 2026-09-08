@@ -51,9 +51,16 @@ The check verifies that:
 - every filename agrees with the flavor, release, and architecture in JSON;
 - no identity exists in both plain and compressed form;
 - JSON formatting and gzip headers are deterministic;
-- every stored file remains below the 5,000,000-byte import limit; and
+- every stored file remains below the 5,000,000-byte repository limit; and
 - the corresponding generated Starlark and flavor index are byte-for-byte
   current.
+
+Debian-family source tables are split into deterministic generated shards.
+Each shard stays below 4,000,000 bytes so the generated data also remains
+comfortably below that limit as the package set grows.
+The checked-in `[buckos.lockfiles] max_tracked_file_size` setting defines the
+repository limit. It intentionally ignores `.buckconfig.local` so every
+checkout produces identical shard boundaries.
 
 Pass selectors to check a smaller set while iterating. `--no-generated` skips
 only the Starlark freshness check:
@@ -127,7 +134,7 @@ selected files to the configured format, or override it for one invocation:
 Conversion is atomic and regenerates Starlark because its generated header
 records the lockfile path. Mutating commands require a selector or an explicit
 `--all`; an omitted selector can never rewrite the whole matrix accidentally.
-Plain files may exceed the downstream import limit, so convert them back to
+Plain files may exceed the repository limit, so convert them back to
 gzip and run `./lockfiles check` before committing.
 
 ## Automation contract

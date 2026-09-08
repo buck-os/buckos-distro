@@ -7,6 +7,7 @@ import unittest
 from _lockfile import (
     atomic_dump_lockfile,
     configured_compression,
+    configured_max_tracked_file_size,
     convert_lockfile,
     dump_lockfile,
     find_lockfile,
@@ -84,6 +85,29 @@ class TestLockfileConfiguration(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "must be one of"):
                 configured_compression(root)
+
+    def test_reads_the_checked_in_file_size_policy(self):
+        with tempfile.TemporaryDirectory() as root:
+            write(os.path.join(root, ".buckroot"), "")
+            write(
+                os.path.join(root, ".buckconfig"),
+                "[buckos.lockfiles]\nmax_tracked_file_size = 123456\n",
+            )
+            write(
+                os.path.join(root, ".buckconfig.local"),
+                "[buckos.lockfiles]\nmax_tracked_file_size = 42\n",
+            )
+            self.assertEqual(123456, configured_max_tracked_file_size(root))
+
+    def test_rejects_an_invalid_file_size_policy(self):
+        with tempfile.TemporaryDirectory() as root:
+            write(os.path.join(root, ".buckroot"), "")
+            write(
+                os.path.join(root, ".buckconfig"),
+                "[buckos.lockfiles]\nmax_tracked_file_size = 0\n",
+            )
+            with self.assertRaisesRegex(ValueError, "positive integer"):
+                configured_max_tracked_file_size(root)
 
     def test_converter_moves_between_both_supported_formats(self):
         with tempfile.TemporaryDirectory() as directory:

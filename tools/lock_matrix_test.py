@@ -4,7 +4,7 @@
 import os
 import unittest
 
-from _lockfile import IMPORT_FILE_LIMIT, find_lockfile, load_lockfile
+from _lockfile import configured_max_tracked_file_size, find_lockfile, load_lockfile
 from solve import rpm_source_policy_inputs
 from source_policy import validate_source_policy
 
@@ -43,6 +43,7 @@ def checked_lock(flavor, release, architecture):
 
 class TestLockMatrix(unittest.TestCase):
     def test_every_supported_release_has_both_architectures(self):
+        max_file_size = configured_max_tracked_file_size(repo_root())
         for flavor, releases in MATRIX.items():
             for release in releases:
                 for architecture in ARCHITECTURES:
@@ -50,8 +51,8 @@ class TestLockMatrix(unittest.TestCase):
                         path, lock = checked_lock(flavor, release, architecture)
                         self.assertLess(
                             os.path.getsize(path),
-                            IMPORT_FILE_LIMIT,
-                            "{} exceeds the downstream import file limit".format(path),
+                            max_file_size,
+                            "{} exceeds the repository file-size limit".format(path),
                         )
                         self.assertEqual(architecture, lock["target_cpu"])
                         if flavor in ("debian", "ubuntu"):
