@@ -17,6 +17,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from _lockfile import load_lockfile
 from solve import (
     apply_probed_producers,
     BUILDSYS_BUILD,
@@ -803,7 +804,7 @@ class TestFallbackPackages(unittest.TestCase):
         sources = [source("app", requires=["fallback-cap"])]
 
         with tempfile.TemporaryDirectory() as directory:
-            output = os.path.join(directory, "lock.json")
+            output = os.path.join(directory, "test.lock.json.gz")
             by_path = {
                 "compose.xml": compose,
                 "buildroot.xml": buildroot,
@@ -839,8 +840,7 @@ class TestFallbackPackages(unittest.TestCase):
                     "--strict",
                 ])
 
-            with open(output, encoding="utf-8") as stream:
-                lock = json.load(stream)
+            lock = load_lockfile(output)
 
         self.assertEqual(
             [(repo["name"], repo["kind"]) for repo in lock["repos"]],

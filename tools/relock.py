@@ -41,6 +41,7 @@ import sys
 import urllib.request
 import xml.etree.ElementTree as ET
 
+import _lockfile as lockfile_io
 import generate
 import solve
 
@@ -107,8 +108,8 @@ def repo_root():
 
 
 def lockfile_name(flavor, release, arch):
-    """Canonical RPM-family lockfile name."""
-    return "{}-{}-{}.lock.json".format(flavor, release, arch)
+    """Canonical RPM-family lockfile name from Buck configuration."""
+    return lockfile_io.lockfile_name(flavor, release, arch)
 
 
 def lockfile_releases(lock_dir, arch="x86_64", flavor="fedora"):
@@ -119,12 +120,7 @@ def lockfile_releases(lock_dir, arch="x86_64", flavor="fedora"):
     releases than the refresh did would write results for one lockfile
     and not the other, silently.
     """
-    return sorted(
-        name[len(flavor + "-"):-len("-{}.lock.json".format(arch))]
-        for name in os.listdir(lock_dir)
-        if name.startswith(flavor + "-")
-        and name.endswith("-{}.lock.json".format(arch))
-    )
+    return lockfile_io.lockfile_releases(lock_dir, flavor, arch)
 
 
 def fetch(url):
@@ -347,16 +343,21 @@ def repo_list(release, args, offline=False, recorded_repos=()):
 
 
 def read_lock(release, args):
-    lock_path = os.path.join(
-        args.lock_dir,
-        lockfile_name("fedora", release, args.arch),
-    )
-    if not os.path.exists(lock_path):
+    try:
+        lock_path = lockfile_io.find_lockfile(
+            args.lock_dir, "fedora", release, args.arch,
+        )
+    except ValueError as error:
+        sys.exit(str(error))
+    if lock_path is None:
+        expected = os.path.join(
+            args.lock_dir,
+            lockfile_name("fedora", release, args.arch),
+        )
         sys.exit("no lockfile at {}: a release has to be solved by hand once "
                  "before it can be refreshed, because its overrides and image "
-                 "sets are not derivable from repodata".format(lock_path))
-    with open(lock_path) as fh:
-        return lock_path, json.load(fh)
+                 "sets are not derivable from repodata".format(expected))
+    return lock_path, lockfile_io.load_lockfile(lock_path)
 
 
 def relock(release, args):
@@ -431,9 +432,18 @@ def main(argv=None):
 
 
 def regenerate(releases, args, root):
+    lockfiles = []
+    for release in releases:
+        path = lockfile_io.find_lockfile(
+            args.lock_dir, "fedora", release, args.arch,
+        )
+        if path is None:
+            sys.exit("no lockfile for Fedora {} {}".format(
+                release, args.arch,
+            ))
+        lockfiles.append(path)
     generate.main(
-        [os.path.join(args.lock_dir, lockfile_name("fedora", r, args.arch))
-         for r in releases]
+        lockfiles
         + ["--out-dir", os.path.join(root, "flavors", "fedora", "generated")]
     )
 

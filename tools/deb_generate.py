@@ -6,6 +6,7 @@ import json
 import logging
 import os
 
+from _lockfile import load_lockfile
 from source_policy import validate_source_policy
 
 
@@ -79,8 +80,7 @@ def main():
         format="deb-generate: %(message)s",
     )
 
-    with open(args.lockfile, encoding="utf-8") as stream:
-        lock = json.load(stream)
+    lock = load_lockfile(args.lockfile)
     try:
         distro, cpu = validate_lock(lock)
     except ValueError as error:

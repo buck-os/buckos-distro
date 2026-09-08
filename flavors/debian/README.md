@@ -23,7 +23,7 @@ PYTHONPATH=tools python3 tools/deb_lock.py \
   --source-exception '{"package":"linux-image-amd64","source":"linux-signed-amd64@6.12.105+1","kind":"signed-artifact","reason":"The Debian-signed kernel metapackage is tied to the signed kernel payload."}' \
   --image image-tools=xorriso,squashfs-tools,dosfstools,mtools,grub-pc-bin,grub-efi-amd64-bin,isolinux,syslinux-common \
   --image live=linux-image-amd64,systemd-sysv,live-boot,live-config,openssh-server,sudo,vim-tiny,iproute2,iputils-ping,ca-certificates \
-  --output flavors/debian/lock/debian-13-x86_64.lock.json
+  --output flavors/debian/lock/debian-13-x86_64.lock.json.gz
 PYTHONPATH=tools python3 tools/deb_lock.py \
   --distro debian --release 13 --codename trixie --architecture arm64 \
   --source-set live \
@@ -31,9 +31,9 @@ PYTHONPATH=tools python3 tools/deb_lock.py \
   --source-exception '{"package":"linux-image-arm64","source":"linux-signed-arm64@6.12.105+1","kind":"signed-artifact","reason":"The Debian-signed kernel metapackage is tied to the signed kernel payload."}' \
   --image image-tools=xorriso,squashfs-tools,dosfstools,mtools,grub-efi-arm64-bin \
   --image live=linux-image-arm64,systemd-sysv,live-boot,live-config,openssh-server,sudo,vim-tiny,iproute2,iputils-ping,ca-certificates \
-  --output flavors/debian/lock/debian-13-aarch64.lock.json
-python3 tools/deb_generate.py flavors/debian/lock/debian-13-x86_64.lock.json
-python3 tools/deb_generate.py flavors/debian/lock/debian-13-aarch64.lock.json
+  --output flavors/debian/lock/debian-13-aarch64.lock.json.gz
+python3 tools/deb_generate.py flavors/debian/lock/debian-13-x86_64.lock.json.gz
+python3 tools/deb_generate.py flavors/debian/lock/debian-13-aarch64.lock.json.gz
 ```
 
 `[buckos.debian] package_url_template` accepts `{sha256}`, `{sha256_12}`, `{filename}`, `{stem}`, `{ext}`, and `{release}`.

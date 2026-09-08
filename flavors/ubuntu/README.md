@@ -50,16 +50,16 @@ PYTHONPATH=tools python3 tools/deb_lock.py \
   "${x86_exception_args[@]}" \
   --image image-tools=xorriso,squashfs-tools,dosfstools,mtools,grub-pc-bin,grub-efi-amd64-bin,isolinux,syslinux-common \
   --image live=linux-generic,systemd-sysv,casper,openssh-server,sudo,vim-tiny,iproute2,iputils-ping,ca-certificates \
-  --output flavors/ubuntu/lock/ubuntu-26.04-x86_64.lock.json
+  --output flavors/ubuntu/lock/ubuntu-26.04-x86_64.lock.json.gz
 PYTHONPATH=tools python3 tools/deb_lock.py \
   --distro ubuntu --release 26.04 --codename resolute --architecture arm64 \
   --source hello --source-set live \
   "${common_exception_args[@]}" \
   --image image-tools=xorriso,squashfs-tools,dosfstools,mtools,grub-efi-arm64-bin \
   --image live=linux-generic,systemd-sysv,casper,openssh-server,sudo,vim-tiny,iproute2,iputils-ping,ca-certificates \
-  --output flavors/ubuntu/lock/ubuntu-26.04-aarch64.lock.json
-python3 tools/deb_generate.py flavors/ubuntu/lock/ubuntu-26.04-x86_64.lock.json
-python3 tools/deb_generate.py flavors/ubuntu/lock/ubuntu-26.04-aarch64.lock.json
+  --output flavors/ubuntu/lock/ubuntu-26.04-aarch64.lock.json.gz
+python3 tools/deb_generate.py flavors/ubuntu/lock/ubuntu-26.04-x86_64.lock.json.gz
+python3 tools/deb_generate.py flavors/ubuntu/lock/ubuntu-26.04-aarch64.lock.json.gz
 ```
 
 `[buckos.ubuntu] package_url_template` accepts `{sha256}`, `{sha256_12}`, `{filename}`, `{stem}`, `{ext}`, and `{release}`.

@@ -18,9 +18,9 @@ Two properties matter more than convenience here:
     up as a reviewable diff -- the cargo-vendor / reindeer pattern.
 
 Usage:
-    tools/generate.py flavors/fedora/lock/fedora-44-x86_64.lock.json
-    tools/generate.py flavors/fedora/lock/*.lock.json
-    tools/generate.py flavors/centos/lock/centos-10-aarch64.lock.json
+    tools/generate.py flavors/fedora/lock/fedora-44-x86_64.lock.json.gz
+    tools/generate.py flavors/fedora/lock/*.lock.json.gz
+    tools/generate.py flavors/centos/lock/centos-10-aarch64.lock.json.gz
 """
 
 import argparse
@@ -28,6 +28,7 @@ import json
 import os
 import sys
 
+from _lockfile import load_lockfile, strip_lockfile_suffix
 # Imported rather than repeated: solve.py writes the lock schema and adapts
 # RPM records into the common source-policy vocabulary.
 from solve import LOCK_SCHEMA, rpm_source_policy_inputs
@@ -417,8 +418,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     for lockfile in args.lockfiles:
-        with open(lockfile) as fh:
-            lock = json.load(fh)
+        lock = load_lockfile(lockfile)
 
         if lock.get("schema") != LOCK_SCHEMA:
             sys.exit("{}: unsupported schema {} (this generator reads {}); "
@@ -439,14 +439,14 @@ def main(argv=None):
 
         out_dir = args.out_dir
         if out_dir is None:
-            # flavors/fedora/lock/x.lock.json -> flavors/fedora/generated/
+            # flavors/fedora/lock/x.lock.json[.gz] -> generated/
             out_dir = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(lockfile))),
                 "generated",
             )
         os.makedirs(out_dir, exist_ok=True)
 
-        stem = os.path.basename(lockfile).replace(".lock.json", "")
+        stem = os.path.basename(strip_lockfile_suffix(lockfile))
         out_path = os.path.join(out_dir, stem + ".bzl")
         rel_lock = os.path.relpath(os.path.abspath(lockfile), os.getcwd())
         with open(out_path, "w") as fh:

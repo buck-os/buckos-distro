@@ -9,6 +9,7 @@ import re
 import stat
 import sys
 
+from _lockfile import load_lockfile
 import generate
 import relock
 import solve
@@ -198,8 +199,7 @@ def describe_state(state):
 
 
 def read_lock(path):
-    with open(path, encoding="utf-8") as stream:
-        return json.load(stream)
+    return load_lockfile(path)
 
 
 def solve_and_generate(template, recorded, repos, target_cpu, output,
@@ -249,8 +249,7 @@ def main(argv=None):
     if args.probe and args.no_generate:
         parser.error("--probe requires generated Buck targets")
 
-    with open(args.template, encoding="utf-8") as stream:
-        template = json.load(stream)
+    template = load_lockfile(args.template)
     source_cpu = template["target_cpu"]
     recorded = architecture_solve(
         template["solve"], source_cpu, args.target_cpu)

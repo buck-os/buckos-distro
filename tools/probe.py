@@ -46,6 +46,7 @@ import os
 import subprocess
 import sys
 
+import _lockfile as lockfile_io
 import relock
 # For PROBE_SCHEMA only: the reader defines the version, so a file written
 # here can never claim a version the solver does not accept.
@@ -203,10 +204,13 @@ def main(argv=None):
     releases = args.release or relock.lockfile_releases(
         lock_dir, args.arch, args.flavor)
     for release in releases:
-        lock_path = os.path.join(
-            lock_dir,
-            relock.lockfile_name(args.flavor, release, args.arch),
+        lock_path = lockfile_io.find_lockfile(
+            lock_dir, args.flavor, release, args.arch,
         )
+        if lock_path is None:
+            sys.exit("no lockfile for {} {} {}".format(
+                args.flavor, release, args.arch,
+            ))
         write_probe_file(
             lock_path, root, config,
             buck2=resolve_buck2(root, args.buck2),
@@ -222,11 +226,7 @@ def probe_path(lock_path):
     different machinery -- repodata is fetched, this is executed -- and a
     reviewer reading a lockfile diff should be able to tell which.
     """
-    suffix = ".lock.json"
-    if not lock_path.endswith(suffix):
-        raise ValueError("lockfile must end in {}: {}".format(
-            suffix, lock_path))
-    return lock_path[:-len(suffix)] + ".probe.json"
+    return lockfile_io.strip_lockfile_suffix(lock_path) + ".probe.json"
 
 
 def previous_packages(lock_path, lock):
@@ -269,8 +269,7 @@ def previous_packages(lock_path, lock):
 def write_probe_file(lock_path, root, config=None, buck2=None):
     if not os.path.exists(lock_path):
         sys.exit("no lockfile at {}".format(lock_path))
-    with open(lock_path) as fh:
-        lock = json.load(fh)
+    lock = lockfile_io.load_lockfile(lock_path)
     flavor = lock["flavor"]
     release = lock["release"]
 

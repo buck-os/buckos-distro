@@ -57,7 +57,7 @@ tools/solve.py
         +--> rootfs and image runtime closures
         |
         v
-flavors/fedora/lock/fedora-<release>-<architecture>.lock.json
+flavors/fedora/lock/fedora-<release>-<architecture>.lock.json[.gz]
         |
         v
 tools/generate.py
@@ -68,6 +68,8 @@ flavors/fedora/generated/fedora-<release>-<architecture>.bzl
         v
 Buck targets
 ```
+
+Lockfile storage may be plain JSON or deterministic gzip. The preferred format is configured with `[buckos.lockfiles] compression`; readers discover either encoding and reject a release that has both, so refresh and probe workflows cannot silently diverge onto different files.
 
 The solver resolves exact-name and unique providers directly. It defers ambiguous and Boolean requirements until the runtime closure reaches a fixed point. A provider already present in the closure satisfies the requirement. Remaining ambiguities are reported and require an explicit override.
 
