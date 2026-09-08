@@ -30,6 +30,8 @@ import os
 import re
 import unittest
 
+from _repo import find_repo_root
+
 def _repo_root():
     """Locate the source tree, whether run directly or under buck2.
 
@@ -38,15 +40,9 @@ def _repo_root():
     tests with the project root as cwd, so search upward from both for the
     .buckroot marker and take whichever finds it.
     """
-    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        path = start
-        while True:
-            if os.path.exists(os.path.join(path, ".buckroot")):
-                return path
-            parent = os.path.dirname(path)
-            if parent == path:
-                break
-            path = parent
+    root = find_repo_root(os.getcwd(), __file__)
+    if root is not None:
+        return root
     raise AssertionError(
         "cannot find .buckroot from cwd {} or {}".format(
             os.getcwd(), os.path.abspath(__file__)

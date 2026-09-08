@@ -5,6 +5,7 @@ import os
 import unittest
 
 from _lockfile import configured_max_tracked_file_size, find_lockfile, load_lockfile
+from _repo import find_repo_root
 from solve import rpm_source_policy_inputs
 from source_policy import validate_source_policy
 
@@ -19,15 +20,9 @@ MATRIX = {
 ARCHITECTURES = ("x86_64", "aarch64")
 DEB_ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
 def repo_root():
-    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        path = start
-        while True:
-            if os.path.isfile(os.path.join(path, ".buckroot")):
-                return path
-            parent = os.path.dirname(path)
-            if parent == path:
-                break
-            path = parent
+    root = find_repo_root(os.getcwd(), __file__)
+    if root is not None:
+        return root
     raise AssertionError("cannot locate repository root")
 
 

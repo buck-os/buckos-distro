@@ -8,6 +8,8 @@ import os
 import stat
 import tempfile
 
+from _repo import find_repo_root
+
 
 PLAIN_SUFFIX = ".lock.json"
 GZIP_SUFFIX = PLAIN_SUFFIX + ".gz"
@@ -20,16 +22,7 @@ _COMPRESSIONS = ("none", "gzip")
 
 
 def _repo_root():
-    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        directory = start
-        while True:
-            if os.path.isfile(os.path.join(directory, ".buckroot")):
-                return directory
-            parent = os.path.dirname(directory)
-            if parent == directory:
-                break
-            directory = parent
-    return None
+    return find_repo_root(os.getcwd(), __file__)
 
 
 def configured_compression(root=None):

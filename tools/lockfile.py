@@ -32,6 +32,7 @@ from _lockfile import (
     load_lockfile,
     strip_lockfile_suffix,
 )
+from _repo import find_repo_root
 
 
 ARCHITECTURES = ("x86_64", "aarch64")
@@ -67,11 +68,9 @@ class Lockfile:
 def repo_root(start=None):
     """Find the checkout root from a path inside it."""
     directory = Path(start or os.getcwd()).resolve()
-    if directory.is_file():
-        directory = directory.parent
-    for candidate in (directory, *directory.parents):
-        if (candidate / ".buckroot").is_file():
-            return candidate
+    root = find_repo_root(directory)
+    if root is not None:
+        return Path(root)
     raise ValueError("cannot find repository root above {}".format(directory))
 
 

@@ -17,6 +17,8 @@ import os
 import re
 import unittest
 
+from _repo import find_repo_root
+
 
 VOLUME_LABEL_MAX = 32
 
@@ -37,15 +39,9 @@ IMAGE_VARIANTS = ("", "-prebuilt")
 
 
 def repo_root():
-    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        path = start
-        while True:
-            if os.path.isfile(os.path.join(path, ".buckroot")):
-                return path
-            parent = os.path.dirname(path)
-            if parent == path:
-                break
-            path = parent
+    root = find_repo_root(os.getcwd(), __file__)
+    if root is not None:
+        return root
     raise AssertionError("cannot locate repository root")
 
 

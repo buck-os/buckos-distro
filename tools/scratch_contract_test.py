@@ -37,6 +37,8 @@ import os
 import re
 import unittest
 
+from _repo import find_repo_root
+
 # The scripts that unpack rpm-authored trees.  Listed rather than globbed:
 # a new script that needs this treatment should be an explicit decision,
 # and a glob would silently exempt anything named unexpectedly while
@@ -58,15 +60,9 @@ def _repo_root():
     check" reads exactly like "no violations".  Same upward search for
     .buckroot as re_contract_test.py, and for the same reason.
     """
-    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        path = start
-        while True:
-            if os.path.exists(os.path.join(path, ".buckroot")):
-                return path
-            parent = os.path.dirname(path)
-            if parent == path:
-                break
-            path = parent
+    root = find_repo_root(os.getcwd(), __file__)
+    if root is not None:
+        return root
     raise AssertionError(
         "cannot find .buckroot from cwd {} or {}".format(
             os.getcwd(), os.path.abspath(__file__)

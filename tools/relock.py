@@ -44,6 +44,7 @@ import xml.etree.ElementTree as ET
 import _lockfile as lockfile_io
 import generate
 import solve
+from _repo import find_repo_root
 
 UPSTREAM = "https://dl.fedoraproject.org/pub/fedora/linux"
 REPOMD_NS = "http://linux.duke.edu/metadata/repo"
@@ -92,19 +93,12 @@ def repo_root():
     the cwd anywhere at all. Walking up for the marker that defines the
     repo works for both.
     """
-    seen = []
-    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        directory = start
-        while True:
-            if os.path.exists(os.path.join(directory, ".buckroot")):
-                return directory
-            parent = os.path.dirname(directory)
-            if parent == directory:
-                seen.append(start)
-                break
-            directory = parent
+    starts = (os.getcwd(), __file__)
+    root = find_repo_root(*starts)
+    if root is not None:
+        return root
     sys.exit("cannot find the repo root (no .buckroot above {}); pass "
-             "--lock-dir".format(" or ".join(seen)))
+             "--lock-dir".format(" or ".join(starts)))
 
 
 def lockfile_name(flavor, release, arch):

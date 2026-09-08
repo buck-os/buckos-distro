@@ -9,6 +9,8 @@ import tarfile
 import tempfile
 import unittest
 from types import SimpleNamespace
+
+from _repo import find_repo_root
 from unittest import mock
 
 from _deb import fakeroot_command, stage_fakeroot_runtime
@@ -73,15 +75,9 @@ IMAGE_VARIANTS = (None, "prebuilt")
 
 
 def repo_root():
-    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        path = start
-        while True:
-            if os.path.isfile(os.path.join(path, ".buckroot")):
-                return path
-            parent = os.path.dirname(path)
-            if parent == path:
-                break
-            path = parent
+    root = find_repo_root(os.getcwd(), __file__)
+    if root is not None:
+        return root
     raise AssertionError("cannot locate repository root")
 
 

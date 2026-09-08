@@ -45,6 +45,8 @@ import ast
 import os
 import unittest
 
+from _repo import find_repo_root
+
 
 def _repo_root():
     """Find the checked-in tree, which is not where this file runs from.
@@ -55,15 +57,9 @@ def _repo_root():
     reads exactly like "no violations".  Same upward search for .buckroot
     as re_contract_test.py, and for the same reason.
     """
-    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        path = start
-        while True:
-            if os.path.exists(os.path.join(path, ".buckroot")):
-                return path
-            parent = os.path.dirname(path)
-            if parent == path:
-                break
-            path = parent
+    root = find_repo_root(os.getcwd(), __file__)
+    if root is not None:
+        return root
     raise AssertionError(
         "cannot find .buckroot from cwd {} or {}".format(
             os.getcwd(), os.path.abspath(__file__)

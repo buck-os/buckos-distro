@@ -10,6 +10,8 @@ import re
 import sys
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from _repo import find_repo_root
+
 
 IMAGE_REPOSITORY = "ghcr.io/tracemachina/nativelink"
 IMAGE_VERSION = "v1.6.6"
@@ -72,15 +74,9 @@ class NativeLinkConfigError(ValueError):
 
 
 def repo_root() -> str:
-    for start in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        path = os.path.abspath(start)
-        while True:
-            if os.path.isfile(os.path.join(path, ".buckroot")):
-                return path
-            parent = os.path.dirname(path)
-            if parent == path:
-                break
-            path = parent
+    root = find_repo_root(os.getcwd(), __file__)
+    if root is not None:
+        return root
     raise NativeLinkConfigError(["cannot locate repository root"])
 
 
