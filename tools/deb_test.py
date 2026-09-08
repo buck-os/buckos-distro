@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import hashlib
+import json
 import os
 import shutil
 import stat
@@ -18,7 +19,7 @@ from _deb import (
 )
 from deb_extract import select_deb
 from dsc_unpack import archive_source_tree, validate_sources
-from deb_generate import bzl_literal, validate_lock
+from deb_generate import bzl_literal, main as generate_deb, validate_lock
 from dpkgbuild_replay import (
     build_environment,
     build_option,
@@ -819,6 +820,81 @@ class TestStarlarkGeneration(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "does not match"):
             validate_lock(lock)
+
+    def test_shards_sources_and_removes_stale_shards(self):
+        lock = {
+            "architecture": "amd64",
+            "base_debs": [],
+            "codename": "test",
+            "distro": "ubuntu",
+            "image_sets": {},
+            "release": "1",
+            "schema": 2,
+            "source_policy": {},
+            "sources": [
+                {"name": "source-{}".format(index), "payload": "x" * 80}
+                for index in range(4)
+            ],
+            "target_cpu": "x86_64",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile = os.path.join(tmp, "ubuntu-1-x86_64.lock.json")
+            output = os.path.join(tmp, "ubuntu-1-x86_64.bzl")
+            stale = os.path.join(tmp, "ubuntu-1-x86_64-sources-999.bzl")
+            with open(lockfile, "w", encoding="utf-8") as stream:
+                json.dump(lock, stream)
+            open(stale, "w", encoding="utf-8").close()
+
+            with mock.patch("deb_generate.GENERATED_SHARD_LIMIT", 300):
+                generated = generate_deb([lockfile, "--output", output])
+
+            self.assertGreater(len(generated), 2)
+            self.assertFalse(os.path.exists(stale))
+            first = {}
+            for path in generated[1:]:
+                self.assertLess(os.path.getsize(path), 300)
+            for path in generated:
+                with open(path, "rb") as stream:
+                    first[os.path.basename(path)] = stream.read()
+            with open(output, encoding="utf-8") as stream:
+                content = stream.read()
+            self.assertIn(
+                'load(":ubuntu-1-x86_64-sources-000.bzl", '
+                '_sources_000 = "SOURCES")',
+                content,
+            )
+            self.assertIn("SOURCES = _sources_000 + _sources_001", content)
+
+            with mock.patch("deb_generate.GENERATED_SHARD_LIMIT", 300):
+                regenerated = generate_deb([lockfile, "--output", output])
+            second = {}
+            for path in regenerated:
+                with open(path, "rb") as stream:
+                    second[os.path.basename(path)] = stream.read()
+            self.assertEqual(first, second)
+
+    def test_rejects_a_source_record_larger_than_one_shard(self):
+        lock = {
+            "architecture": "amd64",
+            "base_debs": [],
+            "codename": "test",
+            "distro": "ubuntu",
+            "image_sets": {},
+            "release": "1",
+            "schema": 2,
+            "source_policy": {},
+            "sources": [{"name": "oversized", "payload": "x" * 500}],
+            "target_cpu": "x86_64",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile = os.path.join(tmp, "ubuntu-1-x86_64.lock.json")
+            output = os.path.join(tmp, "ubuntu-1-x86_64.bzl")
+            with open(lockfile, "w", encoding="utf-8") as stream:
+                json.dump(lock, stream)
+
+            with mock.patch("deb_generate.GENERATED_SHARD_LIMIT", 300):
+                with self.assertRaisesRegex(ValueError, "one source record"):
+                    generate_deb([lockfile, "--output", output])
 
 
 class TestNocheckReachesPackagesThatOverrideTheTest(unittest.TestCase):

@@ -5,11 +5,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import deb_generate
 from _lockfile import dump_lockfile, load_lockfile
 from lockfile import (
     discover,
     identity_errors,
+    in_directory,
     json_pointer,
     replace_record,
     select,
@@ -106,6 +109,53 @@ class TestValidation(unittest.TestCase):
             self.assertTrue(any("timestamp" in error for error in errors))
             self.assertTrue(any("source filename" in error for error in errors))
             self.assertTrue(any("not canonical" in error for error in errors))
+
+    def test_rejects_a_lockfile_at_the_repository_size_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = add_lock(root, "fedora", "45", "x86_64")
+            record = discover(root)[0]
+            with mock.patch(
+                    "lockfile.configured_max_tracked_file_size",
+                    return_value=path.stat().st_size):
+                errors = validate(record, check_generated=False)
+            self.assertTrue(any("repository limit" in error for error in errors))
+
+    def test_rejects_a_stale_generated_source_shard(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".buckroot").touch()
+            lock_dir = root / "flavors" / "ubuntu" / "lock"
+            generated_dir = root / "flavors" / "ubuntu" / "generated"
+            lock_dir.mkdir(parents=True)
+            generated_dir.mkdir(parents=True)
+            path = lock_dir / "ubuntu-1-x86_64.lock.json.gz"
+            dump_lockfile({
+                "architecture": "amd64",
+                "base_debs": [],
+                "codename": "test",
+                "distro": "ubuntu",
+                "image_sets": {},
+                "release": "1",
+                "schema": 2,
+                "source_policy": {},
+                "sources": [{"name": "hello"}],
+                "target_cpu": "x86_64",
+            }, str(path))
+            output = generated_dir / "ubuntu-1-x86_64.bzl"
+            with in_directory(root):
+                deb_generate.main([
+                    path.relative_to(root).as_posix(),
+                    "--output",
+                    str(output),
+                ])
+            record = discover(root)[0]
+            self.assertEqual([], validate(record))
+
+            stale = generated_dir / "ubuntu-1-x86_64-sources-999.bzl"
+            stale.write_text("SOURCES = []\n", encoding="utf-8")
+            errors = validate(record)
+            self.assertTrue(any("stale source shard" in error for error in errors))
 
     def test_guarded_replacement_preserves_encoding(self):
         with tempfile.TemporaryDirectory() as directory:

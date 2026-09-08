@@ -23,10 +23,10 @@ import deb_generate
 import generate as rpm_generate
 from _lockfile import (
     GZIP_SUFFIX,
-    IMPORT_FILE_LIMIT,
     LOCKFILE_SUFFIXES,
     atomic_dump_lockfile,
     configured_compression,
+    configured_max_tracked_file_size,
     convert_lockfile,
     dump_lockfile,
     load_lockfile,
@@ -253,6 +253,7 @@ def generated_error(record):
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / (record.stem + ".bzl")
         diagnostics = io.StringIO()
+        expected = [output]
         try:
             with in_directory(record.root), contextlib.redirect_stderr(diagnostics):
                 if record.flavor in RPM_FLAVORS:
@@ -262,11 +263,11 @@ def generated_error(record):
                         directory,
                     ])
                 elif record.flavor in DEB_FLAVORS:
-                    deb_generate.main([
+                    expected = [Path(path) for path in deb_generate.main([
                         record.relative,
                         "--output",
                         str(output),
-                    ])
+                    ])]
                 else:
                     return "no generator for flavor {!r}".format(record.flavor)
         except (Exception, SystemExit) as error:
@@ -275,10 +276,40 @@ def generated_error(record):
                 error,
                 ": " + detail if detail else "",
             )
-        if not filecmp.cmp(destination, output, shallow=False):
-            return "generated data is stale: {}".format(
-                destination.relative_to(record.root),
-            )
+        expected_names = {path.name for path in expected}
+        max_file_size = configured_max_tracked_file_size(record.root)
+        for expected_path in expected:
+            actual = destination.parent / expected_path.name
+            if not actual.is_file():
+                return "generated data is missing: {}".format(
+                    actual.relative_to(record.root),
+                )
+            if not filecmp.cmp(actual, expected_path, shallow=False):
+                return "generated data is stale: {}".format(
+                    actual.relative_to(record.root),
+                )
+            size = actual.stat().st_size
+            if size >= max_file_size:
+                return "generated data is {} bytes, exceeding the {} byte repository limit: {}".format(
+                    size,
+                    max_file_size,
+                    actual.relative_to(record.root),
+                )
+
+        if record.flavor in DEB_FLAVORS:
+            prefix = destination.stem + "-sources-"
+            actual_shards = {
+                path.name
+                for path in destination.parent.iterdir()
+                if path.is_file()
+                and path.name.startswith(prefix)
+                and path.suffix == ".bzl"
+            }
+            stale = sorted(actual_shards - expected_names)
+            if stale:
+                return "generated data has stale source shard: {}".format(
+                    destination.parent.joinpath(stale[0]).relative_to(record.root),
+                )
     return None
 
 
@@ -324,10 +355,11 @@ def validate(record, check_generated=True):
         errors.append(str(error))
 
     size = record.path.stat().st_size
-    if size >= IMPORT_FILE_LIMIT:
+    max_file_size = configured_max_tracked_file_size(record.root)
+    if size >= max_file_size:
         errors.append(
-            "{} bytes exceeds the {} byte import limit".format(
-                size, IMPORT_FILE_LIMIT,
+            "{} bytes exceeds the {} byte repository limit".format(
+                size, max_file_size,
             )
         )
 
@@ -408,10 +440,11 @@ def replace_record(record, lock, regenerate=True):
     with tempfile.TemporaryDirectory() as directory:
         candidate = Path(directory) / record.path.name
         dump_lockfile(lock, str(candidate))
-        if candidate.stat().st_size >= IMPORT_FILE_LIMIT:
+        max_file_size = configured_max_tracked_file_size(record.root)
+        if candidate.stat().st_size >= max_file_size:
             raise ValueError(
-                "replacement would exceed the {} byte import limit".format(
-                    IMPORT_FILE_LIMIT,
+                "replacement would exceed the {} byte repository limit".format(
+                    max_file_size,
                 )
             )
     atomic_dump_lockfile(lock, str(record.path))
