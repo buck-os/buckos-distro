@@ -69,6 +69,7 @@ genrule(
             "//platforms:is_aarch64": "6.18.0-{}-aarch64".format(variant),
             "DEFAULT": "6.18.0-{}-x86_64".format(variant),
         }),
+        boot_args = ["example.boot=1"],
         visibility = ["PUBLIC"],
     )
     for variant in ("stable", "debug")
@@ -105,6 +106,7 @@ linux_kernel(
         "DEFAULT": "6.18.0-kbuild-x86_64",
     }),
     jobs = 1,
+    boot_args = ["example.boot=1"],
     source = ":fake-linux-source",
     default_target_platform = "//platforms:fedora-44-x86_64",
     visibility = ["PUBLIC"],

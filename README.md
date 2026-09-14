@@ -200,7 +200,7 @@ The live squashfs is used directly as the root filesystem. x86_64 ISOs contain B
 
 ### Custom kernels
 
-Custom kernels are selected as ordinary Buck targets through `[buckos.kernel]`. Each target provides the public `KernelInfo` contract: a boot image, an artifact containing `kernelrelease`, its architecture, an optional normalized module tree, and optional development and trust artifacts. Image rules do not depend on the producer's source layout, build rule, toolchain, or repository.
+Custom kernels are selected as ordinary Buck targets through `[buckos.kernel]`. Each target provides the public `KernelInfo` contract: a boot image, an artifact containing `kernelrelease`, its architecture, optional additive `boot_args`, an optional normalized module tree, and optional development and trust artifacts. Image rules do not depend on the producer's source layout, build rule, toolchain, or repository.
 
 One or more kernels may be selected, with an explicit default when the set has multiple entries:
 
@@ -213,6 +213,10 @@ One or more kernels may be selected, with an explicit default when the set has m
 Every selected kernel is installed into the final rootfs and receives stable `-custom-N` kernel and initramfs targets, so changing only the default does not rebuild those artifacts. The existing unsuffixed `kernel-*` and `initramfs-*` names are lightweight aliases to the selected default. The remaining kernels become additional BIOS and UEFI boot-menu entries. With no configured targets, images continue using the distro-packaged kernel.
 
 `kernel_artifacts` adapts declared outputs from another build system. Its module input may be a rootfs-shaped tree/archive or the contents of one kernel-release directory; the rule normalizes both to `usr/lib/modules/<release>`. `linux_kernel` builds an upstream-style Linux source tree with Kbuild. Its `source`, `config`, explicit `buildroot`, flags, and signing certificate are configurable attributes, so a producer target can use `select()` for distro-, release-, and architecture-specific build requirements without exposing those decisions to the image pipeline. Requiring an explicit buildroot prevents a kernel configured for one distro from silently inheriting another distro's compiler or build dependencies.
+
+Architecture is part of the contract rather than a target-name convention. A single configured kernel label may select its image, version, modules, buildroot, and `boot_args` from the target platform. `kernel_image`, rootfs composition, and ISO assembly validate the selected kernel architecture against the image architecture. Today the public set is `x86_64` and `aarch64`, matching BuckOS's target and execution platforms.
+
+`boot_args` belongs to the kernel artifact and is appended to the image's `iso_image.kernel_args` policy. All kernels placed in one ISO must declare the same `boot_args`, because the generated boot menu currently shares one command line. This keeps producer-specific boot requirements with the producer without giving it control over the image's complete command line.
 
 Kernel compilation inherits remote-execution and cache-upload policy from its buildroot. With a hermetic seeded buildroot, compilation, module normalization, rootfs composition, per-kernel initramfs generation, SquashFS construction, and ISO construction are all cacheable. Host-provenance builds remain local and are not uploaded to shared caches.
 

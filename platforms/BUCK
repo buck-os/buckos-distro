@@ -295,6 +295,15 @@ config_setting(
 
 distro_execution_platforms(
     name = "platforms",
+    additional_registries = [
+        value.strip()
+        for value in read_config(
+            "buckos",
+            "additional_execution_platform_registries",
+            "",
+        ).split(",")
+        if value.strip()
+    ],
     aarch64_emulation_enabled = read_config("buckos", "aarch64_emulation", "false") == "true",
     aarch64_execution_capability = ":can-execute-aarch64",
     aarch64_platform = ":linux-aarch64",
