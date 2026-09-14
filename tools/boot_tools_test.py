@@ -81,11 +81,13 @@ def repo_root():
     raise AssertionError("cannot locate repository root")
 
 
-def load_iso_test_graph(kernel_set=None):
+def load_iso_test_graph(kernel_set=None, secure_boot=None, ima=None):
     rules = {
+        "ima_manifest": [],
         "iso_boot_test": [],
         "iso_image": [],
         "rootfs_overlay": [],
+        "signed_uki": [],
         "squashfs": [],
     }
 
@@ -95,6 +97,9 @@ def load_iso_test_graph(kernel_set=None):
 
         return record
 
+    def fail(message):
+        raise ValueError(message)
+
     namespace = {
         "configured_kernel_set": lambda: kernel_set or SimpleNamespace(
             additional_indices=[],
@@ -102,12 +107,27 @@ def load_iso_test_graph(kernel_set=None):
             default_index=None,
             targets=[],
         ),
+        "configured_ima": lambda: ima or SimpleNamespace(
+            enabled=False,
+            kernel_args="",
+            mode="all",
+            signing_key=None,
+        ),
+        "configured_secure_boot": lambda _architecture: secure_boot or SimpleNamespace(
+            efi_stub=None,
+            enabled=False,
+            signing_key=None,
+        ),
         "execution_compatible_with": lambda architecture: [architecture],
+        "fail": fail,
         "iso_boot_test": recorder("iso_boot_test"),
+        "ima_manifest": recorder("ima_manifest"),
         "iso_image": recorder("iso_image"),
         "load": lambda *_args, **_kwargs: None,
         "rootfs_overlay": recorder("rootfs_overlay"),
+        "signed_uki": recorder("signed_uki"),
         "squashfs": recorder("squashfs"),
+        "read_config": lambda _section, _key, default="": default,
         "target_platform": lambda flavor, release, architecture: (
             flavor,
             release,
@@ -543,6 +563,50 @@ class TestIsoBootMarker(unittest.TestCase):
                     validate(args, fields),
                 )
 
+    def test_secure_boot_expectation_is_explicit(self):
+        args = type("Args", (), {
+            "expected_flavor": "fedora",
+            "expected_version": "44",
+            "architecture": "x86_64",
+            "expect_selinux": False,
+            "expect_secure_boot": True,
+        })()
+        fields = {
+            "flavor": "fedora",
+            "version": "44",
+            "arch": "x86_64",
+            "pid1": "systemd",
+            "failed": "0",
+            "avc": "0",
+            "secure_boot": "disabled",
+        }
+        self.assertEqual(
+            ["secure_boot: expected 'enabled', got 'disabled'"],
+            validate(args, fields),
+        )
+
+    def test_ima_expectation_is_explicit(self):
+        args = type("Args", (), {
+            "expected_flavor": "fedora",
+            "expected_version": "44",
+            "architecture": "x86_64",
+            "expect_selinux": False,
+            "expect_ima": True,
+        })()
+        fields = {
+            "flavor": "fedora",
+            "version": "44",
+            "arch": "x86_64",
+            "pid1": "systemd",
+            "failed": "0",
+            "avc": "0",
+            "ima": "enabled",
+        }
+        self.assertEqual(
+            ["ima: expected 'enforcing', got 'enabled'"],
+            validate(args, fields),
+        )
+
     def test_waits_for_complete_marker_line(self):
         marker = (
             "BUCKOS_VERIFY flavor=debian version=13 arch=x86_64 "
@@ -951,6 +1015,70 @@ class TestIsoBootMatrix(unittest.TestCase):
             iso["additional_initramfs"],
         )
 
+    def test_ima_requires_a_kernel_with_declared_trust(self):
+        ima = SimpleNamespace(
+            enabled=True,
+            kernel_args="ima_appraise=enforce ima_appraise_tcb",
+            mode="all",
+            signing_key="//fixtures:ima-key",
+        )
+        with self.assertRaisesRegex(ValueError, "configured KernelInfo"):
+            load_iso_test_graph(ima=ima)
+
+    def test_secure_boot_builds_signed_uki_and_marks_only_uefi_tests(self):
+        secure = SimpleNamespace(
+            efi_stub="//fixtures:linuxx64.efi.stub",
+            enabled=True,
+            signing_key="//fixtures:secureboot-key",
+        )
+        rules = load_iso_test_graph(secure_boot=secure)
+        ukis = {rule["name"]: rule for rule in rules["signed_uki"]}
+        isos = {rule["name"]: rule for rule in rules["iso_image"]}
+        boots = {rule["name"]: rule for rule in rules["iso_boot_test"]}
+
+        name = "secure-boot-verify-fedora-44-x86_64"
+        self.assertIn(name, ukis)
+        self.assertEqual("//fixtures:secureboot-key", ukis[name]["signing_key"])
+        self.assertEqual("//fixtures:linuxx64.efi.stub", ukis[name]["efi_stub"])
+        self.assertEqual(
+            ":" + name,
+            isos["iso-verify-fedora-44-x86_64"]["secure_boot_image"],
+        )
+        self.assertFalse(boots["boot-fedora-44-x86_64-bios"]["expect_secure_boot"])
+        self.assertTrue(boots["boot-fedora-44-x86_64-uefi"]["expect_secure_boot"])
+
+    def test_ima_signs_verification_overlay_and_checks_every_boot(self):
+        ima = SimpleNamespace(
+            enabled=True,
+            kernel_args="ima_appraise=enforce ima_appraise_tcb",
+            mode="all",
+            signing_key="//fixtures:ima-key",
+        )
+        kernel = SimpleNamespace(
+            additional_indices=[],
+            default="//kernels:ima",
+            default_index=0,
+            targets=["//kernels:ima"],
+        )
+        rules = load_iso_test_graph(kernel_set=kernel, ima=ima)
+        manifests = {rule["name"]: rule for rule in rules["ima_manifest"]}
+        squashfs = {rule["name"]: rule for rule in rules["squashfs"]}
+        isos = {rule["name"]: rule for rule in rules["iso_image"]}
+
+        name = "ima-manifest-verify-fedora-44-x86_64"
+        self.assertEqual("//fixtures:ima-key", manifests[name]["signing_key"])
+        self.assertEqual(
+            ":" + name,
+            squashfs["squashfs-verify-fedora-44-x86_64"]["ima_manifest"],
+        )
+        self.assertIn(
+            "ima_appraise=enforce ima_appraise_tcb",
+            isos["iso-verify-fedora-44-x86_64"]["kernel_args"],
+        )
+        self.assertTrue(all(
+            boot["expect_ima"] for boot in rules["iso_boot_test"]
+        ))
+
     def test_debian_prebuilt_boot_set_is_complete(self):
         self.assertEqual(
             {
@@ -1016,6 +1144,7 @@ class TestIsoBootCommand(unittest.TestCase):
             "architecture": "aarch64",
             "firmware": "uefi",
             "firmware_path": firmware,
+            "firmware_vars": "",
         })()
 
     def test_native_arm_uses_kvm_host_cpu(self):
@@ -1053,6 +1182,34 @@ class TestIsoBootCommand(unittest.TestCase):
                 command = qemu_command(self.arm_args(firmware), "/image.iso", tmp)
         self.assertIn("tcg,thread=multi", command)
         self.assertEqual("cortex-a57", command[command.index("-cpu") + 1])
+
+    def test_arm_secure_firmware_uses_copy_on_write_pflash_vars(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code = os.path.join(tmp, "AAVMF_CODE.fd")
+            source_dir = os.path.join(tmp, "source")
+            os.makedirs(source_dir)
+            variables = os.path.join(source_dir, "AAVMF_VARS.fd")
+            open(code, "wb").close()
+            with open(variables, "wb") as stream:
+                stream.write(b"enrolled vars")
+            args = self.arm_args(code)
+            args.firmware_vars = variables
+            command = qemu_command(args, "/image.iso", tmp)
+
+            self.assertNotIn("-bios", command)
+            drives = [
+                command[index + 1]
+                for index, part in enumerate(command[:-1])
+                if part == "-drive"
+            ]
+            self.assertIn(
+                "if=pflash,format=raw,readonly=on,file={}".format(code),
+                drives,
+            )
+            vars_drive = next(drive for drive in drives if "readonly" not in drive)
+            vars_copy = vars_drive.rsplit("file=", 1)[1]
+            with open(vars_copy, "rb") as stream:
+                self.assertEqual(b"enrolled vars", stream.read())
 
 
 class TestIsoBuildBootloaderPaths(unittest.TestCase):
@@ -1114,6 +1271,18 @@ class TestIsoBuildBootloaderPaths(unittest.TestCase):
         script = _xorriso_script(args, "/iso", "/out.iso", "2020010100000000")
         self.assertIn("/usr/share/syslinux/isohdpfx.bin", script)
         self.assertIn("/usr/lib/ISOLINUX/isohdpfx.bin", script)
+
+    def test_prebuilt_efi_entry_point_bypasses_grub_assembly(self):
+        script = _efi_script(
+            "/iso",
+            "x86_64",
+            "1700000000",
+            prebuilt_loader=True,
+        )
+        self.assertIn('test -s "$EFIDIR/$BOOTFILE"', script)
+        self.assertNotIn("grub2-mkimage", script)
+        self.assertNotIn('test -d "$MODDIR"', script)
+        self.assertIn('"$MCOPY" -i "$EFIBOOT"', script)
 
 
 class TestEfiImageIsAFunctionOfItsInputs(unittest.TestCase):

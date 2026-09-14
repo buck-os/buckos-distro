@@ -20,6 +20,7 @@ load(
     "target_platform",
 )
 load("//defs:releases.bzl", "iso_volume_label", "release_suffix")
+load("//defs:secure_boot.bzl", "configured_ima", "configured_secure_boot", "signed_uki")
 load("//defs/rules:boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules:buildroot.bzl", "host_buildroot", "seeded_buildroot")
 load("//defs/rules:srpm.bzl", "prebuilt_rpm")
@@ -159,20 +160,6 @@ _IMAGE_VARIANTS = ["", "-prebuilt"]
 # denials, login prompt reached.
 #
 _LIVE_KERNEL_ARGS = "rd.live.image console=tty0"
-
-def _ima_signing_key():
-    """Configured signing identity, or empty when IMA images are disabled."""
-    return read_config("buckos.security", "ima_signing_key", "")
-
-def _ima_signing_mode():
-    return read_config("buckos.security", "ima_signing_mode", "all")
-
-def _ima_kernel_args():
-    return read_config(
-        "buckos.security",
-        "ima_kernel_args",
-        "ima_appraise=enforce ima_policy=appraise_tcb",
-    )
 
 # ── Where an rpm is fetched from ─────────────────────────────────────
 #
@@ -1178,8 +1165,10 @@ def rpm_boot(flavor, data, suffix, platform, exec_constraints):
     "I cannot find the target that would tell me".
     """
     buildroot = rpm_buildroot_target(flavor, suffix)
-    signing_key = _ima_signing_key()
+    signing_key = configured_ima().signing_key
     kernel_set = configured_kernel_set()
+    if signing_key and not kernel_set.targets:
+        fail("IMA signing requires a configured KernelInfo target that declares its trusted certificate")
 
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
@@ -1278,8 +1267,12 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
     old_squashfs = release == "9" and flavor in ("centos", "centos-hyperscale")
     squashfs_tools = ":buildroot-squashfs-tools" + suffix if old_squashfs else tools
     squashfs_source = "//tools:squashfs-tools-4.6.1-source" if old_squashfs else None
-    signing_key = _ima_signing_key()
+    ima = configured_ima()
+    signing_key = ima.signing_key
     kernel_set = configured_kernel_set()
+    secure_boot = configured_secure_boot(data.TARGET_CPU)
+    if secure_boot.enabled and kernel_set.additional_indices:
+        fail("Secure Boot UKIs currently support one kernel per ISO")
 
     for name in sorted(data.IMAGE_SETS):
         if name in _TOOL_SETS:
@@ -1297,7 +1290,7 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
                     name = manifest_name,
                     rootfs = rootfs_target,
                     signing_key = signing_key,
-                    mode = _ima_signing_mode(),
+                    mode = ima.mode,
                     default_target_platform = platform,
                     visibility = ["PUBLIC"],
                 )
@@ -1336,6 +1329,38 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
                 variant.upper(),
             ))
 
+            kernel_args = "{} {}".format(
+                "{} {}".format(
+                    _LIVE_KERNEL_ARGS,
+                    ima.kernel_args,
+                ).strip(),
+                "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
+            )
+            secure_boot_image = None
+            if secure_boot.enabled:
+                secure_boot_name = "secure-boot-{}{}{}".format(
+                    name,
+                    variant,
+                    suffix,
+                )
+                signed_uki(
+                    name = secure_boot_name,
+                    architecture = data.TARGET_CPU,
+                    buildroot = rpm_buildroot_target(flavor, suffix),
+                    efi_stub = secure_boot.efi_stub,
+                    initramfs = ":initramfs-" + name + variant + suffix,
+                    kernel = ":kernel-" + name + variant + suffix,
+                    kernel_args = kernel_args,
+                    layout = "rpm",
+                    rootfs = rootfs_target,
+                    signing_key = secure_boot.signing_key,
+                    volume_label = label,
+                    default_target_platform = platform,
+                    exec_compatible_with = exec_constraints,
+                    visibility = ["PUBLIC"],
+                )
+                secure_boot_image = ":" + secure_boot_name
+
             iso_image(
                 name = "iso-" + name + variant + suffix,
                 buildroot = tools,
@@ -1350,14 +1375,9 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
                     for index in kernel_set.additional_indices
                 ],
                 squashfs = ":squashfs-" + name + variant + suffix,
+                secure_boot_image = secure_boot_image,
                 volume_label = label,
-                kernel_args = "{} {}".format(
-                    "{} {}".format(
-                        _LIVE_KERNEL_ARGS,
-                        _ima_kernel_args() if signing_key else "",
-                    ).strip(),
-                    "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
-                ),
+                kernel_args = kernel_args,
                 boot_mode = "hybrid" if data.TARGET_CPU == "x86_64" else "uefi",
                 target_cpu = data.TARGET_CPU,
                 default_target_platform = platform,

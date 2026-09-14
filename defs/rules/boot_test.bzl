@@ -82,6 +82,10 @@ def _iso_boot_test_impl(ctx: AnalysisContext) -> list[Provider]:
         cmd.add("--firmware-vars", ctx.attrs.firmware_vars)
     if ctx.attrs.expect_selinux:
         cmd.add("--expect-selinux")
+    if ctx.attrs.expect_ima:
+        cmd.add("--expect-ima")
+    if ctx.attrs.expect_secure_boot:
+        cmd.add("--expect-secure-boot")
 
     return [
         DefaultInfo(),
@@ -104,6 +108,8 @@ _iso_boot_test = rule(
         "firmware_vars": attrs.string(default = ""),
         "labels": attrs.list(attrs.string(), default = []),
         "expect_selinux": attrs.bool(default = False),
+        "expect_ima": attrs.bool(default = False),
+        "expect_secure_boot": attrs.bool(default = False),
         "production_iso": attrs.dep(),
         "production_milestone": attrs.string(default = "login:"),
         "qemu": attrs.string(),
@@ -116,22 +122,39 @@ _iso_boot_test = rule(
 )
 
 
-def iso_boot_test(name, architecture, firmware, **kwargs):
+def iso_boot_test(name, architecture, firmware, expect_secure_boot = False, **kwargs):
+    if expect_secure_boot and firmware != "uefi":
+        fail("Secure Boot verification requires UEFI firmware")
     qemu_default = "qemu-system-aarch64" if architecture == "aarch64" else "qemu-system-x86_64"
     firmware_path = ""
     firmware_vars = ""
     if firmware == "uefi":
         if architecture == "aarch64":
-            firmware_path = read_config("buckos", "aarch64_uefi", "")
+            firmware_path = read_config(
+                "buckos",
+                "aarch64_secure_uefi" if expect_secure_boot else "aarch64_uefi",
+                "",
+            )
+            if expect_secure_boot:
+                firmware_vars = read_config("buckos", "aarch64_secure_vars", "")
         else:
-            firmware_path = read_config("buckos", "ovmf_code", "")
-            firmware_vars = read_config("buckos", "ovmf_vars", "")
+            firmware_path = read_config(
+                "buckos",
+                "ovmf_secure_code" if expect_secure_boot else "ovmf_code",
+                "",
+            )
+            firmware_vars = read_config(
+                "buckos",
+                "ovmf_secure_vars" if expect_secure_boot else "ovmf_vars",
+                "",
+            )
     _iso_boot_test(
         name = name,
         architecture = architecture,
         firmware = firmware,
         firmware_path = firmware_path,
         firmware_vars = firmware_vars,
+        expect_secure_boot = expect_secure_boot,
         qemu = read_config("buckos", "qemu_" + architecture, qemu_default),
         **kwargs
     )

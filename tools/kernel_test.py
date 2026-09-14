@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from _kernel import certificate_der, read_kernel_release, write_certificate_pem
 from kernel_modules_normalize import normalize_modules
 from kernel_rootfs import compose_rootfs
-from linux_kernel_build import build_kernel, set_config_values
+from linux_kernel_build import build_kernel, require_config_values, set_config_values
 
 
 def _write(path, data, mode="w"):
@@ -229,6 +229,16 @@ modules_install:
             self.assertIn("CONFIG_IMA=y", result)
             self.assertIn('CONFIG_IMA_X509_PATH="/etc/keys/x509_ima.der"', result)
             self.assertNotIn("PRIVATE", result)
+
+    def test_missing_ima_config_after_olddefconfig_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = os.path.join(temporary, "config")
+            _write(config, "CONFIG_IMA=y\n# CONFIG_IMA_APPRAISE is not set\n")
+            with self.assertRaisesRegex(ValueError, "CONFIG_IMA_APPRAISE=y"):
+                require_config_values(config, {
+                    "IMA": True,
+                    "IMA_APPRAISE": True,
+                })
 
 
 if __name__ == "__main__":

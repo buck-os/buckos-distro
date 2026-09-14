@@ -73,6 +73,7 @@ def _kernel_image_impl(ctx: AnalysisContext) -> list[Provider]:
                 initramfs = None,
                 kver = kernel.version,
                 architecture = kernel.architecture,
+                efi_stub = kernel.efi_stub,
                 boot_args = kernel.boot_args,
             ),
             KernelInfo(
@@ -130,6 +131,7 @@ def _kernel_image_impl(ctx: AnalysisContext) -> list[Provider]:
             initramfs = None,
             kver = kver,
             architecture = ctx.attrs.architecture,
+            efi_stub = None,
             boot_args = [],
         ),
     ]
@@ -217,6 +219,7 @@ def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
             initramfs = out,
             kver = None,
             architecture = None,
+            efi_stub = None,
             boot_args = [],
         ),
     ]

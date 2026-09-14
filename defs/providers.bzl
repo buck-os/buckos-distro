@@ -135,6 +135,7 @@ BootInfo = provider(fields = [
     "vmlinuz",          # artifact: the kernel, lifted out of the rootfs tar
     "initramfs",        # artifact | None: built separately, see boot.bzl
     "architecture",     # str | None: x86_64 or aarch64 for kernel artifacts
+    "efi_stub",          # artifact | None: systemd EFI stub for UKI assembly
     # An *artifact* holding the version string, not a str.  Which kernel an
     # image contains is discovered by reading the tarball, which happens
     # when the action runs -- long after analysis, where a string attribute
@@ -146,6 +147,16 @@ BootInfo = provider(fields = [
     # Image policy remains on iso_image.kernel_args; the image rule combines
     # the two without making a downstream kernel family part of its API.
     "boot_args",        # list[str]
+])
+
+# A typed EFI executable prevents the ISO rule from treating an arbitrary file
+# as a Secure Boot entry point.  Unsigned producers return signed = False;
+# efi_sign creates signed images; efi_image adapts a caller-attested one.
+EfiImageInfo = provider(fields = [
+    "image",                # artifact: PE/COFF EFI executable
+    "architecture",         # str: x86_64 or aarch64
+    "signed",               # bool
+    "signing_certificate",  # artifact | None
 ])
 
 # A producer-neutral custom-kernel contract.  Image rules deliberately know

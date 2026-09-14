@@ -318,6 +318,10 @@ python_binary(
 python_binary(
     name = "uki_assemble",
     main = "uki_assemble.py",
+    deps = [
+        ":_isolation",
+        ":_rpm",
+    ],
     visibility = ["PUBLIC"],
 )
 
@@ -447,6 +451,10 @@ python_test(
         "uki_assemble_test.py",
     ],
     base_module = "",
+    deps = [
+        ":_isolation",
+        ":_rpm",
+    ],
 )
 
 python_test(

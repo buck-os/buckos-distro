@@ -52,7 +52,7 @@ file_signing_key(
 authenticode_signing_key(
     name = "remote-signing-fixture-key",
     key_name = "buckos-signing-fixture",
-    client = "/path/to/signing-client",
+    client_target = "//tools:authenticode_signer",
     certificate = "secureboot-test.crt",
     visibility = ["PUBLIC"],
 )

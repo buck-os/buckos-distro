@@ -8,6 +8,8 @@ load(
 load("//defs/rules:boot_test.bzl", "iso_boot_test", "rootfs_overlay")
 load("//defs/rules:image.bzl", "iso_image", "squashfs")
 load("//defs/rules:kernel.bzl", "configured_kernel_set")
+load("//defs/rules:signing.bzl", "ima_manifest")
+load("//defs:secure_boot.bzl", "configured_ima", "configured_secure_boot", "signed_uki")
 
 
 def live_iso_boot_tests(
@@ -46,6 +48,12 @@ def live_iso_boot_tests(
     )
 
     kernel_set = configured_kernel_set()
+    ima = configured_ima()
+    if ima.enabled and not kernel_set.targets:
+        fail("IMA verification requires a configured KernelInfo target")
+    secure_boot = configured_secure_boot(architecture)
+    if secure_boot.enabled and kernel_set.additional_indices:
+        fail("Secure Boot UKIs currently support one kernel per ISO")
     production_rootfs = flavor_package + "rootfs-live" + image_suffix
     if kernel_set.targets:
         production_rootfs = flavor_package + "rootfs-kernel-live" + image_suffix
@@ -63,15 +71,64 @@ def live_iso_boot_tests(
         },
         default_target_platform = platform,
     )
+    manifest_target = None
+    if ima.enabled:
+        manifest_name = "ima-manifest-verify-" + suffix
+        ima_manifest(
+            name = manifest_name,
+            rootfs = ":" + rootfs_name,
+            signing_key = ima.signing_key,
+            mode = ima.mode,
+            default_target_platform = platform,
+        )
+        manifest_target = ":" + manifest_name
     squashfs(
         name = squashfs_name,
         buildroot = squashfs_tools,
         mksquashfs_source = "//tools:squashfs-tools-4.6.1-source" if old_squashfs else None,
+        ima_manifest = manifest_target,
         rootfs = ":" + rootfs_name,
         selinux_relabel = expect_selinux,
         default_target_platform = platform,
         exec_compatible_with = exec_constraints,
     )
+    volume_label = "VERIFY-{}-{}-{}".format(flavor[:8], release, architecture)
+    kernel_args = "console=tty0 {} {} systemd.unit=buckos-verify.service".format(
+        "console=ttyAMA0,115200" if architecture == "aarch64" else "console=ttyS0,115200",
+        ima.kernel_args,
+    )
+    secure_boot_image = None
+    if secure_boot.enabled:
+        # UKI assembly needs the target's objcopy/objdump, so use the same
+        # package-build buildroot as the production UKI rather than assuming
+        # those tools happen to be in the ISO assembly buildroot.
+        default_provenance = "binary-seed" if flavor in ("debian", "ubuntu") else "host"
+        provenance = read_config(
+            "buckos." + flavor,
+            "buildroot",
+            default_provenance,
+        )
+        secure_boot_name = "secure-boot-verify-" + suffix
+        signed_uki(
+            name = secure_boot_name,
+            architecture = architecture,
+            buildroot = flavor_package + "buildroot-{}{}".format(
+                provenance,
+                release_arch_suffix,
+            ),
+            efi_stub = secure_boot.efi_stub,
+            initramfs = flavor_package + "initramfs-live" + image_suffix,
+            kernel = flavor_package + "kernel-live" + image_suffix,
+            kernel_args = kernel_args,
+            layout = layout,
+            rootfs = ":" + rootfs_name,
+            signing_key = secure_boot.signing_key,
+            volume_label = volume_label,
+            default_target_platform = platform,
+            exec_compatible_with = exec_constraints,
+        )
+        secure_boot_image = ":" + secure_boot_name
+
     iso_image(
         name = iso_name,
         buildroot = flavor_package + "buildroot-image-tools" + release_arch_suffix,
@@ -86,10 +143,9 @@ def live_iso_boot_tests(
             for index in kernel_set.additional_indices
         ],
         squashfs = ":" + squashfs_name,
-        volume_label = "VERIFY-{}-{}-{}".format(flavor[:8], release, architecture),
-        kernel_args = "console=tty0 {} systemd.unit=buckos-verify.service".format(
-            "console=ttyAMA0,115200" if architecture == "aarch64" else "console=ttyS0,115200",
-        ),
+        secure_boot_image = secure_boot_image,
+        volume_label = volume_label,
+        kernel_args = kernel_args,
         boot_mode = "hybrid" if architecture == "x86_64" else "uefi",
         layout = layout,
         target_cpu = architecture,
@@ -109,6 +165,8 @@ def live_iso_boot_tests(
             expected_flavor = flavor,
             expected_version = release,
             expect_selinux = expect_selinux,
+            expect_ima = ima.enabled,
+            expect_secure_boot = secure_boot.enabled and firmware == "uefi",
             labels = ["vm", "slow", "integration", "heavy", architecture, firmware],
             default_target_platform = platform,
         )

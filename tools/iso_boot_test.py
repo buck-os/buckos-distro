@@ -40,6 +40,10 @@ FIRMWARE_CANDIDATES = {
         "/usr/share/AAVMF/AAVMF_CODE.fd",
         "/usr/share/edk2/aarch64/QEMU_EFI.fd",
     ),
+    ("aarch64", "vars"): (
+        "/usr/share/AAVMF/AAVMF_VARS.fd",
+        "/usr/share/edk2/aarch64/vars-template-pflash.raw",
+    ),
 }
 
 
@@ -129,13 +133,21 @@ def qemu_command(args, iso, temporary):
     if args.firmware != "uefi":
         sys.exit("AArch64 ISO tests require UEFI")
     code = find_firmware(args.firmware_path, "aarch64", "code")
-    return common + [
+    command = common + [
         "-nographic",
         "-machine", "virt",
         "-cpu", "host" if use_kvm else "cortex-a57",
-        "-bios", code,
         "-cdrom", iso,
     ]
+    if args.firmware_vars:
+        command += ["-drive", "if=pflash,format=raw,readonly=on,file={}".format(code)]
+        vars_path = find_firmware(args.firmware_vars, "aarch64", "vars")
+        vars_copy = os.path.join(temporary, "AAVMF_VARS.fd")
+        shutil.copyfile(vars_path, vars_copy)
+        command += ["-drive", "if=pflash,format=raw,file={}".format(vars_copy)]
+    else:
+        command += ["-bios", code]
+    return command
 
 
 def parse_marker(line):
@@ -160,6 +172,10 @@ def validate(args, fields):
     }
     if args.expect_selinux:
         expected["selinux"] = "Enforcing"
+    if getattr(args, "expect_ima", False):
+        expected["ima"] = "enforcing"
+    if getattr(args, "expect_secure_boot", False):
+        expected["secure_boot"] = "enabled"
     errors = []
     for key, value in expected.items():
         actual = fields.get(key)
@@ -356,6 +372,8 @@ def parse_args(argv=None):
     parser.add_argument("--expected-flavor", required=True)
     parser.add_argument("--expected-version", required=True)
     parser.add_argument("--expect-selinux", action="store_true")
+    parser.add_argument("--expect-ima", action="store_true")
+    parser.add_argument("--expect-secure-boot", action="store_true")
     parser.add_argument("--firmware-path", default="")
     parser.add_argument("--firmware-vars", default="")
     parser.add_argument("--qemu", required=True)
@@ -364,6 +382,13 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if not args.production_milestone:
         parser.error("--production-milestone must not be empty")
+    if args.expect_secure_boot:
+        if args.firmware != "uefi":
+            parser.error("--expect-secure-boot requires --firmware uefi")
+        if not args.firmware_path or not args.firmware_vars:
+            parser.error(
+                "--expect-secure-boot requires explicit enrolled firmware code and vars"
+            )
     return args
 
 

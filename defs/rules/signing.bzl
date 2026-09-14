@@ -17,7 +17,7 @@ action would necessarily send its inputs to the remote CAS, which is never an
 acceptable transport for a release private key.
 """
 
-load("//defs:providers.bzl", "SigningKeyInfo")
+load("//defs:providers.bzl", "EfiImageInfo", "SigningKeyInfo")
 load("//defs/rules:rootfs.bzl", "rootfs_artifact")
 
 
@@ -103,10 +103,24 @@ external_signing_key = rule(
 def _authenticode_signing_key_impl(ctx: AnalysisContext) -> list[Provider]:
     if ctx.attrs.timeout_ms < 0:
         fail("remote signer timeout_ms must be non-negative")
+    if bool(ctx.attrs.client) == (ctx.attrs.client_target != None):
+        fail("authenticode_signing_key requires exactly one of client or client_target")
+    if ctx.attrs.verifier and ctx.attrs.verifier_target != None:
+        fail("authenticode_signing_key accepts only one of verifier or verifier_target")
+    client = (
+        ctx.attrs.client_target[RunInfo]
+        if ctx.attrs.client_target != None
+        else ctx.attrs.client
+    )
+    verifier = (
+        ctx.attrs.verifier_target[RunInfo]
+        if ctx.attrs.verifier_target != None
+        else (ctx.attrs.verifier or "/usr/bin/osslsigncode")
+    )
     command = cmd_args(
         ctx.attrs._signer[RunInfo],
         "--client",
-        ctx.attrs.client,
+        client,
         "--sign-key",
         ctx.attrs.key_name,
         "--certificate",
@@ -114,7 +128,7 @@ def _authenticode_signing_key_impl(ctx: AnalysisContext) -> list[Provider]:
         "--sign-description",
         ctx.attrs.sign_description,
         "--verifier",
-        ctx.attrs.verifier,
+        verifier,
     )
     if ctx.attrs.tier:
         command.add("--tier", ctx.attrs.tier)
@@ -145,15 +159,46 @@ authenticode_signing_key = rule(
         # verifies that the service used this identity before returning output.
         "certificate": attrs.source(),
         "sign_description": attrs.string(default = "BuckOS Secure Boot"),
-        # Deployment-owned path to the remote signing client executable.
-        "client": attrs.string(),
+        # `client_target` is the hermetic form for a Buck-built deployment
+        # client. `client` remains available for an installed executable.
+        # Exactly one must be selected.
+        "client": attrs.string(default = ""),
+        "client_target": attrs.option(attrs.exec_dep(), default = None),
         # Empty lets the client use its own signed service configuration.
         "tier": attrs.string(default = ""),
         "timeout_ms": attrs.int(default = 0),
-        "verifier": attrs.string(default = "/usr/bin/osslsigncode"),
+        # The same target-or-installed-path choice applies to verification.
+        # A declared target avoids relying on an RE worker's host filesystem.
+        "verifier": attrs.string(default = ""),
+        "verifier_target": attrs.option(attrs.exec_dep(), default = None),
         "_signer": attrs.default_only(
             attrs.exec_dep(default = "//tools:authenticode_signer"),
         ),
+    },
+)
+
+
+def _efi_image_impl(ctx: AnalysisContext) -> list[Provider]:
+    if ctx.attrs.signed and ctx.attrs.signing_certificate == None:
+        fail("a signed EFI image must declare its signing certificate")
+    return [
+        DefaultInfo(default_output = ctx.attrs.image),
+        EfiImageInfo(
+            image = ctx.attrs.image,
+            architecture = ctx.attrs.architecture,
+            signed = ctx.attrs.signed,
+            signing_certificate = ctx.attrs.signing_certificate,
+        ),
+    ]
+
+
+efi_image = rule(
+    impl = _efi_image_impl,
+    attrs = {
+        "architecture": attrs.enum(["x86_64", "aarch64"]),
+        "image": attrs.source(),
+        "signed": attrs.bool(default = False),
+        "signing_certificate": attrs.option(attrs.source(), default = None),
     },
 )
 
@@ -200,7 +245,8 @@ ima_manifest = rule(
 
 
 def _efi_sign_impl(ctx: AnalysisContext) -> list[Provider]:
-    source = ctx.attrs.efi[DefaultInfo].default_outputs[0]
+    source_info = ctx.attrs.efi[EfiImageInfo]
+    source = source_info.image
     key = ctx.attrs.signing_key[SigningKeyInfo]
     if "pe-sign" not in key.operations:
         fail("signing key {} does not support pe-sign".format(key.key_id))
@@ -223,13 +269,21 @@ def _efi_sign_impl(ctx: AnalysisContext) -> list[Provider]:
         local_only = key.local_only,
         allow_cache_upload = key.cacheable,
     )
-    return [DefaultInfo(default_output = out)]
+    return [
+        DefaultInfo(default_output = out),
+        EfiImageInfo(
+            image = out,
+            architecture = source_info.architecture,
+            signed = True,
+            signing_certificate = key.certificate,
+        ),
+    ]
 
 
 efi_sign = rule(
     impl = _efi_sign_impl,
     attrs = {
-        "efi": attrs.dep(),
+        "efi": attrs.dep(providers = [EfiImageInfo]),
         "signing_key": attrs.dep(providers = [SigningKeyInfo, RunInfo]),
     },
 )
