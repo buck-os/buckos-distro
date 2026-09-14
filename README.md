@@ -216,7 +216,7 @@ Kernel compilation inherits remote-execution and cache-upload policy from its bu
 
 ### Signing and IMA
 
-Signing support is opt-in while the custom-kernel and Secure Boot image paths are completed. Signing identities are Buck targets providing `SigningKeyInfo` and `RunInfo`; image rules invoke the target rather than reading a private key directly. `file_signing_key` supports test and local PEM keys, while `external_signing_key` lets a deployment select an HSM/KMS client implementing the same command interface.
+Signing support is opt-in while the custom-kernel and Secure Boot image paths are completed. Signing identities are Buck targets providing `SigningKeyInfo` and `RunInfo`; image rules invoke the target rather than reading a private key directly. `file_signing_key` supports test and local PEM keys, while `external_signing_key` lets a deployment select an HSM/KMS client implementing the same command interface. `authenticode_signing_key` adapts a remote Authenticode client to `efi_sign`, keeps the action local and non-cacheable, and verifies the result against the declared public certificate.
 
 When `[buckos.security] ima_signing_key` is set, each live rootfs receives an IMA manifest after its package-manager transaction. Every regular file is signed by default to match the built-in `appraise_tcb` policy, binary signatures are written into the SquashFS as `security.ima` xattrs, the public X.509 certificate is included in every selected kernel's initramfs as `/etc/keys/x509_ima.der`, and IMA appraisal arguments are added to the kernel command line. Custom kernel targets must declare the same public certificate in `KernelInfo`; rootfs composition compares the certificates and fails before producing an image if they differ. `linux_kernel` also enables the required IMA configuration and embeds that certificate into the kernel trust keyring. The narrower `executables` signing mode is available only for deployments that install a matching custom IMA policy.
 
@@ -229,7 +229,22 @@ For local testing, add this to `.buckconfig.local`:
   ima_kernel_args = ima_appraise=enforce ima_policy=appraise_tcb
 ```
 
-The checked-in key is public test material and must never sign a release. Production private keys must remain outside the repository and shared Buck caches. Define an `external_signing_key` target backed by the deployment's signer and select that target instead. The same signing-key contract is consumed by the `efi_sign` rule. A tested UKI assembly helper is also present; its Buck rule will be wired through distro buildroots when the custom-kernel targets provide systemd's EFI stub and hermetic binutils.
+The checked-in key is public test material and must never sign a release. Production private keys must remain outside the repository and shared Buck caches. Define an `external_signing_key` target backed by the deployment's signer and select that target instead. A remote signing deployment can use a service-backed key without placing key material in Buck:
+
+```python
+load("//defs/rules:signing.bzl", "authenticode_signing_key")
+
+authenticode_signing_key(
+    name = "secureboot-release-key",
+    key_name = "example-secureboot-key",
+    client = "/path/to/signing-client",
+    certificate = "example-secureboot.crt",
+)
+```
+
+The certificate is deliberately a declared source artifact: review and image trust must not change because the service's current key metadata changed during a build. `client` is a deployment-owned executable path; `tier`, `timeout_ms`, and the `/usr/bin/osslsigncode` default for `verifier` can be overridden. The caller needs signing permission for `key_name`. An fs-verity CMS signature is not a Linux IMA signature, so these identities support `efi_sign` but are rejected by `ima_manifest` during analysis.
+
+The same signing-key contract is consumed by the `efi_sign` rule. A tested UKI assembly helper is also present; its Buck rule will be wired through distro buildroots when the custom-kernel targets provide systemd's EFI stub and hermetic binutils.
 
 Build Fedora 44, CentOS Stream 9 with EPEL Next, CentOS Stream 10, or CentOS Hyperscale live media with:
 

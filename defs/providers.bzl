@@ -149,6 +149,7 @@ KernelInfo = provider(fields = [
 SigningKeyInfo = provider(fields = [
     "certificate",      # artifact: public X.509 certificate
     "key_id",           # str: stable operator-facing identity
+    "operations",       # list[str]: supported signer contract operations
     "cacheable",        # bool: signed outputs may enter a shared action cache
     "local_only",       # bool: signer must execute on the local machine
 ])

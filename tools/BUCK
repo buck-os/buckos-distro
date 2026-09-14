@@ -310,6 +310,12 @@ python_binary(
 )
 
 python_binary(
+    name = "authenticode_signer",
+    main = "authenticode_signer.py",
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
     name = "uki_assemble",
     main = "uki_assemble.py",
     visibility = ["PUBLIC"],
@@ -421,6 +427,15 @@ python_test(
     srcs = [
         "signing_helper.py",
         "signing_test.py",
+    ],
+    base_module = "",
+)
+
+python_test(
+    name = "authenticode_signer_test",
+    srcs = [
+        "authenticode_signer.py",
+        "authenticode_signer_test.py",
     ],
     base_module = "",
 )

@@ -8,6 +8,10 @@ provide the same command interface:
     <signer> ima-manifest --rootfs INPUT.tar --out OUTPUT.pseudo --mode ...
     <signer> pe-sign      --in INPUT.efi    --out OUTPUT.efi
 
+SigningKeyInfo.operations makes partial implementations explicit. A remote
+service may implement only the PE operation through Authenticode; an fs-verity
+CMS flow is not compatible with Linux IMA signatures.
+
 Production signers should be local-only and non-cacheable.  A remote-executed
 action would necessarily send its inputs to the remote CAS, which is never an
 acceptable transport for a release private key.
@@ -34,6 +38,7 @@ def _file_signing_key_impl(ctx: AnalysisContext) -> list[Provider]:
         SigningKeyInfo(
             certificate = ctx.attrs.certificate,
             key_id = ctx.attrs.key_id,
+            operations = ["ima-manifest", "pe-sign"],
             cacheable = ctx.attrs.cacheable,
             local_only = True,
         ),
@@ -68,6 +73,7 @@ def _external_signing_key_impl(ctx: AnalysisContext) -> list[Provider]:
         SigningKeyInfo(
             certificate = ctx.attrs.certificate,
             key_id = ctx.attrs.key_id,
+            operations = ctx.attrs.operations,
             cacheable = ctx.attrs.cacheable,
             local_only = ctx.attrs.local_only,
         ),
@@ -83,8 +89,70 @@ external_signing_key = rule(
         "signer_args": attrs.list(attrs.string(), default = []),
         "certificate": attrs.source(),
         "key_id": attrs.string(),
+        "operations": attrs.list(
+            attrs.enum(["ima-manifest", "pe-sign"]),
+            default = ["ima-manifest", "pe-sign"],
+        ),
         "cacheable": attrs.bool(default = False),
         "local_only": attrs.bool(default = True),
+    },
+)
+
+
+def _authenticode_signing_key_impl(ctx: AnalysisContext) -> list[Provider]:
+    if ctx.attrs.timeout_ms < 0:
+        fail("remote signer timeout_ms must be non-negative")
+    command = cmd_args(
+        ctx.attrs._signer[RunInfo],
+        "--client",
+        ctx.attrs.client,
+        "--sign-key",
+        ctx.attrs.key_name,
+        "--certificate",
+        ctx.attrs.certificate,
+        "--sign-description",
+        ctx.attrs.sign_description,
+        "--verifier",
+        ctx.attrs.verifier,
+    )
+    if ctx.attrs.tier:
+        command.add("--tier", ctx.attrs.tier)
+    if ctx.attrs.timeout_ms:
+        command.add("--timeout-ms", str(ctx.attrs.timeout_ms))
+    return [
+        DefaultInfo(default_output = ctx.attrs.certificate),
+        RunInfo(args = command),
+        SigningKeyInfo(
+            certificate = ctx.attrs.certificate,
+            key_id = ctx.attrs.key_name,
+            # Authenticode is compatible with the PE operation only. A remote
+            # fs-verity CMS flow cannot be installed as a security.ima value.
+            operations = ["pe-sign"],
+            # The call is authenticated as the local user. Do not move it to
+            # an RE worker or publish release signatures through action cache.
+            cacheable = False,
+            local_only = True,
+        ),
+    ]
+
+
+authenticode_signing_key = rule(
+    impl = _authenticode_signing_key_impl,
+    attrs = {
+        "key_name": attrs.string(),
+        # Keep the public certificate declared and reviewable. The adapter
+        # verifies that the service used this identity before returning output.
+        "certificate": attrs.source(),
+        "sign_description": attrs.string(default = "BuckOS Secure Boot"),
+        # Deployment-owned path to the remote signing client executable.
+        "client": attrs.string(),
+        # Empty lets the client use its own signed service configuration.
+        "tier": attrs.string(default = ""),
+        "timeout_ms": attrs.int(default = 0),
+        "verifier": attrs.string(default = "/usr/bin/osslsigncode"),
+        "_signer": attrs.default_only(
+            attrs.exec_dep(default = "//tools:authenticode_signer"),
+        ),
     },
 )
 
@@ -92,6 +160,8 @@ external_signing_key = rule(
 def _ima_manifest_impl(ctx: AnalysisContext) -> list[Provider]:
     rootfs = ctx.attrs.rootfs[DefaultInfo].default_outputs[0]
     key = ctx.attrs.signing_key[SigningKeyInfo]
+    if "ima-manifest" not in key.operations:
+        fail("signing key {} does not support ima-manifest".format(key.key_id))
     out = ctx.actions.declare_output(ctx.attrs.name + ".pseudo")
     command = cmd_args(
         ctx.attrs.signing_key[RunInfo],
@@ -131,6 +201,8 @@ ima_manifest = rule(
 def _efi_sign_impl(ctx: AnalysisContext) -> list[Provider]:
     source = ctx.attrs.efi[DefaultInfo].default_outputs[0]
     key = ctx.attrs.signing_key[SigningKeyInfo]
+    if "pe-sign" not in key.operations:
+        fail("signing key {} does not support pe-sign".format(key.key_id))
     out = ctx.actions.declare_output(ctx.attrs.name + ".efi")
     command = cmd_args(
         ctx.attrs.signing_key[RunInfo],
