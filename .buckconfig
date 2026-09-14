@@ -72,6 +72,9 @@
   # Sandbox implementation for seeded buildroots. `auto` selects the best
   # available mechanism; constrained hosts may override it locally.
   isolation = auto
+  # Embedders may add comma-separated execution-platform registries without
+  # replacing this repository's architecture-aware local and remote entries.
+  additional_execution_platform_registries =
 
 # ── Lockfile storage ─────────────────────────────────────────────────
 # `gzip` keeps checked-in lockfiles below the repository file-size limit.

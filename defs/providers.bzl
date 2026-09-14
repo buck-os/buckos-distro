@@ -134,6 +134,7 @@ SourcePackageInfo = provider(fields = [
 BootInfo = provider(fields = [
     "vmlinuz",          # artifact: the kernel, lifted out of the rootfs tar
     "initramfs",        # artifact | None: built separately, see boot.bzl
+    "architecture",     # str | None: x86_64 or aarch64 for kernel artifacts
     # An *artifact* holding the version string, not a str.  Which kernel an
     # image contains is discovered by reading the tarball, which happens
     # when the action runs -- long after analysis, where a string attribute
@@ -141,6 +142,10 @@ BootInfo = provider(fields = [
     # kernel version out of the BUCK files, where it would rot on every
     # kernel update and be wrong in a way nothing checks.
     "kver",             # artifact: the kernel version, no trailing newline
+    # Additive command-line arguments of the kernel artifact itself.
+    # Image policy remains on iso_image.kernel_args; the image rule combines
+    # the two without making a downstream kernel family part of its API.
+    "boot_args",        # list[str]
 ])
 
 # A producer-neutral custom-kernel contract.  Image rules deliberately know
@@ -163,6 +168,7 @@ KernelInfo = provider(fields = [
     "module_symvers",   # artifact | None: Module.symvers
     "efi_stub",         # artifact | None: systemd EFI stub for UKI assembly
     "ima_certificate",  # artifact | None: public cert trusted for IMA
+    "boot_args",        # list[str]: additive kernel command-line arguments
 ])
 
 # ── Signing identities ───────────────────────────────────────────────

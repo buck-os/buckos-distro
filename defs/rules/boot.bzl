@@ -27,6 +27,7 @@ load(
     "//defs:buildroot_helpers.bzl",
     "BUILDROOT_ATTRS",
     "buildroot_cache_upload",
+    "buildroot_info",
     "buildroot_local_only",
     "buildroot_sysroot_args",
 )
@@ -71,6 +72,8 @@ def _kernel_image_impl(ctx: AnalysisContext) -> list[Provider]:
                 vmlinuz = kernel.image,
                 initramfs = None,
                 kver = kernel.version,
+                architecture = kernel.architecture,
+                boot_args = kernel.boot_args,
             ),
             KernelInfo(
                 image = kernel.image,
@@ -83,6 +86,7 @@ def _kernel_image_impl(ctx: AnalysisContext) -> list[Provider]:
                 module_symvers = kernel.module_symvers,
                 efi_stub = kernel.efi_stub,
                 ima_certificate = kernel.ima_certificate,
+                boot_args = kernel.boot_args,
             ),
         ]
 
@@ -121,7 +125,13 @@ def _kernel_image_impl(ctx: AnalysisContext) -> list[Provider]:
             # exists only to expose one string.
             sub_targets = {"kver": [DefaultInfo(default_output = kver)]},
         ),
-        BootInfo(vmlinuz = vmlinuz, initramfs = None, kver = kver),
+        BootInfo(
+            vmlinuz = vmlinuz,
+            initramfs = None,
+            kver = kver,
+            architecture = ctx.attrs.architecture,
+            boot_args = [],
+        ),
     ]
 
 kernel_image = rule(
@@ -148,6 +158,15 @@ kernel_image = rule(
 def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
     if ctx.attrs.kver and ctx.attrs.kernel != None:
         fail("kver cannot be combined with a custom kernel target")
+    if ctx.attrs.kernel != None:
+        kernel = ctx.attrs.kernel[KernelInfo]
+        buildroot_architecture = buildroot_info(ctx).target_cpu
+        if buildroot_architecture and kernel.architecture != buildroot_architecture:
+            fail("kernel {} is {}, but the initramfs buildroot is {}".format(
+                ctx.attrs.kernel.label,
+                kernel.architecture,
+                buildroot_architecture,
+            ))
     out = ctx.actions.declare_output(ctx.attrs.name + ".img")
     rootfs = rootfs_artifact(ctx.attrs.rootfs)
 
@@ -163,7 +182,7 @@ def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
     if ctx.attrs.kver:
         cmd.add("--kver", ctx.attrs.kver)
     if ctx.attrs.kernel != None:
-        cmd.add("--kver-file", ctx.attrs.kernel[KernelInfo].version)
+        cmd.add("--kver-file", kernel.version)
     for module in ctx.attrs.add_modules:
         cmd.add("--add-module", module)
     for module in ctx.attrs.omit_modules:
@@ -193,7 +212,13 @@ def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
 
     return [
         DefaultInfo(default_output = out),
-        BootInfo(vmlinuz = None, initramfs = out, kver = None),
+        BootInfo(
+            vmlinuz = None,
+            initramfs = out,
+            kver = None,
+            architecture = None,
+            boot_args = [],
+        ),
     ]
 
 initramfs = rule(

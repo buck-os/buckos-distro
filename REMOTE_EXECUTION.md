@@ -151,6 +151,7 @@ After cross-client cache validation succeeds, set `buckos.remote_execution = tru
 ## Cache and scheduling policy
 
 - The CAS and action cache are shared by both architecture pools. Platform properties remain part of action identity and prevent cross-architecture result reuse.
+- Embedders can add comma-separated `ExecutionPlatformRegistrationInfo` targets with `buckos.additional_execution_platform_registries`. BuckOS combines them with its architecture-aware native registry, rejects duplicate platforms or competing fallbacks, and keeps the standard `//platforms:platforms` entry point.
 - `binary-seed` actions are eligible for remote execution and cache upload. `host` buildroots remain local-only with uploads disabled.
 - Buildroot-independent actions follow the explicit contract enforced by `tools/re_contract_test.py`.
 - Worker concurrency must be limited by measured memory and scratch usage, not CPU count alone. Package builds frequently expand far beyond source archive size.

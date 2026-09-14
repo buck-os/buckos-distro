@@ -37,7 +37,7 @@ The implemented pipeline uses the shared providers from `defs/providers.bzl`.
 
 `RpmArtifactInfo` accompanies Fedora package builds. It carries the binary RPM directory, optional source RPM, install root, and NEVRA.
 
-`BootInfo` carries a kernel artifact, an optional initramfs artifact, and the kernel-version artifact used by downstream image rules. `KernelInfo` is the producer-neutral custom-kernel boundary: boot image, `kernelrelease` artifact, architecture, normalized module tree, and optional config, ELF, symbol, EFI-stub, and IMA trust artifacts. No image rule depends on the producer's build-system-specific providers or paths.
+`BootInfo` carries a kernel artifact, its architecture, optional additive boot arguments, an optional initramfs artifact, and the kernel-version artifact used by downstream image rules. `KernelInfo` is the producer-neutral custom-kernel boundary: boot image, `kernelrelease` artifact, architecture, additive boot arguments, normalized module tree, and optional config, ELF, symbol, EFI-stub, and IMA trust artifacts. No image rule depends on the producer's build-system-specific providers or paths.
 
 `SourcePackageInfo` and `DebArtifactInfo` carry Debian-family source and binary artifacts. `FlavorInfo` remains reserved for a future addressable flavor abstraction.
 
@@ -157,7 +157,7 @@ The rootfs output is a tar archive. The archive preserves ownership, capabilitie
 
 `kernel_image` reads the archive index and extracts the selected distro kernel and version without entering a buildroot, or re-exports one selected `KernelInfo` target under the same stable image target name.
 
-`kernel_artifacts` normalizes outputs from any external kernel producer into `KernelInfo`. `linux_kernel` is the native Kbuild producer and obtains its source, config, flags, and buildroot through ordinary configured attributes. That permits distro- and architecture-specific requirements through `select()` while keeping the image graph independent of the producer implementation. A hermetic buildroot makes the build remotely executable and eligible for shared-cache upload.
+`kernel_artifacts` normalizes outputs from any external kernel producer into `KernelInfo`. `linux_kernel` is the native Kbuild producer and obtains its source, config, flags, boot arguments, and buildroot through ordinary configured attributes. That permits distro- and architecture-specific requirements through `select()` while keeping the image graph independent of the producer implementation. Architecture is validated when a kernel enters the rootfs, stable boot target, and ISO. A hermetic buildroot makes the build remotely executable and eligible for shared-cache upload.
 
 When `[buckos.kernel] targets` is non-empty, `kernel_rootfs` installs every selected kernel and normalized module tree into the final rootfs before IMA signing and compression. Each kernel receives stable `-custom-N` kernel and initramfs targets. `[buckos.kernel] default` selects lightweight aliases at the existing unsuffixed target names; the remaining kernels become additional bootloader menu entries. Changing only the default therefore invalidates media assembly rather than rebuilding initramfs images.
 

@@ -125,6 +125,61 @@ _execution_platform_registry = rule(
     },
 )
 
+def _combined_execution_platforms_impl(ctx: AnalysisContext) -> list[Provider]:
+    """Combine registries without changing any platform they contain."""
+    platforms = []
+    platform_labels = {}
+    exec_marker_constraint = None
+    fallback = None
+    fallback_registry = None
+    for registry in ctx.attrs.registries:
+        registration = registry[ExecutionPlatformRegistrationInfo]
+        for platform in registration.platforms:
+            label = str(platform.label)
+            if label in platform_labels:
+                fail("execution platform {} is registered more than once".format(label))
+            platform_labels[label] = True
+            platforms.append(platform)
+
+        marker = getattr(registration, "exec_marker_constraint", None)
+        if marker != None:
+            if exec_marker_constraint != None and exec_marker_constraint != marker:
+                fail("execution platform registries have different marker constraints")
+            exec_marker_constraint = marker
+
+        registry_fallback = getattr(registration, "fallback", None)
+        if registry_fallback != None:
+            if fallback_registry != None:
+                fail("execution platform registries {} and {} both define fallbacks".format(
+                    fallback_registry,
+                    registry.label,
+                ))
+            fallback = registry_fallback
+            fallback_registry = registry.label
+
+    kwargs = {}
+    if exec_marker_constraint != None:
+        kwargs["exec_marker_constraint"] = exec_marker_constraint
+    if fallback != None:
+        kwargs["fallback"] = fallback
+    return [
+        DefaultInfo(),
+        ExecutionPlatformRegistrationInfo(
+            platforms = platforms,
+            **kwargs
+        ),
+    ]
+
+combined_execution_platforms = rule(
+    impl = _combined_execution_platforms_impl,
+    attrs = {
+        "registries": attrs.list(
+            attrs.dep(providers = [ExecutionPlatformRegistrationInfo]),
+        ),
+    },
+    is_configuration_rule = True,
+)
+
 def distro_execution_platforms(
         name,
         aarch64_emulation_enabled,
@@ -138,6 +193,7 @@ def distro_execution_platforms(
         remote_x86_64_use_case,
         x86_64_execution_capability,
         x86_64_platform,
+        additional_registries = [],
         visibility = None):
     common = {
         "aarch64_emulation_enabled": aarch64_emulation_enabled,
@@ -175,8 +231,20 @@ def distro_execution_platforms(
             **common
         )
         platforms = [":" + remote_x86, ":" + remote_arm] + platforms
-    _execution_platform_registry(
-        name = name,
-        platforms = platforms,
-        visibility = visibility,
-    )
+    if additional_registries:
+        native_registry = name + "-native"
+        _execution_platform_registry(
+            name = native_registry,
+            platforms = platforms,
+        )
+        combined_execution_platforms(
+            name = name,
+            registries = [":" + native_registry] + additional_registries,
+            visibility = visibility,
+        )
+    else:
+        _execution_platform_registry(
+            name = name,
+            platforms = platforms,
+            visibility = visibility,
+        )

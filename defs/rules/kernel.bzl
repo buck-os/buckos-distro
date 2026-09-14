@@ -138,11 +138,18 @@ def _kernel_artifacts_impl(ctx: AnalysisContext) -> list[Provider]:
         module_symvers = ctx.attrs.module_symvers,
         efi_stub = ctx.attrs.efi_stub,
         ima_certificate = ctx.attrs.ima_certificate,
+        boot_args = ctx.attrs.boot_args,
     )
     return [
         _kernel_default_info(ctx.attrs.image, version, modules, optional),
         info,
-        BootInfo(vmlinuz = ctx.attrs.image, initramfs = None, kver = version),
+        BootInfo(
+            vmlinuz = ctx.attrs.image,
+            initramfs = None,
+            kver = version,
+            architecture = ctx.attrs.architecture,
+            boot_args = ctx.attrs.boot_args,
+        ),
     ]
 
 
@@ -165,6 +172,7 @@ kernel_artifacts = rule(
         ),
         "release": attrs.string(default = ""),
         "release_file": attrs.option(attrs.source(), default = None),
+        "boot_args": attrs.list(attrs.string(), default = []),
         "system_map": attrs.option(attrs.source(), default = None),
         "vmlinux": attrs.option(attrs.source(), default = None),
         "_normalize_modules": attrs.default_only(
@@ -272,11 +280,18 @@ def _linux_kernel_impl(ctx: AnalysisContext) -> list[Provider]:
         module_symvers = module_symvers,
         efi_stub = ctx.attrs.efi_stub,
         ima_certificate = ima_certificate,
+        boot_args = ctx.attrs.boot_args,
     )
     return [
         _kernel_default_info(image, version, modules, optional),
         info,
-        BootInfo(vmlinuz = image, initramfs = None, kver = version),
+        BootInfo(
+            vmlinuz = image,
+            initramfs = None,
+            kver = version,
+            architecture = ctx.attrs.architecture,
+            boot_args = ctx.attrs.boot_args,
+        ),
     ]
 
 
@@ -296,6 +311,7 @@ linux_kernel = rule(
         "localversion": attrs.string(default = ""),
         "make": attrs.string(default = "/usr/bin/make"),
         "make_args": attrs.list(attrs.string(), default = []),
+        "boot_args": attrs.list(attrs.string(), default = []),
         "source": attrs.source(),
         "source_date_epoch": attrs.string(default = "1700000000"),
         "_build": attrs.default_only(

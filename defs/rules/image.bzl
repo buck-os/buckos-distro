@@ -150,6 +150,17 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
     # without a second action to ask for it -- boot.bzl's whole reason for
     # splitting kernel_image out.
     boot = ctx.attrs.kernel[BootInfo]
+    if boot.architecture != ctx.attrs.target_cpu:
+        fail("kernel {} is {}, but ISO {} is {}".format(
+            ctx.attrs.kernel.label,
+            boot.architecture,
+            ctx.attrs.name,
+            ctx.attrs.target_cpu,
+        ))
+    kernel_args = "{} {}".format(
+        ctx.attrs.kernel_args,
+        " ".join(boot.boot_args),
+    ).strip()
 
     cmd = cmd_args(
         ctx.attrs._build[RunInfo],
@@ -166,7 +177,7 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
         "--volume-label",
         ctx.attrs.volume_label,
         "--kernel-args",
-        ctx.attrs.kernel_args,
+        kernel_args,
         "--boot-mode",
         ctx.attrs.boot_mode,
         "--target-cpu",
@@ -176,6 +187,10 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
     )
     for index in range(len(ctx.attrs.additional_kernels)):
         additional_boot = ctx.attrs.additional_kernels[index][BootInfo]
+        if additional_boot.architecture != boot.architecture:
+            fail("all kernels in an ISO must have the same architecture")
+        if additional_boot.boot_args != boot.boot_args:
+            fail("all kernels in an ISO must declare the same boot_args")
         cmd.add(
             "--additional-kernel",
             additional_boot.vmlinuz,
