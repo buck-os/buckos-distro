@@ -165,7 +165,7 @@ When `[buckos.kernel] targets` is non-empty, `kernel_rootfs` installs every sele
 
 `squashfs` unpacks the rootfs and runs the target image toolchain's `mksquashfs`. Fedora, CentOS Stream, and CentOS Hyperscale live images enable SELinux relabeling, which derives contexts from the image's own policy and writes them through the squashfs pseudo-file interface.
 
-`iso_image` creates the distro-specific ISO9660 layout and boot arguments. x86_64 media has BIOS and UEFI El Torito entries plus optional isohybrid metadata; AArch64 media has a `BOOTAA64.EFI` UEFI entry. Secure Boot signing is not implemented.
+`iso_image` creates the distro-specific ISO9660 layout and boot arguments. x86_64 media has BIOS and UEFI El Torito entries plus optional isohybrid metadata; AArch64 media has a `BOOTAA64.EFI` UEFI entry. By default the UEFI entry is generated GRUB. When a Secure Boot signing target and EFI stub are configured, `uki_image` assembles a target-architecture Unified Kernel Image in the pinned buildroot, `efi_sign` signs it through the opaque signing-key contract, and `iso_image` installs that signed `EfiImageInfo` at the removable-media path. The direct UKI path supports one kernel per ISO; BIOS remains available on x86_64 hybrid media.
 
 ## Remote execution contract
 

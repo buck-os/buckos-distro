@@ -30,8 +30,8 @@ dmsquash-live module and the two firmware paths all look for exact names:
     /isolinux/isolinux.bin      BIOS stage 1, El Torito default entry
     /isolinux/ldlinux.c32       isolinux's own loader, mandatory since 5.x
     /isolinux/isolinux.cfg      BIOS boot config
-    /EFI/BOOT/BOOTX64.EFI       UEFI stage 1
-    /EFI/BOOT/grub.cfg          UEFI boot config
+    /EFI/BOOT/BOOTX64.EFI       generated GRUB or a supplied signed UKI
+    /EFI/BOOT/grub.cfg          UEFI boot config for the GRUB path
     /images/efiboot.img         FAT image holding the two above, for
                                 El Torito's alternate entry
 
@@ -296,7 +296,7 @@ def _fat_volume_id(source_date_epoch):
     return "{:08X}".format(int(source_date_epoch) & 0xFFFFFFFF)
 
 
-def _efi_script(iso_root, target_cpu, source_date_epoch):
+def _efi_script(iso_root, target_cpu, source_date_epoch, prebuilt_loader=False):
     """Build the removable-media EFI loader and its El Torito FAT image."""
     efi_dir = os.path.join(iso_root, "EFI", "BOOT")
     images = os.path.join(iso_root, "images")
@@ -304,7 +304,7 @@ def _efi_script(iso_root, target_cpu, source_date_epoch):
     grub_target, boot_filename = _EFI_ARCH[target_cpu]
     module_dir = "/usr/lib/grub/{}".format(grub_target)
 
-    return "\n".join([
+    lines = [
         "set -e",
         "EFIDIR={}".format(shlex.quote(efi_dir)),
         "IMAGES={}".format(shlex.quote(images)),
@@ -313,35 +313,45 @@ def _efi_script(iso_root, target_cpu, source_date_epoch):
         "BOOTFILE={}".format(shlex.quote(boot_filename)),
         'mkdir -p "$EFIDIR" "$IMAGES"',
         "",
-        'if [ ! -d "$MODDIR" ]; then',
-        '  echo "buckos-distro: no grub modules at $MODDIR; the image-tools'
-        ' set needs GRUB EFI modules for {}" >&2'.format(grub_target),
-        "  exit 1",
-        "fi",
-        "",
-        # Filtered rather than passed straight through: see _GRUB_MODULES.
-        "MODS=",
-        "for m in {}; do".format(" ".join(_GRUB_MODULES)),
-        '  if [ -f "$MODDIR/$m.mod" ]; then MODS="$MODS $m"; fi',
-        "done",
-        "",
-        # -p /EFI/BOOT is the prefix grub looks for grub.cfg under, and it
-        # is resolved against whatever $root is at startup -- the FAT
-        # image.  That is why grub.cfg is copied into efiboot.img below
-        # and not merely onto the ISO.
+    ]
+    if prebuilt_loader:
+        lines += [
+            'test -s "$EFIDIR/$BOOTFILE"',
+            "",
+        ]
+    else:
+        lines += [
+            'if [ ! -d "$MODDIR" ]; then',
+            '  echo "buckos-distro: no grub modules at $MODDIR; the image-tools'
+            ' set needs GRUB EFI modules for {}" >&2'.format(grub_target),
+            "  exit 1",
+            "fi",
+            "",
+            # Filtered rather than passed straight through: see _GRUB_MODULES.
+            "MODS=",
+            "for m in {}; do".format(" ".join(_GRUB_MODULES)),
+            '  if [ -f "$MODDIR/$m.mod" ]; then MODS="$MODS $m"; fi',
+            "done",
+            "",
+            # -p /EFI/BOOT is the prefix grub looks for grub.cfg under, and it
+            # is resolved against whatever $root is at startup -- the FAT
+            # image.  That is why grub.cfg is copied into efiboot.img below
+            # and not merely onto the ISO.
+            'GRUB_MKIMAGE=',
+            'for _candidate in /usr/bin/grub2-mkimage /usr/bin/grub-mkimage; do',
+            '  if [ -x "$_candidate" ]; then GRUB_MKIMAGE="$_candidate"; break; fi',
+            'done',
+            'if [ -z "$GRUB_MKIMAGE" ]; then echo "buckos-distro: grub mkimage tool missing" >&2; exit 1; fi',
+            '"$GRUB_MKIMAGE" -O {} -d "$MODDIR" -p /EFI/BOOT'.format(grub_target) +
+            ' -o "$EFIDIR/$BOOTFILE" $MODS',
+            'test -s "$EFIDIR/$BOOTFILE"',
+            "",
+        ]
+    lines += [
         resolve_in_buildroot("MKFSVFAT", _FAT_TOOLS["MKFSVFAT"]),
         resolve_in_buildroot("MMD", _FAT_TOOLS["MMD"]),
         resolve_in_buildroot("MCOPY", _FAT_TOOLS["MCOPY"]),
         resolve_in_buildroot("MLABEL", _FAT_TOOLS["MLABEL"]),
-        'GRUB_MKIMAGE=',
-        'for _candidate in /usr/bin/grub2-mkimage /usr/bin/grub-mkimage; do',
-        '  if [ -x "$_candidate" ]; then GRUB_MKIMAGE="$_candidate"; break; fi',
-        'done',
-        'if [ -z "$GRUB_MKIMAGE" ]; then echo "buckos-distro: grub mkimage tool missing" >&2; exit 1; fi',
-        '"$GRUB_MKIMAGE" -O {} -d "$MODDIR" -p /EFI/BOOT'.format(grub_target) +
-        ' -o "$EFIDIR/$BOOTFILE" $MODS',
-        'test -s "$EFIDIR/$BOOTFILE"',
-        "",
         # Sized from the payload with generous slack, then floored at 8
         # MiB.  The floor is not padding for its own sake: mkfs.vfat picks
         # FAT12 below roughly 4 MB, and while UEFI tolerates FAT12 on
@@ -377,7 +387,8 @@ def _efi_script(iso_root, target_cpu, source_date_epoch):
         # a stable one is better than a mangled one; nothing reads it.
         '"$MLABEL" -i "$EFIBOOT" ::{}'.format(shlex.quote("EFIBOOT")),
         'test -s "$EFIBOOT"',
-    ])
+    ]
+    return "\n".join(lines)
 
 
 def _bios_script(iso_root):
@@ -529,6 +540,8 @@ def main():
     ap.add_argument("--boot-mode", default="hybrid",
                     choices=("hybrid", "bios", "uefi"))
     ap.add_argument("--target-cpu", default="x86_64", choices=tuple(_EFI_ARCH))
+    ap.add_argument("--uefi-boot-image",
+                    help="signed UKI to install at the removable-media path")
     ap.add_argument("--layout", default="rpm", choices=tuple(_LAYOUTS))
     ap.add_argument("--timeout", type=int, default=5,
                     help="bootloader countdown in seconds")
@@ -551,6 +564,10 @@ def main():
         )
     if args.target_cpu == "aarch64" and args.boot_mode != "uefi":
         ap.error("AArch64 ISO images support UEFI boot only")
+    if args.uefi_boot_image and args.boot_mode == "bios":
+        ap.error("--uefi-boot-image requires a UEFI-capable boot mode")
+    if args.uefi_boot_image and args.additional_kernel:
+        ap.error("a signed UKI currently supports one kernel per ISO")
     require_target_execution(args.target_cpu)
     isolation = resolve_isolation(args.isolation)
     if isolation == "none":
@@ -618,8 +635,15 @@ def _build(args, isolation, label, work, out):
 
     _write(os.path.join(iso_root, "isolinux", "isolinux.cfg"),
            _isolinux_cfg(entries, kernel_args, args.timeout * 10))
-    _write(os.path.join(iso_root, "EFI", "BOOT", "grub.cfg"),
-           _grub_cfg(label, entries, kernel_args, args.timeout))
+    if args.uefi_boot_image:
+        boot_filename = _EFI_ARCH[args.target_cpu][1]
+        _stage(
+            os.path.abspath(args.uefi_boot_image),
+            os.path.join(iso_root, "EFI", "BOOT", boot_filename),
+        )
+    else:
+        _write(os.path.join(iso_root, "EFI", "BOOT", "grub.cfg"),
+               _grub_cfg(label, entries, kernel_args, args.timeout))
 
     print(
         "buckos-distro: assembling {} ({}, kernels={}), cmdline: {}".format(
@@ -633,9 +657,12 @@ def _build(args, isolation, label, work, out):
         run_isolated(["/bin/sh", "-c", _bios_script(inside(iso_root))],
                      isolation, work, work, sysroot, env=env)
     if args.boot_mode in ("hybrid", "uefi"):
-        run_isolated(["/bin/sh", "-c", _efi_script(inside(iso_root),
-                                                   args.target_cpu,
-                                                   args.source_date_epoch)],
+        run_isolated(["/bin/sh", "-c", _efi_script(
+                         inside(iso_root),
+                         args.target_cpu,
+                         args.source_date_epoch,
+                         prebuilt_loader=bool(args.uefi_boot_image),
+                     )],
                      isolation, work, work, sysroot, env=env)
 
     if args.layout == "ubuntu":

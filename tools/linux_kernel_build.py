@@ -27,6 +27,22 @@ _ARCHITECTURES = {
     "aarch64": ("arm64", "Image", "arch/arm64/boot/Image"),
 }
 
+_IMA_CONFIG_VALUES = {
+    "ASYMMETRIC_KEY_TYPE": True,
+    "IMA": True,
+    "IMA_APPRAISE": True,
+    "IMA_APPRAISE_BOOTPARAM": True,
+    "IMA_APPRAISE_MODSIG": True,
+    "IMA_LOAD_X509": True,
+    "IMA_READ_POLICY": True,
+    "IMA_TRUSTED_KEYRING": True,
+    "IMA_X509_PATH": "/etc/keys/x509_ima.der",
+    "INTEGRITY": True,
+    "INTEGRITY_ASYMMETRIC_KEYS": True,
+    "INTEGRITY_SIGNATURE": True,
+    "SYSTEM_TRUSTED_KEYRING": True,
+}
+
 
 def _safe_archive_member(name):
     while name.startswith("./"):
@@ -141,6 +157,29 @@ def set_config_values(path, values):
         stream.writelines(lines)
 
 
+def require_config_values(path, values):
+    """Fail if Kconfig dependency resolution discarded a security setting."""
+    with open(path, "r", encoding="utf-8") as stream:
+        lines = {line.rstrip("\n") for line in stream}
+    missing = []
+    for name, value in sorted(values.items()):
+        if value is True:
+            expected = "CONFIG_{}=y".format(name)
+        elif value is False:
+            expected = "# CONFIG_{} is not set".format(name)
+        else:
+            escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+            expected = 'CONFIG_{}="{}"'.format(name, escaped)
+        if expected not in lines:
+            missing.append(expected)
+    if missing:
+        raise ValueError(
+            "kernel configuration did not retain required settings: {}".format(
+                ", ".join(missing)
+            )
+        )
+
+
 def _make_command(make, source, build, arch, make_args, targets, jobs=None):
     command = [make, "-C", source, "O=" + build, "ARCH=" + arch]
     command += make_args
@@ -201,21 +240,14 @@ def build_kernel(args):
         certificate = os.path.join(work, "ima-signing-certificate.pem")
         write_certificate_pem(os.path.abspath(args.ima_certificate), certificate)
         config_path = os.path.join(build, ".config")
-        set_config_values(config_path, {
-            "ASYMMETRIC_KEY_TYPE": True,
-            "IMA": True,
-            "IMA_APPRAISE": True,
-            "IMA_APPRAISE_BOOTPARAM": True,
-            "IMA_APPRAISE_MODSIG": True,
-            "IMA_LOAD_X509": True,
-            "IMA_TRUSTED_KEYRING": True,
-            "IMA_X509_PATH": "/etc/keys/x509_ima.der",
-            "INTEGRITY": True,
-            "INTEGRITY_ASYMMETRIC_KEYS": True,
-            "INTEGRITY_SIGNATURE": True,
-            "SYSTEM_TRUSTED_KEYRING": True,
-            "SYSTEM_TRUSTED_KEYS": sandbox_path(certificate, work, isolation),
-        })
+        ima_config = dict(_IMA_CONFIG_VALUES)
+        # IMA_TRUSTED_KEYRING only accepts a certificate rooted in the
+        # system keyring. Embedding this public certificate authorizes the
+        # early CONFIG_IMA_LOAD_X509 load; private material is never an input.
+        ima_config["SYSTEM_TRUSTED_KEYS"] = sandbox_path(
+            certificate, work, isolation
+        )
+        set_config_values(config_path, ima_config)
 
     inside_source = sandbox_path(source, work, isolation)
     inside_build = sandbox_path(build, work, isolation)
@@ -264,6 +296,9 @@ def build_kernel(args):
             sysroot,
             env=env,
         )
+
+        if args.ima_certificate:
+            require_config_values(os.path.join(build, ".config"), ima_config)
 
         release_file = os.path.join(work, "release")
         release = read_kernel_release(release_file)

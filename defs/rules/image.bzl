@@ -27,7 +27,7 @@ emergency shell when they are absent:
 
     /LiveOS/squashfs.img    the root filesystem
     /isolinux/              BIOS boot (isolinux.bin + the c32 modules)
-    /EFI/BOOT/              UEFI boot (shim + grub)
+    /EFI/BOOT/              UEFI boot (generated GRUB or signed EFI image)
     /images/efiboot.img     a FAT image holding the same, for El Torito
 
 One choice inside the squashfs is worth naming, because the alternative is
@@ -46,11 +46,18 @@ load(
     "//defs:buildroot_helpers.bzl",
     "BUILDROOT_ATTRS",
     "buildroot_cache_upload",
+    "buildroot_info",
     "buildroot_local_only",
     "buildroot_sysroot_args",
 )
-load("//defs:providers.bzl", "BootInfo")
+load("//defs:providers.bzl", "BootInfo", "EfiImageInfo", "RootfsInfo")
 load("//defs/rules:rootfs.bzl", "rootfs_artifact")
+
+_LIVE_ROOT_ARGS = {
+    "rpm": "root=live:CDLABEL={label} rd.live.image",
+    "debian": "boot=live components",
+    "ubuntu": "boot=casper",
+}
 
 def _single_output(dep, what):
     outputs = dep[DefaultInfo].default_outputs
@@ -141,6 +148,117 @@ squashfs = rule(
     } | BUILDROOT_ATTRS,
 )
 
+def _os_release_value(value):
+    return '"{}"'.format(value.replace("\\", "\\\\").replace('"', '\\"'))
+
+def _uki_image_impl(ctx: AnalysisContext) -> list[Provider]:
+    boot = ctx.attrs.kernel[BootInfo]
+    if boot.architecture != ctx.attrs.architecture:
+        fail("kernel {} is {}, but UKI {} is {}".format(
+            ctx.attrs.kernel.label,
+            boot.architecture,
+            ctx.attrs.name,
+            ctx.attrs.architecture,
+        ))
+
+    metadata = ctx.attrs.rootfs[RootfsInfo]
+    if metadata.architecture != ctx.attrs.architecture:
+        fail("rootfs {} is {}, but UKI {} is {}".format(
+            ctx.attrs.rootfs.label,
+            metadata.architecture,
+            ctx.attrs.name,
+            ctx.attrs.architecture,
+        ))
+
+    buildroot_architecture = buildroot_info(ctx).target_cpu
+    if buildroot_architecture and buildroot_architecture != ctx.attrs.architecture:
+        fail("UKI {} is {}, but its buildroot is {}".format(
+            ctx.attrs.name,
+            ctx.attrs.architecture,
+            buildroot_architecture,
+        ))
+
+    stub = ctx.attrs.efi_stub if ctx.attrs.efi_stub != None else boot.efi_stub
+    if stub == None:
+        fail(
+            "UKI {} needs an efi_stub attribute or a kernel that provides one".format(
+                ctx.attrs.name,
+            ),
+        )
+
+    os_release = ctx.actions.write(
+        ctx.attrs.name + ".os-release",
+        "ID={}\nVERSION_ID={}\n".format(
+            _os_release_value(metadata.flavor),
+            _os_release_value(metadata.release),
+        ),
+    )
+    root_args = _LIVE_ROOT_ARGS[ctx.attrs.layout].format(
+        label = ctx.attrs.volume_label.upper(),
+    )
+    command_line = "{} {} {}".format(
+        root_args,
+        ctx.attrs.kernel_args,
+        " ".join(boot.boot_args),
+    ).strip()
+    out = ctx.actions.declare_output(ctx.attrs.name + ".efi")
+    command = cmd_args(
+        ctx.attrs._assemble[RunInfo],
+        "--stub",
+        stub,
+        "--linux",
+        boot.vmlinuz,
+        "--initrd",
+        _single_output(ctx.attrs.initramfs, "initramfs image"),
+        "--osrel",
+        os_release,
+        "--uname",
+        boot.kver,
+        "--cmdline",
+        command_line,
+        "--architecture",
+        ctx.attrs.architecture,
+        "--source-date-epoch",
+        ctx.attrs.source_date_epoch,
+        "--out",
+        out.as_output(),
+    )
+    command.add(buildroot_sysroot_args(ctx))
+    ctx.actions.run(
+        command,
+        category = "uki",
+        identifier = ctx.attrs.name,
+        allow_cache_upload = buildroot_cache_upload(ctx),
+        local_only = buildroot_local_only(ctx),
+    )
+    return [
+        DefaultInfo(default_output = out),
+        EfiImageInfo(
+            image = out,
+            architecture = ctx.attrs.architecture,
+            signed = False,
+            signing_certificate = None,
+        ),
+    ]
+
+uki_image = rule(
+    impl = _uki_image_impl,
+    attrs = {
+        "architecture": attrs.enum(["x86_64", "aarch64"]),
+        "efi_stub": attrs.option(attrs.source(), default = None),
+        "initramfs": attrs.dep(),
+        "kernel": attrs.dep(providers = [BootInfo]),
+        "kernel_args": attrs.string(default = "quiet"),
+        "layout": attrs.enum(["rpm", "debian", "ubuntu"], default = "rpm"),
+        "rootfs": attrs.dep(providers = [RootfsInfo]),
+        "source_date_epoch": attrs.string(default = "1700000000"),
+        "volume_label": attrs.string(default = "BUCKOS"),
+        "_assemble": attrs.default_only(
+            attrs.exec_dep(default = "//tools:uki_assemble"),
+        ),
+    } | BUILDROOT_ATTRS,
+)
+
 def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
     out = ctx.actions.declare_output(ctx.attrs.name + ".iso")
     if len(ctx.attrs.additional_kernels) != len(ctx.attrs.additional_initramfs):
@@ -161,6 +279,23 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
         ctx.attrs.kernel_args,
         " ".join(boot.boot_args),
     ).strip()
+    secure_boot_image = None
+    if ctx.attrs.secure_boot_image != None:
+        secure_boot = ctx.attrs.secure_boot_image[EfiImageInfo]
+        if not secure_boot.signed:
+            fail("secure_boot_image must be signed")
+        if secure_boot.architecture != ctx.attrs.target_cpu:
+            fail("Secure Boot image {} is {}, but ISO {} is {}".format(
+                ctx.attrs.secure_boot_image.label,
+                secure_boot.architecture,
+                ctx.attrs.name,
+                ctx.attrs.target_cpu,
+            ))
+        if ctx.attrs.boot_mode == "bios":
+            fail("secure_boot_image requires a UEFI-capable boot mode")
+        if ctx.attrs.additional_kernels:
+            fail("Secure Boot UKIs currently support one kernel per ISO")
+        secure_boot_image = secure_boot.image
 
     cmd = cmd_args(
         ctx.attrs._build[RunInfo],
@@ -185,6 +320,8 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
         "--layout",
         ctx.attrs.layout,
     )
+    if secure_boot_image != None:
+        cmd.add("--uefi-boot-image", secure_boot_image)
     for index in range(len(ctx.attrs.additional_kernels)):
         additional_boot = ctx.attrs.additional_kernels[index][BootInfo]
         if additional_boot.architecture != boot.architecture:
@@ -234,6 +371,10 @@ iso_image = rule(
         "kernel_args": attrs.string(default = "quiet"),
         "layout": attrs.enum(["rpm", "debian", "ubuntu"], default = "rpm"),
         "kernel": attrs.dep(providers = [BootInfo]),
+        "secure_boot_image": attrs.option(
+            attrs.dep(providers = [EfiImageInfo]),
+            default = None,
+        ),
         "squashfs": attrs.dep(),
         "target_cpu": attrs.enum(["x86_64", "aarch64"], default = "x86_64"),
         "volume_label": attrs.string(default = "BUCKOS"),

@@ -105,6 +105,7 @@ linux_kernel(
         "//platforms:is_aarch64": "6.18.0-kbuild-aarch64",
         "DEFAULT": "6.18.0-kbuild-x86_64",
     }),
+    ima_signing_key = "//tests/fixtures/keys:ima-test-key",
     jobs = 1,
     boot_args = ["example.boot=1"],
     source = ":fake-linux-source",

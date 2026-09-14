@@ -148,6 +148,7 @@ def _kernel_artifacts_impl(ctx: AnalysisContext) -> list[Provider]:
             initramfs = None,
             kver = version,
             architecture = ctx.attrs.architecture,
+            efi_stub = ctx.attrs.efi_stub,
             boot_args = ctx.attrs.boot_args,
         ),
     ]
@@ -290,6 +291,7 @@ def _linux_kernel_impl(ctx: AnalysisContext) -> list[Provider]:
             initramfs = None,
             kver = version,
             architecture = ctx.attrs.architecture,
+            efi_stub = ctx.attrs.efi_stub,
             boot_args = ctx.attrs.boot_args,
         ),
     ]

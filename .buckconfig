@@ -75,6 +75,13 @@
   # Embedders may add comma-separated execution-platform registries without
   # replacing this repository's architecture-aware local and remote entries.
   additional_execution_platform_registries =
+  # Optional QEMU firmware paths used by //tests:boot-*. Secure variants
+  # must contain the public Secure Boot certificate selected below; they
+  # are deliberately separate from ordinary UEFI firmware configuration.
+  ovmf_secure_code =
+  ovmf_secure_vars =
+  aarch64_secure_uefi =
+  aarch64_secure_vars =
 
 # ── Lockfile storage ─────────────────────────────────────────────────
 # `gzip` keeps checked-in lockfiles below the repository file-size limit.
@@ -105,11 +112,20 @@
   # .buckconfig.local:
   #   [buckos.security]
   #     ima_signing_key = //tests/fixtures/keys:ima-test-key
+  # IMA also requires [buckos.kernel] targets whose KernelInfo declares the
+  # same trusted certificate; distro kernels carry no site-specific trust.
   ima_signing_key =
   # `all` matches the default appraise_tcb policy. `executables` is for a
   # custom policy limited to BPRM_CHECK and executable FILE_MMAP hooks.
   ima_signing_mode = all
-  ima_kernel_args = ima_appraise=enforce ima_policy=appraise_tcb
+  ima_kernel_args = ima_appraise=enforce ima_appraise_tcb
+  # A non-empty signing target enables direct, signed-UKI UEFI boot. The
+  # target must provide SigningKeyInfo + RunInfo with the pe-sign operation.
+  secure_boot_signing_key =
+  # Optional when a configured custom kernel already carries efi_stub.
+  # Distro kernels need an explicit systemd EFI stub for each architecture.
+  efi_stub_x86_64 =
+  efi_stub_aarch64 =
 
 # ── Fedora flavor configuration ──────────────────────────────────────
 # releases     Every release to define targets for, oldest first.  Each one

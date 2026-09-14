@@ -10,6 +10,7 @@ load(
     "target_platform",
 )
 load("//defs:releases.bzl", "iso_volume_label", "release_suffix")
+load("//defs:secure_boot.bzl", "configured_ima", "configured_secure_boot", "signed_uki")
 load("//defs/rules:boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules:buildroot.bzl", "host_buildroot", "seeded_deb_buildroot")
 load("//defs/rules:dsc.bzl", "prebuilt_deb")
@@ -37,19 +38,6 @@ def _is_kernel_payload(entry):
         source.startswith("linux-main-") or
         source.startswith("linux-meta") or
         source.startswith("linux-signed")
-    )
-
-def _ima_signing_key():
-    return read_config("buckos.security", "ima_signing_key", "")
-
-def _ima_signing_mode():
-    return read_config("buckos.security", "ima_signing_mode", "all")
-
-def _ima_kernel_args():
-    return read_config(
-        "buckos.security",
-        "ima_kernel_args",
-        "ima_appraise=enforce ima_policy=appraise_tcb",
     )
 
 _PATH_ESCAPES = {
@@ -286,8 +274,14 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
         return
     buildroot = deb_buildroot_target(flavor, suffix)
     tools = ":buildroot-image-tools" + suffix
-    signing_key = _ima_signing_key()
+    ima = configured_ima()
+    signing_key = ima.signing_key
     kernel_set = configured_kernel_set()
+    if signing_key and not kernel_set.targets:
+        fail("IMA signing requires a configured KernelInfo target that declares its trusted certificate")
+    secure_boot = configured_secure_boot(data.TARGET_CPU)
+    if secure_boot.enabled and kernel_set.additional_indices:
+        fail("Secure Boot UKIs currently support one kernel per ISO")
     seeded_deb_buildroot(
         name = "buildroot-image-tools" + suffix,
         seed_debs = [
@@ -449,7 +443,7 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
                 name = manifest_name,
                 rootfs = rootfs_target,
                 signing_key = signing_key,
-                mode = _ima_signing_mode(),
+                mode = ima.mode,
                 default_target_platform = platform,
                 visibility = ["PUBLIC"],
             )
@@ -464,6 +458,38 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
             exec_compatible_with = exec_constraints,
             visibility = ["PUBLIC"],
         )
+        label = iso_volume_label("{}-{}-LIVE{}".format(
+            flavor.upper(),
+            release,
+            "-PREBUILT" if variant else "",
+        ))
+        kernel_args = "console=tty0 {}".format(
+            "{} {}".format(
+                "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
+                ima.kernel_args,
+            ).strip(),
+        )
+        secure_boot_image = None
+        if secure_boot.enabled:
+            secure_boot_name = "secure-boot-live{}{}".format(variant, suffix)
+            signed_uki(
+                name = secure_boot_name,
+                architecture = data.TARGET_CPU,
+                buildroot = buildroot,
+                efi_stub = secure_boot.efi_stub,
+                initramfs = ":initramfs-live" + variant + suffix,
+                kernel = ":kernel-live" + variant + suffix,
+                kernel_args = kernel_args,
+                layout = flavor,
+                rootfs = rootfs_target,
+                signing_key = secure_boot.signing_key,
+                volume_label = label,
+                default_target_platform = platform,
+                exec_compatible_with = exec_constraints,
+                visibility = ["PUBLIC"],
+            )
+            secure_boot_image = ":" + secure_boot_name
+
         iso_image(
             name = "iso-live" + variant + suffix,
             buildroot = tools,
@@ -478,17 +504,9 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
                 for index in kernel_set.additional_indices
             ],
             squashfs = ":squashfs-live" + variant + suffix,
-            volume_label = iso_volume_label("{}-{}-LIVE{}".format(
-                flavor.upper(),
-                release,
-                "-PREBUILT" if variant else "",
-            )),
-            kernel_args = "console=tty0 {}".format(
-                "{} {}".format(
-                    "console=ttyAMA0,115200" if data.TARGET_CPU == "aarch64" else "console=ttyS0,115200",
-                    _ima_kernel_args() if signing_key else "",
-                ).strip(),
-            ),
+            secure_boot_image = secure_boot_image,
+            volume_label = label,
+            kernel_args = kernel_args,
             boot_mode = "hybrid" if data.TARGET_CPU == "x86_64" else "uefi",
             layout = flavor,
             target_cpu = data.TARGET_CPU,
