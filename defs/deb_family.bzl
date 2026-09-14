@@ -343,8 +343,15 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
             fail("live image set has no recognized kernel payload")
         deb_rootfs(
             name = "rootfs-base" + variant + suffix,
+            architecture = data.TARGET_CPU,
             buildroot = buildroot,
             debs = base_debs,
+            flavor = flavor,
+            package_provenance = (
+                "source-preferred" if variant == "" else "upstream-binary"
+            ),
+            release = data.RELEASE,
+            role = "base",
             default_target_platform = platform,
             exec_compatible_with = exec_constraints,
             visibility = ["PUBLIC"],
@@ -353,8 +360,15 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
         base_rootfs_target = ":rootfs-live" + variant + suffix
         deb_rootfs(
             name = "rootfs-live" + variant + suffix,
+            architecture = data.TARGET_CPU,
             buildroot = buildroot,
             debs = debs,
+            flavor = flavor,
+            package_provenance = (
+                "source-preferred" if variant == "" else "upstream-binary"
+            ),
+            release = data.RELEASE,
+            role = "live",
             default_target_platform = platform,
             exec_compatible_with = exec_constraints,
             visibility = ["PUBLIC"],

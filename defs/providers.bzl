@@ -8,6 +8,9 @@ upstream distro a package came from.
                     contract consumed by rootfs/image/transform rules.
   BuildrootInfo   — a populated build environment.  Per-flavor provenance
                     (SPEC.md section 3) lives here.
+  RootfsInfo      — a producer-neutral Linux filesystem archive plus a
+                    versioned metadata manifest.  Image composers should
+                    consume this instead of guessing at DefaultInfo.
   FlavorInfo      — binds a distro's source format, build driver, and
                     buildroot into one addressable thing.
   SourcePackageInfo — an unpacked upstream source package, normalized into
@@ -66,6 +69,29 @@ BuildrootInfo = provider(fields = [
     "macros",           # artifact | None: extra rpm macros for the replay
     "hermetic",         # bool: False => consuming actions must be local_only
     "env",              # dict[str, str]: extra env for the build action
+])
+
+# ── Root filesystem artifacts ───────────────────────────────────────
+#
+# This is intentionally a filesystem contract, not a container-runtime or
+# live-media contract. A downstream image builder can import the tar directly,
+# while a non-Buck consumer can use the JSON sidecar without knowing anything
+# about Starlark providers.
+
+RootfsInfo = provider(fields = [
+    "archive",              # artifact: complete rootfs rooted at ./
+    "manifest",             # artifact: buckos.rootfs.v1 JSON sidecar
+    "format",               # str: currently "tar"
+    "compression",          # str: currently "none"
+    "layout",               # str: currently "complete-rootfs"
+    "architecture",         # str: x86_64 | aarch64 | unknown
+    "flavor",               # str: distro identity, e.g. fedora
+    "release",              # str: distro release, e.g. 44
+    "package_manager",      # str: rpm | dpkg | unknown
+    "package_provenance",   # str: source-preferred | upstream-binary | unknown
+    "role",                 # str: base | live | buildroot-seed | custom
+    "buildroot_provenance", # str: binary-seed | bootstrapped | host | unknown
+    "transforms",           # list[str]: ordered post-assembly transformations
 ])
 
 # No accessor for `hermetic` lives here on purpose.  The two consumers of

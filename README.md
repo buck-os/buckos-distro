@@ -194,6 +194,8 @@ The image pipeline has separate targets for work with different invalidation cos
 
 The rootfs is a tar archive because package ownership and valid RPM filenames cannot always be represented safely as a Buck directory artifact. Image actions unpack it inside their isolated work areas.
 
+Every rootfs target also provides the producer-neutral `RootfsInfo` contract and a `buckos.rootfs.v1` JSON sidecar. The archive remains the default output; consumers can select `[archive]` or `[manifest]` explicitly. This is the stable boundary for downstream image composers without introducing a dependency on any one of them. See [ROOTFS.md](ROOTFS.md).
+
 The live squashfs is used directly as the root filesystem. x86_64 ISOs contain BIOS and UEFI boot entries. AArch64 ISOs contain the removable-media `BOOTAA64.EFI` UEFI path. Default images are not signed for Secure Boot.
 
 ### Custom kernels
