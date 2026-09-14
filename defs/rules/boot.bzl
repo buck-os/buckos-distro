@@ -31,18 +31,7 @@ load(
     "buildroot_sysroot_args",
 )
 load("//defs:providers.bzl", "BootInfo", "KernelInfo", "SigningKeyInfo")
-
-def _rootfs_artifact(dep):
-    """The tarball out of a rootfs target.
-
-    rootfs targets carry no provider of their own -- deliberately, so
-    buckos-build's image rules, which take attrs.dep() and read
-    DefaultInfo, still accept them directly.
-    """
-    outputs = dep[DefaultInfo].default_outputs
-    if not outputs:
-        fail("{} produces no output to read a kernel from".format(dep.label))
-    return outputs[0]
+load("//defs/rules:rootfs.bzl", "rootfs_artifact")
 
 def _kernel_image_impl(ctx: AnalysisContext) -> list[Provider]:
     if ctx.attrs.kernel != None:
@@ -99,7 +88,7 @@ def _kernel_image_impl(ctx: AnalysisContext) -> list[Provider]:
 
     vmlinuz = ctx.actions.declare_output("vmlinuz")
     kver = ctx.actions.declare_output("kver.txt")
-    rootfs = _rootfs_artifact(ctx.attrs.rootfs)
+    rootfs = rootfs_artifact(ctx.attrs.rootfs)
 
     cmd = cmd_args(
         ctx.attrs._extract[RunInfo],
@@ -160,7 +149,7 @@ def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
     if ctx.attrs.kver and ctx.attrs.kernel != None:
         fail("kver cannot be combined with a custom kernel target")
     out = ctx.actions.declare_output(ctx.attrs.name + ".img")
-    rootfs = _rootfs_artifact(ctx.attrs.rootfs)
+    rootfs = rootfs_artifact(ctx.attrs.rootfs)
 
     cmd = cmd_args(
         ctx.attrs._build[RunInfo],

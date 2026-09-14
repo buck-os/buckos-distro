@@ -33,6 +33,8 @@ The implemented pipeline uses the shared providers from `defs/providers.bzl`.
 
 `BuildrootInfo` describes the environment used by package and image actions. It carries the root tree, provenance, target CPU, distribution tag, optional RPM macros, hermeticity, and environment variables.
 
+`RootfsInfo` is the producer-neutral image-composition boundary. It carries a complete POSIX tar archive, a versioned JSON manifest, target OS and architecture, package-manager and provenance metadata, the rootfs role, and any transformations applied after package installation. The archive remains the target's default output for compatibility; `[archive]` and `[manifest]` expose both parts explicitly. See [ROOTFS.md](ROOTFS.md).
+
 `RpmArtifactInfo` accompanies Fedora package builds. It carries the binary RPM directory, optional source RPM, install root, and NEVRA.
 
 `BootInfo` carries a kernel artifact, an optional initramfs artifact, and the kernel-version artifact used by downstream image rules. `KernelInfo` is the producer-neutral custom-kernel boundary: boot image, `kernelrelease` artifact, architecture, normalized module tree, and optional config, ELF, symbol, EFI-stub, and IMA trust artifacts. No image rule depends on the producer's build-system-specific providers or paths.

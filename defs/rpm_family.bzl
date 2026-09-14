@@ -1041,7 +1041,12 @@ def rpm_rootfs(flavor, data, suffix, platform, exec_constraints):
     """
     rootfs(
         name = "rootfs-seed" + suffix,
+        architecture = data.TARGET_CPU,
         buildroot = rpm_buildroot_target(flavor, suffix),
+        flavor = flavor,
+        package_provenance = "upstream-binary",
+        release = data.RELEASE,
+        role = "buildroot-seed",
         rpms = [":" + entry["target"] + suffix for entry in data.SEED_RPMS],
         default_target_platform = platform,
         exec_compatible_with = exec_constraints,
@@ -1116,7 +1121,14 @@ def rpm_image_rootfs(flavor, data, suffix, platform, exec_constraints):
                     rpms.append(":" + entry["target"] + suffix)
             rootfs(
                 name = "rootfs-" + name + variant + suffix,
+                architecture = data.TARGET_CPU,
                 buildroot = buildroot,
+                flavor = flavor,
+                package_provenance = (
+                    "source-preferred" if variant == "" else "upstream-binary"
+                ),
+                release = data.RELEASE,
+                role = "base" if name == _BASE_IMAGE_SET else "live",
                 rpms = rpms,
                 selinux_modules = (
                     ["//flavors/centos-hyperscale:systemd-260-compat.cil"]

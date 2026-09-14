@@ -1,6 +1,18 @@
 load("//defs:flavor.bzl", "package")
 load("//defs:iso_tests.bzl", "all_live_iso_boot_tests")
 
+python_test(
+    name = "rootfs_contract_test",
+    srcs = ["rootfs_contract_test.py"],
+    base_module = "",
+    resources = {
+        "debian-source.json": "//flavors/debian:rootfs-base-13-x86_64[manifest]",
+        "fedora-live-prebuilt.json": "//flavors/fedora:rootfs-live-prebuilt-44-x86_64[manifest]",
+        "fedora-prebuilt.json": "//flavors/fedora:rootfs-base-prebuilt-44-x86_64[manifest]",
+        "fedora-verify.json": ":rootfs-verify-fedora-prebuilt-44-x86_64[manifest]",
+    },
+)
+
 export_file(
     name = "hello-srpm",
     src = "fixtures/hello-1.0-1.el9.src.rpm",

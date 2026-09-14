@@ -1,9 +1,15 @@
 """Rules for firmware-level ISO boot validation."""
 
+load(
+    "//defs/rules:rootfs.bzl",
+    "rootfs_artifact",
+    "transformed_rootfs_result",
+)
+
 
 def _rootfs_overlay_impl(ctx: AnalysisContext) -> list[Provider]:
     out = ctx.actions.declare_output(ctx.attrs.name + ".tar")
-    rootfs = ctx.attrs.rootfs[DefaultInfo].default_outputs[0]
+    rootfs = rootfs_artifact(ctx.attrs.rootfs)
     cmd = cmd_args(
         ctx.attrs._overlay[RunInfo],
         "--rootfs",
@@ -24,7 +30,12 @@ def _rootfs_overlay_impl(ctx: AnalysisContext) -> list[Provider]:
         identifier = ctx.attrs.name,
         allow_cache_upload = True,
     )
-    return [DefaultInfo(default_output = out)]
+    return transformed_rootfs_result(
+        ctx,
+        out,
+        ctx.attrs.rootfs,
+        ["verification-overlay"],
+    )
 
 
 rootfs_overlay = rule(

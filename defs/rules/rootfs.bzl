@@ -30,11 +30,11 @@ project root", and the failure is sticky, because it happens while the
 daemon is walking the directory rather than while the action runs.  No
 permission trick helps with this one.  Inside a tar the name is data.
 
-It carries no provider of its own, so buckos-build's image rules -- which
-take `attrs.dep()` and read `DefaultInfo.default_outputs[0]` -- still
-accept it directly.  They will need an unpack step, since those rules
-expect a directory; that unpack has to happen inside a namespace for the
-same reason the tar does.
+The archive remains DefaultInfo's default output for compatibility with
+existing image rules.  RootfsInfo and the `[archive]` / `[manifest]`
+subtargets provide the explicit boundary for new consumers.  A consumer
+that needs a directory must unpack the archive without discarding numeric
+ownership, ACLs, or xattrs.
 
 Two sources of packages, because a distro image is always both:
 
@@ -51,10 +51,129 @@ load(
     "//defs:buildroot_helpers.bzl",
     "BUILDROOT_ATTRS",
     "buildroot_cache_upload",
+    "buildroot_info",
     "buildroot_local_only",
     "buildroot_sysroot_args",
 )
-load("//defs:providers.bzl", "PackageInfo")
+load("//defs:providers.bzl", "PackageInfo", "RootfsInfo")
+
+_ROOTFS_SCHEMA = "buckos.rootfs.v1"
+
+def rootfs_artifact(dep):
+    """Return a rootfs archive, preferring the typed contract when present.
+
+    The DefaultInfo fallback keeps hand-written fixtures and older external
+    producers source-compatible while they migrate to RootfsInfo.
+    """
+    if RootfsInfo in dep:
+        return dep[RootfsInfo].archive
+    outputs = dep[DefaultInfo].default_outputs
+    if not outputs:
+        fail("{} produces no rootfs archive".format(dep.label))
+    return outputs[0]
+
+def rootfs_metadata(dep):
+    """Metadata inherited by a rule that transforms a typed rootfs."""
+    if RootfsInfo in dep:
+        info = dep[RootfsInfo]
+        return struct(
+            architecture = info.architecture,
+            flavor = info.flavor,
+            release = info.release,
+            package_manager = info.package_manager,
+            package_provenance = info.package_provenance,
+            role = info.role,
+            buildroot_provenance = info.buildroot_provenance,
+            transforms = info.transforms,
+        )
+    return None
+
+def rootfs_result(ctx, archive, metadata, added_transforms = []):
+    """Publish the neutral rootfs contract without changing the default output."""
+    transforms = metadata.transforms + added_transforms
+    manifest = ctx.actions.write(
+        ctx.attrs.name + ".rootfs.json",
+        json.encode({
+            "archive": {
+                "compression": "none",
+                "format": "tar",
+                "layout": "complete-rootfs",
+                "media_type": "application/x-tar",
+                "root": "./",
+            },
+            "build": {
+                "buildroot_provenance": metadata.buildroot_provenance,
+                "package_provenance": metadata.package_provenance,
+                "transforms": transforms,
+            },
+            "filesystem": {
+                "acls": True,
+                "numeric_ownership": True,
+                "path_semantics": "posix",
+                "xattrs": True,
+            },
+            "role": metadata.role,
+            "schema": _ROOTFS_SCHEMA,
+            "target": {
+                "architecture": metadata.architecture,
+                "os": {
+                    "id": metadata.flavor,
+                    "version_id": metadata.release,
+                },
+                "package_manager": metadata.package_manager,
+            },
+        }) + "\n",
+    )
+    return [
+        DefaultInfo(
+            default_output = archive,
+            other_outputs = [manifest],
+            sub_targets = {
+                "archive": [DefaultInfo(default_output = archive)],
+                "manifest": [DefaultInfo(default_output = manifest)],
+            },
+        ),
+        RootfsInfo(
+            archive = archive,
+            manifest = manifest,
+            format = "tar",
+            compression = "none",
+            layout = "complete-rootfs",
+            architecture = metadata.architecture,
+            flavor = metadata.flavor,
+            release = metadata.release,
+            package_manager = metadata.package_manager,
+            package_provenance = metadata.package_provenance,
+            role = metadata.role,
+            buildroot_provenance = metadata.buildroot_provenance,
+            transforms = transforms,
+        ),
+    ]
+
+def transformed_rootfs_result(ctx, archive, source, added_transforms):
+    """Preserve RootfsInfo, or only DefaultInfo for an untyped legacy input."""
+    metadata = rootfs_metadata(source)
+    if metadata == None:
+        return [DefaultInfo(default_output = archive)]
+    return rootfs_result(
+        ctx,
+        archive,
+        metadata,
+        added_transforms = added_transforms,
+    )
+
+def _declared_metadata(ctx, package_manager):
+    info = buildroot_info(ctx)
+    return struct(
+        architecture = ctx.attrs.architecture,
+        flavor = ctx.attrs.flavor,
+        release = ctx.attrs.release,
+        package_manager = package_manager,
+        package_provenance = ctx.attrs.package_provenance,
+        role = ctx.attrs.role,
+        buildroot_provenance = info.provenance,
+        transforms = [],
+    )
 
 def _rootfs_impl(ctx: AnalysisContext) -> list[Provider]:
     out = ctx.actions.declare_output(ctx.attrs.name + ".tar")
@@ -98,7 +217,7 @@ def _rootfs_impl(ctx: AnalysisContext) -> list[Provider]:
         local_only = buildroot_local_only(ctx),
     )
 
-    return [DefaultInfo(default_output = out)]
+    return rootfs_result(ctx, out, _declared_metadata(ctx, "rpm"))
 
 rootfs = rule(
     impl = _rootfs_impl,
@@ -109,8 +228,19 @@ rootfs = rule(
         # dependency check is the one end-to-end verification that the set
         # tools/solve.py computed is actually closed and installable.
         "nodeps": attrs.bool(default = False),
+        "architecture": attrs.string(default = "unknown"),
+        "flavor": attrs.string(default = "unknown"),
+        "package_provenance": attrs.enum(
+            ["source-preferred", "upstream-binary", "unknown"],
+            default = "unknown",
+        ),
         "packages": attrs.list(attrs.dep(providers = [PackageInfo]), default = []),
+        "release": attrs.string(default = "unknown"),
         "rpms": attrs.list(attrs.dep(), default = []),
+        "role": attrs.enum(
+            ["base", "live", "buildroot-seed", "custom"],
+            default = "custom",
+        ),
         "selinux_modules": attrs.list(attrs.source(), default = []),
         "source_date_epoch": attrs.string(default = "1700000000"),
         "_install": attrs.default_only(
@@ -134,12 +264,23 @@ def _deb_rootfs_impl(ctx: AnalysisContext) -> list[Provider]:
         allow_cache_upload = buildroot_cache_upload(ctx),
         local_only = buildroot_local_only(ctx),
     )
-    return [DefaultInfo(default_output = out)]
+    return rootfs_result(ctx, out, _declared_metadata(ctx, "dpkg"))
 
 deb_rootfs = rule(
     impl = _deb_rootfs_impl,
     attrs = {
+        "architecture": attrs.string(default = "unknown"),
         "debs": attrs.list(attrs.dep(), default = []),
+        "flavor": attrs.string(default = "unknown"),
+        "package_provenance": attrs.enum(
+            ["source-preferred", "upstream-binary", "unknown"],
+            default = "unknown",
+        ),
+        "release": attrs.string(default = "unknown"),
+        "role": attrs.enum(
+            ["base", "live", "buildroot-seed", "custom"],
+            default = "custom",
+        ),
         "source_date_epoch": attrs.string(default = "1700000000"),
         "_deb_install": attrs.default_only(
             attrs.exec_dep(default = "//tools:deb_rootfs_install"),

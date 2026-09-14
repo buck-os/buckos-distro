@@ -15,6 +15,11 @@ load(
     "buildroot_sysroot_args",
 )
 load("//defs:providers.bzl", "BootInfo", "KernelInfo", "SigningKeyInfo")
+load(
+    "//defs/rules:rootfs.bzl",
+    "rootfs_artifact",
+    "transformed_rootfs_result",
+)
 
 
 def configured_kernel_set():
@@ -301,7 +306,7 @@ linux_kernel = rule(
 
 
 def _kernel_rootfs_impl(ctx: AnalysisContext) -> list[Provider]:
-    rootfs = ctx.attrs.rootfs[DefaultInfo].default_outputs[0]
+    rootfs = rootfs_artifact(ctx.attrs.rootfs)
     out = ctx.actions.declare_output(ctx.attrs.name + ".tar")
     command = cmd_args(
         ctx.attrs._compose[RunInfo],
@@ -350,7 +355,12 @@ def _kernel_rootfs_impl(ctx: AnalysisContext) -> list[Provider]:
         local_only = False,
         allow_cache_upload = True,
     )
-    return [DefaultInfo(default_output = out)]
+    return transformed_rootfs_result(
+        ctx,
+        out,
+        ctx.attrs.rootfs,
+        ["custom-kernel"],
+    )
 
 
 kernel_rootfs = rule(

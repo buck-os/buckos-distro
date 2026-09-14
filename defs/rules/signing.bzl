@@ -18,6 +18,7 @@ acceptable transport for a release private key.
 """
 
 load("//defs:providers.bzl", "SigningKeyInfo")
+load("//defs/rules:rootfs.bzl", "rootfs_artifact")
 
 
 def _file_signing_key_impl(ctx: AnalysisContext) -> list[Provider]:
@@ -158,7 +159,7 @@ authenticode_signing_key = rule(
 
 
 def _ima_manifest_impl(ctx: AnalysisContext) -> list[Provider]:
-    rootfs = ctx.attrs.rootfs[DefaultInfo].default_outputs[0]
+    rootfs = rootfs_artifact(ctx.attrs.rootfs)
     key = ctx.attrs.signing_key[SigningKeyInfo]
     if "ima-manifest" not in key.operations:
         fail("signing key {} does not support ima-manifest".format(key.key_id))

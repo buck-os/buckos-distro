@@ -50,6 +50,7 @@ load(
     "buildroot_sysroot_args",
 )
 load("//defs:providers.bzl", "BootInfo")
+load("//defs/rules:rootfs.bzl", "rootfs_artifact")
 
 def _single_output(dep, what):
     outputs = dep[DefaultInfo].default_outputs
@@ -63,7 +64,7 @@ def _squashfs_impl(ctx: AnalysisContext) -> list[Provider]:
     cmd = cmd_args(
         ctx.attrs._build[RunInfo],
         "--rootfs",
-        _single_output(ctx.attrs.rootfs, "rootfs tarball"),
+        rootfs_artifact(ctx.attrs.rootfs),
         "--out",
         out.as_output(),
         "--compressor",
