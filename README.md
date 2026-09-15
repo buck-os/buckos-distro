@@ -220,6 +220,57 @@ Architecture is part of the contract rather than a target-name convention. A sin
 
 Kernel compilation inherits remote-execution and cache-upload policy from its buildroot. With a hermetic seeded buildroot, compilation, module normalization, rootfs composition, per-kernel initramfs generation, SquashFS construction, and ISO construction are all cacheable. Host-provenance builds remain local and are not uploaded to shared caches.
 
+### RPM artifacts and signing
+
+Every source-built RPM-family package exposes one `*-rpm` target per binary
+subpackage. These unsigned targets are the canonical build outputs used for
+dependency resolution, image assembly, and reproducibility comparisons. They
+provide `RpmFileInfo`, so release tooling can consume an exact package rather
+than a directory containing every result of the source build.
+
+RPM signing is an explicit derived step. `external_rpm_signing_key` declares a
+public verification key and a deployment-owned signer executable;
+`rpm_sign` passes one typed RPM to that executable and returns a typed signed
+RPM. The executable implements this neutral command interface:
+
+```text
+<signer> [configured arguments] rpm-sign \
+  --in INPUT.rpm --out OUTPUT.rpm --package-name NAME
+```
+
+The signer must verify the output against the declared identity before it
+returns success. This allows a deployment to use its native authorization and
+hardware-backed key service without placing credentials, private keys, service
+addresses, or service-specific client details in this repository. Production
+signing actions are local and non-cacheable by default.
+
+```python
+load(
+    "//defs/rules:rpm_signing.bzl",
+    "external_rpm_signing_key",
+    "rpm_sign",
+)
+
+external_rpm_signing_key(
+    name = "release-rpm-key",
+    signer = "//release:package-signer",
+    signer_args = ["--key", "example-rpm-release"],
+    public_key = "example-rpm-release.pub",
+    key_id = "example-rpm-release",
+)
+
+rpm_sign(
+    name = "signed-example",
+    rpm = "//packages:example-main-rpm",
+    signing_key = ":release-rpm-key",
+)
+```
+
+`rpm_file` adapts an externally produced RPM to the same typed boundary.
+RPM package signatures authenticate the package archive and are independent of
+IMA signatures on files installed into a root filesystem; deployments that
+need both should enable both transformations.
+
 ### Secure Boot, signing, and IMA
 
 Signing is opt-in. Signing identities are Buck targets providing `SigningKeyInfo` and `RunInfo`; image rules invoke the target rather than reading a private key directly. `file_signing_key` supports test and local PEM keys, while `external_signing_key` lets a deployment select an HSM/KMS client implementing the same command interface. `authenticode_signing_key` adapts a remote Authenticode client to `efi_sign`, keeps the action local and non-cacheable, and verifies the result against the declared public certificate.

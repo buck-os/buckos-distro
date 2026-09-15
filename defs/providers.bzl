@@ -17,6 +17,7 @@ upstream distro a package came from.
                     whatever layout the flavor's build driver expects.
   RpmArtifactInfo / DebArtifactInfo — native binary packages, for flavors
                     that publish a real repo alongside the installroot.
+  RpmFileInfo      — one RPM, optionally signed as a derived release artifact.
 """
 
 # ── The universal package contract ───────────────────────────────────
@@ -198,6 +199,29 @@ SigningKeyInfo = provider(fields = [
 ])
 
 # ── Native binary package artifacts ──────────────────────────────────
+
+# The single-file boundary used by image assembly, signing, and publication.
+# RpmArtifactInfo represents all outputs of one source build; RpmFileInfo is
+# deliberately narrower so a signer cannot accidentally receive an output
+# directory containing packages that were not selected for release.
+RpmFileInfo = provider(fields = [
+    "rpm",                 # artifact: exactly one binary .rpm
+    "package_name",        # str: binary package identity
+    "signed",              # bool
+    "signing_key_id",      # str | None: identity that signed this artifact
+    "verification_key",    # artifact | None: public RPM verification key
+])
+
+# RPM package signatures normally use an OpenPGP identity, which is a distinct
+# trust domain from the X.509 identities carried by SigningKeyInfo for IMA and
+# PE/COFF. Keeping the providers separate prevents an image key from being
+# silently reused as a repository/package key.
+RpmSigningKeyInfo = provider(fields = [
+    "public_key",          # artifact: public RPM verification key
+    "key_id",              # str: stable operator-facing identity
+    "cacheable",           # bool: signed outputs may enter a shared cache
+    "local_only",          # bool: signer must execute on the local machine
+])
 
 RpmArtifactInfo = provider(fields = [
     "rpms",             # list[artifact]: binary .rpm files (incl. subpackages)
