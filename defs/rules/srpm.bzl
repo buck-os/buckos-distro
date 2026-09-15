@@ -35,7 +35,7 @@ load(
     "dep_installroot_args",
     "dep_rpm_args",
 )
-load("//defs:providers.bzl", "PackageInfo", "RpmArtifactInfo")
+load("//defs:providers.bzl", "PackageInfo", "RpmArtifactInfo", "RpmFileInfo")
 
 # ── Unpack ───────────────────────────────────────────────────────────
 
@@ -395,7 +395,16 @@ def _built_rpm_impl(ctx: AnalysisContext) -> list[Provider]:
         allow_cache_upload = True,
     )
 
-    return [DefaultInfo(default_output = out)]
+    return [
+        DefaultInfo(default_output = out),
+        RpmFileInfo(
+            rpm = out,
+            package_name = ctx.attrs.rpm,
+            signed = False,
+            signing_key_id = None,
+            verification_key = None,
+        ),
+    ]
 
 built_rpm = rule(
     impl = _built_rpm_impl,

@@ -1,0 +1,54 @@
+load(
+    "//defs/rules:rpm_signing.bzl",
+    "external_rpm_signing_key",
+    "rpm_file",
+    "rpm_sign",
+)
+
+python_binary(
+    name = "fixture-signer",
+    main = "fixture_signer.py",
+)
+
+export_file(
+    name = "rpm-test-public-key",
+    src = "rpm-test.pub",
+)
+
+external_rpm_signing_key(
+    name = "rpm-test-key",
+    signer = ":fixture-signer",
+    signer_args = ["--key-id", "buckos-rpm-test"],
+    public_key = ":rpm-test-public-key",
+    key_id = "buckos-rpm-test",
+    cacheable = True,
+)
+
+rpm_file(
+    name = "unsigned-rpm",
+    rpm = "unsigned.rpm",
+    package_name = "example",
+)
+
+rpm_sign(
+    name = "signed-rpm",
+    rpm = ":unsigned-rpm",
+    signing_key = ":rpm-test-key",
+)
+
+# Analysis fixture proving that the source-replay pipeline's generated
+# `*-rpm` target crosses the same provider boundary as an adapted RPM.
+rpm_sign(
+    name = "signed-built-rpm",
+    rpm = "//tests:hello-main-rpm",
+    signing_key = ":rpm-test-key",
+)
+
+python_test(
+    name = "rpm_signing_contract_test",
+    srcs = ["rpm_signing_contract_test.py"],
+    base_module = "",
+    resources = {
+        "signed.rpm": ":signed-rpm",
+    },
+)

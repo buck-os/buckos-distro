@@ -14,6 +14,8 @@ For each source package, `package()` creates these targets:
 :name-build           Binary RPM directory, install root, and build manifest
 :name-main            Projection for the binary package matching the source name
 :name-<subpackage>    Projection for each additional binary package
+:name-main-rpm        Exact unsigned binary RPM for the main package
+:name-<subpackage>-rpm Exact unsigned binary RPM for each additional package
 :name                 Alias for the main binary package when it exists
 ```
 
@@ -36,6 +38,14 @@ The implemented pipeline uses the shared providers from `defs/providers.bzl`.
 `RootfsInfo` is the producer-neutral image-composition boundary. It carries a complete POSIX tar archive, a versioned JSON manifest, target OS and architecture, package-manager and provenance metadata, the rootfs role, and any transformations applied after package installation. The archive remains the target's default output for compatibility; `[archive]` and `[manifest]` expose both parts explicitly. See [ROOTFS.md](ROOTFS.md).
 
 `RpmArtifactInfo` accompanies Fedora package builds. It carries the binary RPM directory, optional source RPM, install root, and NEVRA.
+
+`RpmFileInfo` carries exactly one binary RPM, its package name, signed state,
+and optional signing identity and public verification key. Source-built
+`*-rpm` targets provide the unsigned form. `rpm_sign` creates the signed form
+through a deployment-owned executable providing `RpmSigningKeyInfo` and
+`RunInfo`; no private key is a Buck input. `RpmSigningKeyInfo` is separate from
+the X.509-oriented image signing provider because RPM repository trust, Secure
+Boot, and IMA are independent trust domains.
 
 `BootInfo` carries a kernel artifact, its architecture, optional additive boot arguments, an optional initramfs artifact, and the kernel-version artifact used by downstream image rules. `KernelInfo` is the producer-neutral custom-kernel boundary: boot image, `kernelrelease` artifact, architecture, additive boot arguments, normalized module tree, and optional config, ELF, symbol, EFI-stub, and IMA trust artifacts. No image rule depends on the producer's build-system-specific providers or paths.
 
@@ -187,6 +197,7 @@ defs/releases.bzl           Configured release expansion
 defs/buildroot_helpers.bzl  Buildroot access and execution policy
 defs/exec.bzl               Execution-platform registration
 defs/rules/srpm.bzl         Source RPM unpack, replay, and projection rules
+defs/rules/rpm_signing.bzl  Typed RPM adapters and external signing boundary
 defs/rules/dsc.bzl          Debian source unpack, replay, and projection rules
 defs/rules/buildroot.bzl    Host and binary-seeded buildroots
 defs/rules/rootfs.bzl       RPM transaction and rootfs archive
