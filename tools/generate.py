@@ -28,7 +28,7 @@ import json
 import os
 import sys
 
-from _lockfile import load_lockfile, strip_lockfile_suffix
+from _lockfile import load_lockfile, lockfile_digest, strip_lockfile_suffix
 # Imported rather than repeated: solve.py writes the lock schema and adapts
 # RPM records into the common source-policy vocabulary.
 from solve import LOCK_SCHEMA, rpm_source_policy_inputs
@@ -258,6 +258,7 @@ def render(lock, lockfile, seed, base_seed, image_sets, sources, recipes,
     out.append("RELEASE = {}\n".format(json.dumps(lock["release"])))
     out.append("DIST_TAG = {}\n".format(json.dumps(lock["dist_tag"])))
     out.append("TARGET_CPU = {}\n".format(json.dumps(lock["target_cpu"])))
+    out.append("LOCK_SHA256 = {}\n".format(json.dumps(lockfile_digest(lock))))
     out.append("SOURCE_POLICY = {}\n".format(
         _bzl_literal(lock.get("source_policy"))))
     out.append("\n")
@@ -509,6 +510,7 @@ def write_index(out_dir, flavor):
             '    {a}_flavor = "FLAVOR",\n'
             '    {a}_dist_tag = "DIST_TAG",\n'
             '    {a}_image_sets = "IMAGE_SETS",\n'
+            '    {a}_lock_sha256 = "LOCK_SHA256",\n'
             '    {a}_recipes = "RECIPES",\n'
             '    {a}_release = "RELEASE",\n'
             '    {a}_source_policy = "SOURCE_POLICY",\n'
@@ -543,6 +545,7 @@ def write_index(out_dir, flavor):
                 '            VARIANT_SEED_RPMS = {a}_variant_seed,\n'
                 '            BASE_SEED = {a}_base_seed,\n'
                 '            IMAGE_SETS = {a}_image_sets,\n'
+                '            LOCK_SHA256 = {a}_lock_sha256,\n'
                 '            SOURCE_RPMS = {a}_sources,\n'
                 '            RECIPES = {a}_recipes,\n'
                 '            STAGED = {a}_staged,\n'

@@ -11,6 +11,7 @@ FLAVOR = "fedora"
 RELEASE = "44"
 DIST_TAG = ".fc44"
 TARGET_CPU = "x86_64"
+LOCK_SHA256 = "b6858735e7c5d0c4acd28ad2f6fb64e10423375075e713111b0bcce5c8863354"
 SOURCE_POLICY = {"exceptions": [{"kind": "host-kernel-capability", "package": "kernel", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-core", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules-core", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "libxcrypt", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "libxcrypt"}], "image_sets": ["live"], "schema": 1, "summary": {"live": {"pinned": 5, "source": 181, "total": 186}}}
 
 REPO_BASE = {

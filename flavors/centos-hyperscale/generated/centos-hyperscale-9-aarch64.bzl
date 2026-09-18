@@ -11,6 +11,7 @@ FLAVOR = "centos-hyperscale"
 RELEASE = "9"
 DIST_TAG = ".hs.el9"
 TARGET_CPU = "aarch64"
+LOCK_SHA256 = "c8dc1bfbbea4e021dc0c5722f0527a11eef065e3094bc9e5611594439088f9d6"
 SOURCE_POLICY = {"exceptions": [{"kind": "host-kernel-capability", "package": "kernel", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-core", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules-core", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "libxcrypt", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "libxcrypt"}], "image_sets": ["live"], "schema": 1, "summary": {"live": {"pinned": 5, "source": 195, "total": 200}}}
 
 REPO_BASE = {

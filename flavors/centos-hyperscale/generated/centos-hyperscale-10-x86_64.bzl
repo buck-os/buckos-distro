@@ -11,6 +11,7 @@ FLAVOR = "centos-hyperscale"
 RELEASE = "10"
 DIST_TAG = ".hs.el10"
 TARGET_CPU = "x86_64"
+LOCK_SHA256 = "b4c1aa1d15d93b1f0fdf1f316d2f43a6b353d56347340b660533a44395e879b9"
 SOURCE_POLICY = {"exceptions": [{"kind": "host-kernel-capability", "package": "kernel", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-core", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules-core", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-input", "package": "libcap-ng", "reason": "The cap-audit build derives vmlinux.h from /sys/kernel/btf/vmlinux on the build host, so it is not reproducible across host kernels or cross-architecture execution.", "source": "libcap-ng"}, {"kind": "host-kernel-capability", "package": "libxcrypt", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "libxcrypt"}], "image_sets": ["live"], "schema": 1, "summary": {"live": {"pinned": 6, "source": 185, "total": 191}}}
 
 REPO_BASE = {

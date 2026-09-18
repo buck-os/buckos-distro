@@ -93,6 +93,10 @@ def _download_url(flavor, data, entry):
         return _render_package_url(flavor, template, data.RELEASE, entry)
     return entry["url"]
 
+def deb_download_url(flavor, data, entry):
+    """Public URL renderer for pinned Debian-family extension packages."""
+    return _download_url(flavor, data, entry)
+
 def _download(flavor, data, entry, suffix, defined, platform):
     name = entry["target"] + suffix
     previous = defined.get(name)

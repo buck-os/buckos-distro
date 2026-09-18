@@ -2,6 +2,7 @@
 
 import configparser
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -19,6 +20,17 @@ _CONFIG_SECTION = "buckos.lockfiles"
 _CONFIG_KEY = "compression"
 _MAX_SIZE_CONFIG_KEY = "max_tracked_file_size"
 _COMPRESSIONS = ("none", "gzip")
+
+
+def lockfile_digest(value):
+    """Content identity independent of JSON whitespace and compression."""
+    canonical = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _repo_root():

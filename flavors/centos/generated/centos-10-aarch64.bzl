@@ -11,6 +11,7 @@ FLAVOR = "centos"
 RELEASE = "10"
 DIST_TAG = ".el10"
 TARGET_CPU = "aarch64"
+LOCK_SHA256 = "b5bc25227c124c1c1d62a43bab831cf92e8a3b1b86ce9384f2959d28ff53f4df"
 SOURCE_POLICY = {"exceptions": [{"kind": "host-kernel-capability", "package": "kernel", "reason": "The assigned build host lacks the kernel crypto user API required by the kernel source signing step.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-core", "reason": "The assigned build host lacks the kernel crypto user API required by the kernel source signing step.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules", "reason": "The assigned build host lacks the kernel crypto user API required by the kernel source signing step.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules-core", "reason": "The assigned build host lacks the kernel crypto user API required by the kernel source signing step.", "source": "kernel"}, {"kind": "host-kernel-input", "package": "libcap-ng", "reason": "The cap-audit build derives vmlinux.h from /sys/kernel/btf/vmlinux on the build host, so it is not reproducible across host kernels or cross-architecture execution.", "source": "libcap-ng"}, {"kind": "host-kernel-capability", "package": "libxcrypt", "reason": "The assigned build host lacks the kernel crypto user API required by the libxcrypt source post-install step.", "source": "libxcrypt"}], "image_sets": ["live"], "schema": 1, "summary": {"live": {"pinned": 6, "source": 184, "total": 190}}}
 
 REPO_BASE = {

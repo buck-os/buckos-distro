@@ -97,6 +97,16 @@ Dynamic build requirements are collected by running `rpmbuild -br` in `:name-bui
 
 Debian-family dependency resolution is deliberately smaller: `tools/deb_lock.py` runs APT against explicit target repositories and an empty dpkg status database, resolves source Build-Depends, the essential build base, and complete live/image-tool closures, and records every source and binary artifact by URL and SHA-256. `tools/deb_generate.py` converts that lock into pure Starlark data.
 
+Optional remote upstreams are separate binary overlay locks. An overlay names
+one base image set, records the semantic SHA-256 of the complete base lock, and
+resolves the base userspace plus its requested packages as one package-manager
+transaction. Recording the complete closure is required because a PPA, EPEL,
+or another vendor repository may replace an existing library rather than only
+add packages. Generated overlay targets verify the base digest during analysis,
+reuse unchanged base downloads, fetch changed artifacts by SHA-256, and produce
+an opt-in kernel-free rootfs. They never modify a flavor's default image sets.
+Overlay source replay is not currently part of this contract.
+
 ## Buildroot provenance
 
 Fedora, CentOS Stream, CentOS Hyperscale, Debian, and Ubuntu define a buildroot per configured release and provenance.

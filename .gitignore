@@ -27,6 +27,7 @@
 /flavors/*/lock/*.xml.gz
 /flavors/*/lock/*.xml.zst
 /flavors/*/lock/*.sqlite*
+/flavors/*/upstream-locks/repodata/
 
 # Python
 __pycache__/

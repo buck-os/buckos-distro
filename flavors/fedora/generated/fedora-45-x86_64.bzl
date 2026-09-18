@@ -11,6 +11,7 @@ FLAVOR = "fedora"
 RELEASE = "45"
 DIST_TAG = ".fc45"
 TARGET_CPU = "x86_64"
+LOCK_SHA256 = "de0f2d91a73957da7f5749c38d5b520d813bc385b51199a4f37c170269c90c48"
 SOURCE_POLICY = {"exceptions": [{"kind": "host-kernel-capability", "package": "kernel", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-core", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules-core", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "libxcrypt", "reason": "The build host lacks CONFIG_CRYPTO_USER required by the source package FIPS integrity generation.", "source": "libxcrypt"}, {"kind": "fedora-45-tar-incompatibility", "package": "tar", "reason": "Fedora 45 tar 1.35 conflicts with acl 2.4.0 acl_get_file_at declarations.", "source": "tar"}], "image_sets": ["live"], "schema": 1, "summary": {"live": {"pinned": 6, "source": 187, "total": 193}}}
 
 REPO_BASE = {
