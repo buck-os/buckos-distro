@@ -6,7 +6,7 @@ import json
 import logging
 import os
 
-from _lockfile import configured_max_tracked_file_size, load_lockfile
+from _lockfile import configured_max_tracked_file_size, load_lockfile, lockfile_digest
 from source_policy import validate_source_policy
 
 
@@ -180,6 +180,7 @@ def main(argv=None):
         "CODENAME = {}".format(bzl_literal(lock["codename"])),
         "ARCHITECTURE = {}".format(bzl_literal(lock["architecture"])),
         "TARGET_CPU = {}".format(bzl_literal(cpu)),
+        "LOCK_SHA256 = {}".format(bzl_literal(lockfile_digest(lock))),
         "",
         "BASE_DEBS = {}".format(bzl_literal(lock.get("base_debs", lock.get("seed_debs", [])))),
         "SEED_DEBS = BASE_DEBS",
@@ -237,6 +238,7 @@ def write_index(out_dir, distro):
             '    {a}_codename = "CODENAME",\n'
             '    {a}_distro = "DISTRO",\n'
             '    {a}_image_sets = "IMAGE_SETS",\n'
+            '    {a}_lock_sha256 = "LOCK_SHA256",\n'
             '    {a}_release = "RELEASE",\n'
             '    {a}_seed = "SEED_DEBS",\n'
             '    {a}_source_policy = "SOURCE_POLICY",\n'
@@ -260,6 +262,7 @@ def write_index(out_dir, distro):
                 '            CODENAME = {a}_codename,\n'
                 '            DISTRO = {a}_distro,\n'
                 '            IMAGE_SETS = {a}_image_sets,\n'
+                '            LOCK_SHA256 = {a}_lock_sha256,\n'
                 '            RELEASE = {a}_release,\n'
                 '            SEED_DEBS = {a}_seed,\n'
                 '            SOURCE_POLICY = {a}_source_policy,\n'

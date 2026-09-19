@@ -303,6 +303,10 @@ def _download_url(flavor, data, entry):
         base = mirror_base + base[len(mirror_from):]
     return "{}/{}".format(base, _escape(entry["location"], _PATH_ESCAPES))
 
+def rpm_download_url(flavor, data, entry):
+    """Public URL renderer for pinned RPM-family extension packages."""
+    return _download_url(flavor, data, entry)
+
 def rpm_downloads(flavor, data, suffix, platform):
     """One http_file per pinned rpm: seed closure, image sets, source rpms.
 

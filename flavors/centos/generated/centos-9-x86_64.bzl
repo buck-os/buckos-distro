@@ -11,6 +11,7 @@ FLAVOR = "centos"
 RELEASE = "9"
 DIST_TAG = ".el9"
 TARGET_CPU = "x86_64"
+LOCK_SHA256 = "dc46708bfca2870c335a827cc82c8081185cc7245b9402fed031b9793c37992f"
 SOURCE_POLICY = {"exceptions": [{"kind": "host-kernel-capability", "package": "kernel", "reason": "The assigned build host lacks the kernel crypto user API required by the kernel source signing step.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-core", "reason": "The assigned build host lacks the kernel crypto user API required by the kernel source signing step.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules", "reason": "The assigned build host lacks the kernel crypto user API required by the kernel source signing step.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "kernel-modules-core", "reason": "The assigned build host lacks the kernel crypto user API required by the kernel source signing step.", "source": "kernel"}, {"kind": "host-kernel-capability", "package": "libxcrypt", "reason": "The assigned build host lacks the kernel crypto user API required by the libxcrypt source post-install step.", "source": "libxcrypt"}], "image_sets": ["live"], "schema": 1, "summary": {"live": {"pinned": 5, "source": 195, "total": 200}}}
 
 REPO_BASE = {

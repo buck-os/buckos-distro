@@ -544,14 +544,21 @@ python_binary(
     visibility = ["PUBLIC"],
 )
 
-python_binary(
-    name = "deb_lock",
-    main = "deb_lock.py",
+python_library(
+    name = "deb_lock_lib",
+    srcs = ["deb_lock.py"],
+    base_module = "",
     deps = [
         ":_deb",
         ":_lockfile",
         ":source_policy",
     ],
+)
+
+python_binary(
+    name = "deb_lock",
+    main_module = "deb_lock",
+    deps = [":deb_lock_lib"],
     visibility = ["PUBLIC"],
 )
 
@@ -662,6 +669,44 @@ python_binary(
     visibility = ["PUBLIC"],
 )
 
+python_library(
+    name = "upstream_lock_lib",
+    srcs = ["upstream_lock.py"],
+    base_module = "",
+    deps = [
+        ":_lockfile",
+        ":deb_lock_lib",
+        ":generate_lib",
+        ":relock_lib",
+        ":rpm_relock_lib",
+        ":solve_lib",
+    ],
+)
+
+python_binary(
+    name = "upstream_lock",
+    main_module = "upstream_lock",
+    deps = [":upstream_lock_lib"],
+    visibility = ["PUBLIC"],
+)
+
+python_library(
+    name = "upstream_generate_lib",
+    srcs = ["upstream_generate.py"],
+    base_module = "",
+    deps = [
+        ":_lockfile",
+        ":deb_generate_lib",
+    ],
+)
+
+python_binary(
+    name = "upstream_generate",
+    main_module = "upstream_generate",
+    deps = [":upstream_generate_lib"],
+    visibility = ["PUBLIC"],
+)
+
 # Discovering what %generate_buildrequires asks for, by running it.
 #
 #     buck2 run //tools:probe -- --flavor fedora --release 44 --arch x86_64
@@ -726,6 +771,16 @@ python_test(
     srcs = ["rpm_relock_test.py"],
     base_module = "",
     deps = [":rpm_relock_lib"],
+)
+
+python_test(
+    name = "upstream_test",
+    srcs = ["upstream_test.py"],
+    base_module = "",
+    deps = [
+        ":upstream_generate_lib",
+        ":upstream_lock_lib",
+    ],
 )
 
 python_test(
