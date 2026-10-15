@@ -150,6 +150,14 @@ records the lockfile path. Mutating commands require a selector or an explicit
 Plain files may exceed the repository limit, so convert them back to
 gzip and run `./lockfiles check` before committing.
 
+SDK sidecars also follow this compression default. New SDK locks use
+`packages.lock.json.gz`; refreshes preserve an existing encoding. SDK readers
+accept both formats. Convert an SDK lock with the shared codec tool:
+
+```sh
+buck2 run //tools:lockfile_convert -- sdks/doca-bf4-dev-drop6/packages.lock.json --compression gzip
+```
+
 ## Automation contract
 
 Humans and automated agents should preserve these invariants:

@@ -8,7 +8,8 @@ import unittest
 from unittest import mock
 
 from rpm_bundle import assemble, digest, merge_payload, relocate_symlinks
-from rpm_bundle_lock import select_packages
+from _lockfile import load_lockfile
+from rpm_bundle_lock import main as lock_main, sdk_lockfile_path, select_packages
 from verify_file import verify_copy
 
 
@@ -135,6 +136,49 @@ class PinTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no aarch64"):
             select_packages([self.package(arch="x86_64")], ["vendor-devel"],
                             "aarch64", "https://example.org/repo/")
+
+    def test_new_sdk_lock_uses_configured_compression(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / "packages.bzl"
+            with mock.patch("rpm_bundle_lock.configured_compression", return_value="gzip"):
+                self.assertEqual(sdk_lockfile_path(output).name, "packages.lock.json.gz")
+            with mock.patch("rpm_bundle_lock.configured_compression", return_value="none"):
+                self.assertEqual(sdk_lockfile_path(output).name, "packages.lock.json")
+
+    def test_existing_sdk_encoding_is_preserved_and_duplicates_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / "packages.bzl"
+            plain = output.with_suffix(".lock.json")
+            compressed = Path(str(plain) + ".gz")
+            plain.touch()
+            with mock.patch("rpm_bundle_lock.configured_compression", return_value="gzip"):
+                self.assertEqual(sdk_lockfile_path(output), plain)
+            plain.unlink()
+            compressed.touch()
+            with mock.patch("rpm_bundle_lock.configured_compression", return_value="none"):
+                self.assertEqual(sdk_lockfile_path(output), compressed)
+            plain.touch()
+            with self.assertRaisesRegex(ValueError, "both plain and compressed"):
+                sdk_lockfile_path(output)
+
+    def test_generator_writes_deterministic_gzip_sidecar(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            primary = root / "primary.xml"
+            primary.write_bytes(b"metadata fixture")
+            output = root / "packages.bzl"
+            argv = ["--repository", "https://example.org/repo/", "--architecture", "aarch64",
+                    "--primary", str(primary), "--package", "vendor-devel", "--output", str(output)]
+            with mock.patch("rpm_bundle_lock.parse_primary", return_value=[self.package()]):
+                with mock.patch("rpm_bundle_lock.configured_compression", return_value="gzip"):
+                    lock_main(argv)
+                    sidecar = root / "packages.lock.json.gz"
+                    first = sidecar.read_bytes()
+                    self.assertFalse((root / "packages.lock.json").exists())
+                    self.assertEqual(load_lockfile(str(sidecar))["packages"][0]["name"], "vendor-devel")
+                    self.assertEqual(first[4:8], b"\0\0\0\0")
+                    lock_main(argv)
+                    self.assertEqual(sidecar.read_bytes(), first)
 
     def test_local_rpm_verifier_rejects_modified_bytes(self):
         with tempfile.TemporaryDirectory() as root:

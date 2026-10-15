@@ -13,7 +13,7 @@ RPM hashes were checked against primary repository metadata; primary and
 filelists metadata were checked against `repomd.xml`.
 The extracted archives contain 852 ELF members, all reporting AArch64.
 
-`packages.bzl` and `packages.lock.json` hold the public upstream URLs and
+`packages.bzl` and `packages.lock.json.gz` hold the public upstream URLs and
 digests. `libraries.bzl` declares the archive and header paths confirmed by
 the extracted RPMs. RPM bytes under `rpms/` are ignored by Git.
 
@@ -44,14 +44,14 @@ public URL and verify its recorded digest. For example:
 
 ```sh
 python3 - <<'PY'
-import json
 from pathlib import Path
 import sys
 import urllib.request
 sys.path.insert(0, "tools")
 from relock import sha256_file
+from _lockfile import load_lockfile
 root = Path("sdks/doca-bf4-dev-drop6")
-for package in json.loads((root / "packages.lock.json").read_text())["packages"]:
+for package in load_lockfile(str(root / "packages.lock.json.gz"))["packages"]:
     filename = package["url"].rsplit("/", 1)[1]
     destination = root / "rpms" / package["sha256"] / filename
     if destination.is_file() and sha256_file(destination) == package["sha256"]:

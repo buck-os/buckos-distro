@@ -17,7 +17,7 @@ python_binary(
 python_binary(
     name = "rpm_bundle_lock",
     main = "rpm_bundle_lock.py",
-    deps = [":relock_lib", ":rpmvercmp", ":solve_lib"],
+    deps = [":_lockfile", ":relock_lib", ":rpmvercmp", ":solve_lib"],
     visibility = ["PUBLIC"],
 )
 
@@ -25,7 +25,7 @@ python_test(
     name = "rpm_bundle_test",
     srcs = ["rpm_bundle.py", "rpm_bundle_lock.py", "rpm_bundle_test.py", "verify_file.py"],
     base_module = "",
-    deps = [":_rpm", ":relock_lib", ":rpmvercmp", ":solve_lib"],
+    deps = [":_lockfile", ":_rpm", ":relock_lib", ":rpmvercmp", ":solve_lib"],
 )
 
 python_library(

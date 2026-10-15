@@ -36,12 +36,17 @@ Run the same command with `--package NAME` once per package and
 
 The tool verifies primary metadata against the SHA-256 in `repomd.xml`, selects
 the newest requested version for the CPU, and writes `PACKAGES` with exact
-HTTPS URLs and SHA-256 pins, plus a `packages.lock.json` review sidecar containing
+HTTPS URLs and SHA-256 pins, plus a `packages.lock.json.gz` review sidecar containing
 versions and declared RPM requirements. Buck verifies every downloaded RPM.
 Review and commit both files. This is explicit selection: it does not resolve
 RPM runtime requirements or the static link closure. `--primary PATH` uses
 previously obtained primary metadata without fetching it; its provenance must
 be checked when obtaining that file.
+
+New SDK lockfiles follow `[buckos.lockfiles] compression`, which defaults to
+`gzip`. Existing locks retain their encoding. Readers accept plain `.lock.json`
+and compressed `.lock.json.gz`; duplicate encodings for one SDK are rejected.
+Use `//tools:lockfile_convert` to convert an existing SDK lockfile.
 
 An opt-in import for this repository is provided under
 [`sdks/doca-bf4-dev-drop6`](sdks/doca-bf4-dev-drop6/README.md). It has verified
