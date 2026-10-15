@@ -6,10 +6,16 @@ load(
     "target_platform",
 )
 load("//defs/rules:boot_test.bzl", "iso_boot_test", "rootfs_overlay")
-load("//defs/rules:image.bzl", "iso_image", "squashfs")
+load("//defs/rules:image.bzl", "dm_verity_image", "iso_image", "squashfs")
 load("//defs/rules:kernel.bzl", "configured_kernel_set")
 load("//defs/rules:signing.bzl", "ima_manifest")
-load("//defs:secure_boot.bzl", "configured_ima", "configured_secure_boot", "signed_uki")
+load(
+    "//defs:secure_boot.bzl",
+    "configured_dm_verity",
+    "configured_ima",
+    "configured_secure_boot",
+    "signed_uki",
+)
 
 
 def live_iso_boot_tests(
@@ -49,6 +55,7 @@ def live_iso_boot_tests(
 
     kernel_set = configured_kernel_set()
     ima = configured_ima()
+    verity = configured_dm_verity()
     if ima.enabled and not kernel_set.targets:
         fail("IMA verification requires a configured KernelInfo target")
     secure_boot = configured_secure_boot(architecture)
@@ -92,6 +99,20 @@ def live_iso_boot_tests(
         default_target_platform = platform,
         exec_compatible_with = exec_constraints,
     )
+    verity_target = None
+    if verity.enabled:
+        verity_name = "verity-verify-" + suffix
+        dm_verity_image(
+            name = verity_name,
+            image = ":" + squashfs_name,
+            algorithm = verity.algorithm,
+            corruption_policy = verity.corruption_policy,
+            data_block_size = verity.data_block_size,
+            hash_block_size = verity.hash_block_size,
+            salt = verity.salt,
+            default_target_platform = platform,
+        )
+        verity_target = ":" + verity_name
     volume_label = "VERIFY-{}-{}-{}".format(flavor[:8], release, architecture)
     kernel_args = "console=tty0 {} {} systemd.unit=buckos-verify.service".format(
         "console=ttyAMA0,115200" if architecture == "aarch64" else "console=ttyS0,115200",
@@ -122,6 +143,7 @@ def live_iso_boot_tests(
             kernel_args = kernel_args,
             layout = layout,
             rootfs = ":" + rootfs_name,
+            verity = verity_target,
             signing_key = secure_boot.signing_key,
             volume_label = volume_label,
             default_target_platform = platform,
@@ -143,6 +165,7 @@ def live_iso_boot_tests(
             for index in kernel_set.additional_indices
         ],
         squashfs = ":" + squashfs_name,
+        verity = verity_target,
         secure_boot_image = secure_boot_image,
         volume_label = volume_label,
         kernel_args = kernel_args,
@@ -166,6 +189,7 @@ def live_iso_boot_tests(
             expected_version = release,
             expect_selinux = expect_selinux,
             expect_ima = ima.enabled,
+            expect_verity = verity.enabled,
             expect_secure_boot = secure_boot.enabled and firmware == "uefi",
             labels = ["vm", "slow", "integration", "heavy", architecture, firmware],
             default_target_platform = platform,

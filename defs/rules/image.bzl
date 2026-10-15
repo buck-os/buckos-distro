@@ -50,13 +50,26 @@ load(
     "buildroot_local_only",
     "buildroot_sysroot_args",
 )
-load("//defs:providers.bzl", "BootInfo", "EfiImageInfo", "RootfsInfo")
+load(
+    "//defs:providers.bzl",
+    "BootInfo",
+    "EfiImageInfo",
+    "InitramfsInfo",
+    "RootfsInfo",
+    "VerityInfo",
+)
 load("//defs/rules:rootfs.bzl", "rootfs_artifact")
 
 _LIVE_ROOT_ARGS = {
     "rpm": "root=live:CDLABEL={label} rd.live.image",
     "debian": "boot=live components",
     "ubuntu": "boot=casper",
+}
+
+_VERITY_PATHS = {
+    "rpm": ("LiveOS/squashfs.img", "LiveOS/squashfs.img.verity"),
+    "debian": ("live/filesystem.squashfs", "live/filesystem.squashfs.verity"),
+    "ubuntu": ("casper/filesystem.squashfs", "casper/filesystem.squashfs.verity"),
 }
 
 def _single_output(dep, what):
@@ -148,11 +161,94 @@ squashfs = rule(
     } | BUILDROOT_ATTRS,
 )
 
+def _dm_verity_image_impl(ctx: AnalysisContext) -> list[Provider]:
+    data = ctx.actions.declare_output(ctx.attrs.name + ".img")
+    hash_tree = ctx.actions.declare_output(ctx.attrs.name + ".verity")
+    metadata = ctx.actions.declare_output(ctx.attrs.name + ".verity.json")
+    root_hash = ctx.actions.declare_output(ctx.attrs.name + ".roothash")
+    command = cmd_args(
+        ctx.attrs._build[RunInfo],
+        "--image",
+        _single_output(ctx.attrs.image, "data image"),
+        "--out-data",
+        data.as_output(),
+        "--out-hash",
+        hash_tree.as_output(),
+        "--out-metadata",
+        metadata.as_output(),
+        "--out-root-hash",
+        root_hash.as_output(),
+        "--algorithm",
+        ctx.attrs.algorithm,
+        "--salt",
+        ctx.attrs.salt,
+        "--data-block-size",
+        str(ctx.attrs.data_block_size),
+        "--hash-block-size",
+        str(ctx.attrs.hash_block_size),
+        "--corruption-policy",
+        ctx.attrs.corruption_policy,
+    )
+    ctx.actions.run(
+        command,
+        category = "dm_verity",
+        identifier = ctx.attrs.name,
+        # re-contract: buildroot-independent -- pure Python over declared
+        # files; no target tools, host state, or privilege reaches the output.
+        local_only = False,
+        allow_cache_upload = True,
+    )
+    return [
+        DefaultInfo(
+            default_output = data,
+            other_outputs = [hash_tree, metadata, root_hash],
+            sub_targets = {
+                "hash-tree": [DefaultInfo(default_output = hash_tree)],
+                "metadata": [DefaultInfo(default_output = metadata)],
+                "root-hash": [DefaultInfo(default_output = root_hash)],
+            },
+        ),
+        VerityInfo(
+            data = data,
+            hash_tree = hash_tree,
+            root_hash = root_hash,
+            metadata = metadata,
+            algorithm = ctx.attrs.algorithm,
+            data_block_size = ctx.attrs.data_block_size,
+            hash_block_size = ctx.attrs.hash_block_size,
+            corruption_policy = ctx.attrs.corruption_policy,
+        ),
+    ]
+
+dm_verity_image = rule(
+    impl = _dm_verity_image_impl,
+    attrs = {
+        "algorithm": attrs.enum(["sha256", "sha512"], default = "sha256"),
+        "corruption_policy": attrs.enum(
+            ["eio", "panic", "restart"],
+            default = "eio",
+        ),
+        "data_block_size": attrs.int(default = 4096),
+        "hash_block_size": attrs.int(default = 4096),
+        "image": attrs.dep(),
+        # `auto` derives a per-image deterministic salt. An explicit value is
+        # lowercase or uppercase hexadecimal and is useful for protocol test
+        # vectors or a deployment with an established disk format.
+        "salt": attrs.string(default = "auto"),
+        "_build": attrs.default_only(
+            attrs.exec_dep(default = "//tools:verity_image"),
+        ),
+    },
+)
+
 def _os_release_value(value):
     return '"{}"'.format(value.replace("\\", "\\\\").replace('"', '\\"'))
 
 def _uki_image_impl(ctx: AnalysisContext) -> list[Provider]:
     boot = ctx.attrs.kernel[BootInfo]
+    if ctx.attrs.verity != None:
+        if InitramfsInfo not in ctx.attrs.initramfs or not ctx.attrs.initramfs[InitramfsInfo].dm_verity:
+            fail("verity UKI requires an initramfs built with dm_verity = True")
     if boot.architecture != ctx.attrs.architecture:
         fail("kernel {} is {}, but UKI {} is {}".format(
             ctx.attrs.kernel.label,
@@ -196,6 +292,8 @@ def _uki_image_impl(ctx: AnalysisContext) -> list[Provider]:
     root_args = _LIVE_ROOT_ARGS[ctx.attrs.layout].format(
         label = ctx.attrs.volume_label.upper(),
     )
+    if ctx.attrs.verity != None and ctx.attrs.layout == "rpm":
+        root_args = "root=live:/dev/mapper/buckos-root rd.live.image"
     command_line = "{} {} {}".format(
         root_args,
         ctx.attrs.kernel_args,
@@ -224,6 +322,18 @@ def _uki_image_impl(ctx: AnalysisContext) -> list[Provider]:
         out.as_output(),
     )
     command.add(buildroot_sysroot_args(ctx))
+    if ctx.attrs.verity != None:
+        verity = ctx.attrs.verity[VerityInfo]
+        command.add(
+            "--verity-metadata",
+            verity.metadata,
+            "--verity-media",
+            "CDLABEL={}".format(ctx.attrs.volume_label.upper()),
+            "--verity-data-path",
+            _VERITY_PATHS[ctx.attrs.layout][0],
+            "--verity-hash-path",
+            _VERITY_PATHS[ctx.attrs.layout][1],
+        )
     ctx.actions.run(
         command,
         category = "uki",
@@ -251,6 +361,10 @@ uki_image = rule(
         "kernel_args": attrs.string(default = "quiet"),
         "layout": attrs.enum(["rpm", "debian", "ubuntu"], default = "rpm"),
         "rootfs": attrs.dep(providers = [RootfsInfo]),
+        "verity": attrs.option(
+            attrs.dep(providers = [VerityInfo]),
+            default = None,
+        ),
         "source_date_epoch": attrs.string(default = "1700000000"),
         "volume_label": attrs.string(default = "BUCKOS"),
         "_assemble": attrs.default_only(
@@ -261,6 +375,12 @@ uki_image = rule(
 
 def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
     out = ctx.actions.declare_output(ctx.attrs.name + ".iso")
+    if ctx.attrs.verity != None:
+        if InitramfsInfo not in ctx.attrs.initramfs or not ctx.attrs.initramfs[InitramfsInfo].dm_verity:
+            fail("verity ISO requires an initramfs built with dm_verity = True")
+        for initramfs_dep in ctx.attrs.additional_initramfs:
+            if InitramfsInfo not in initramfs_dep or not initramfs_dep[InitramfsInfo].dm_verity:
+                fail("all initramfs images in a verity ISO must enable dm_verity")
     if len(ctx.attrs.additional_kernels) != len(ctx.attrs.additional_initramfs):
         fail("additional_kernels and additional_initramfs must have equal length")
 
@@ -297,6 +417,9 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
             fail("Secure Boot UKIs currently support one kernel per ISO")
         secure_boot_image = secure_boot.image
 
+    squashfs = _single_output(ctx.attrs.squashfs, "squashfs image")
+    if ctx.attrs.verity != None:
+        squashfs = ctx.attrs.verity[VerityInfo].data
     cmd = cmd_args(
         ctx.attrs._build[RunInfo],
         "--kernel",
@@ -306,7 +429,7 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
         "--initramfs",
         _single_output(ctx.attrs.initramfs, "initramfs image"),
         "--squashfs",
-        _single_output(ctx.attrs.squashfs, "squashfs image"),
+        squashfs,
         "--out",
         out.as_output(),
         "--volume-label",
@@ -322,6 +445,14 @@ def _iso_image_impl(ctx: AnalysisContext) -> list[Provider]:
     )
     if secure_boot_image != None:
         cmd.add("--uefi-boot-image", secure_boot_image)
+    if ctx.attrs.verity != None:
+        verity = ctx.attrs.verity[VerityInfo]
+        cmd.add(
+            "--verity-hash",
+            verity.hash_tree,
+            "--verity-metadata",
+            verity.metadata,
+        )
     for index in range(len(ctx.attrs.additional_kernels)):
         additional_boot = ctx.attrs.additional_kernels[index][BootInfo]
         if additional_boot.architecture != boot.architecture:
@@ -376,6 +507,10 @@ iso_image = rule(
             default = None,
         ),
         "squashfs": attrs.dep(),
+        "verity": attrs.option(
+            attrs.dep(providers = [VerityInfo]),
+            default = None,
+        ),
         "target_cpu": attrs.enum(["x86_64", "aarch64"], default = "x86_64"),
         "volume_label": attrs.string(default = "BUCKOS"),
         "_build": attrs.default_only(

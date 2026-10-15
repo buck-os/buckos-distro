@@ -176,6 +176,8 @@ def validate(args, fields):
         expected["ima"] = "enforcing"
     if getattr(args, "expect_secure_boot", False):
         expected["secure_boot"] = "enabled"
+    if getattr(args, "expect_verity", False):
+        expected["verity"] = "enabled"
     errors = []
     for key, value in expected.items():
         actual = fields.get(key)
@@ -374,6 +376,7 @@ def parse_args(argv=None):
     parser.add_argument("--expect-selinux", action="store_true")
     parser.add_argument("--expect-ima", action="store_true")
     parser.add_argument("--expect-secure-boot", action="store_true")
+    parser.add_argument("--expect-verity", action="store_true")
     parser.add_argument("--firmware-path", default="")
     parser.add_argument("--firmware-vars", default="")
     parser.add_argument("--qemu", required=True)

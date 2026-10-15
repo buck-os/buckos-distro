@@ -18,6 +18,8 @@ from _isolation import (
     sandbox_path,
 )
 from _rpm import reproducible_env, scratch_dir
+from _verity import kernel_arguments as verity_kernel_arguments
+from _verity import load_metadata as load_verity_metadata
 
 
 _PE_MACHINES = {
@@ -99,6 +101,26 @@ def _objcopy_command(objcopy, stub, output, layout):
 def _write_cmdline(path, command_line):
     with open(path, "wb") as stream:
         stream.write(command_line.encode("utf-8").rstrip(b"\0") + b"\0")
+
+
+def append_verity_command_line(command_line, metadata_path=None, media=None,
+                               data_path=None, hash_path=None):
+    """Bind a verity root hash and its table parameters into a UKI."""
+    values = (metadata_path, media, data_path, hash_path)
+    if any(values) and not all(values):
+        raise ValueError("all --verity-* arguments must be supplied together")
+    if not metadata_path:
+        return command_line
+    metadata = load_verity_metadata(metadata_path)
+    return "{} {}".format(
+        command_line,
+        " ".join(verity_kernel_arguments(
+            metadata,
+            media,
+            data_path,
+            hash_path,
+        )),
+    ).strip()
 
 
 def assemble(args):
@@ -237,6 +259,10 @@ def main():
     parser.add_argument("--osrel", required=True)
     parser.add_argument("--uname", required=True)
     parser.add_argument("--cmdline", required=True)
+    parser.add_argument("--verity-metadata")
+    parser.add_argument("--verity-media")
+    parser.add_argument("--verity-data-path")
+    parser.add_argument("--verity-hash-path")
     parser.add_argument("--architecture", choices=sorted(_PE_MACHINES.values()))
     parser.add_argument("--buildroot-tree")
     parser.add_argument("--isolation", choices=ISOLATION_MODES, default="none")
@@ -247,6 +273,13 @@ def main():
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     try:
+        args.cmdline = append_verity_command_line(
+            args.cmdline,
+            args.verity_metadata,
+            args.verity_media,
+            args.verity_data_path,
+            args.verity_hash_path,
+        )
         if args.buildroot_tree or args.isolation != "none":
             if not args.architecture:
                 parser.error("--architecture is required with a buildroot")

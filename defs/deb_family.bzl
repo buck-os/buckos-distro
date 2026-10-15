@@ -10,11 +10,17 @@ load(
     "target_platform",
 )
 load("//defs:releases.bzl", "iso_volume_label", "release_suffix")
-load("//defs:secure_boot.bzl", "configured_ima", "configured_secure_boot", "signed_uki")
+load(
+    "//defs:secure_boot.bzl",
+    "configured_dm_verity",
+    "configured_ima",
+    "configured_secure_boot",
+    "signed_uki",
+)
 load("//defs/rules:boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules:buildroot.bzl", "host_buildroot", "seeded_deb_buildroot")
 load("//defs/rules:dsc.bzl", "prebuilt_deb")
-load("//defs/rules:image.bzl", "iso_image", "squashfs")
+load("//defs/rules:image.bzl", "dm_verity_image", "iso_image", "squashfs")
 load(
     "//defs/rules:kernel.bzl",
     "configured_kernel_set",
@@ -279,6 +285,7 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
     buildroot = deb_buildroot_target(flavor, suffix)
     tools = ":buildroot-image-tools" + suffix
     ima = configured_ima()
+    verity = configured_dm_verity()
     signing_key = ima.signing_key
     kernel_set = configured_kernel_set()
     if signing_key and not kernel_set.targets:
@@ -404,6 +411,7 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
                     rootfs = rootfs_target,
                     generator = "casper" if flavor == "ubuntu" else "live-boot",
                     ima_signing_key = signing_key if signing_key else None,
+                    dm_verity = verity.enabled,
                     default_target_platform = platform,
                     exec_compatible_with = exec_constraints,
                     visibility = ["PUBLIC"],
@@ -436,6 +444,7 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
                 rootfs = rootfs_target,
                 generator = "casper" if flavor == "ubuntu" else "live-boot",
                 ima_signing_key = signing_key if signing_key else None,
+                dm_verity = verity.enabled,
                 default_target_platform = platform,
                 exec_compatible_with = exec_constraints,
                 visibility = ["PUBLIC"],
@@ -462,6 +471,21 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
             exec_compatible_with = exec_constraints,
             visibility = ["PUBLIC"],
         )
+        verity_target = None
+        if verity.enabled:
+            verity_name = "verity-live" + variant + suffix
+            dm_verity_image(
+                name = verity_name,
+                image = ":squashfs-live" + variant + suffix,
+                algorithm = verity.algorithm,
+                corruption_policy = verity.corruption_policy,
+                data_block_size = verity.data_block_size,
+                hash_block_size = verity.hash_block_size,
+                salt = verity.salt,
+                default_target_platform = platform,
+                visibility = ["PUBLIC"],
+            )
+            verity_target = ":" + verity_name
         label = iso_volume_label("{}-{}-LIVE{}".format(
             flavor.upper(),
             release,
@@ -486,6 +510,7 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
                 kernel_args = kernel_args,
                 layout = flavor,
                 rootfs = rootfs_target,
+                verity = verity_target,
                 signing_key = secure_boot.signing_key,
                 volume_label = label,
                 default_target_platform = platform,
@@ -508,6 +533,7 @@ def deb_images(flavor, data, release, suffix, platform, exec_constraints):
                 for index in kernel_set.additional_indices
             ],
             squashfs = ":squashfs-live" + variant + suffix,
+            verity = verity_target,
             secure_boot_image = secure_boot_image,
             volume_label = label,
             kernel_args = kernel_args,

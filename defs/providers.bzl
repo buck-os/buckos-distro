@@ -95,6 +95,21 @@ RootfsInfo = provider(fields = [
     "transforms",           # list[str]: ordered post-assembly transformations
 ])
 
+# A block image plus the independent Merkle tree needed to expose it through
+# the kernel's dm-verity target.  Values needed only at execution time live in
+# the JSON metadata artifact; stable format policy remains visible here so
+# analysis can reject incompatible consumers without reading action outputs.
+VerityInfo = provider(fields = [
+    "data",               # artifact: data image, padded to data_block_size
+    "hash_tree",          # artifact: version-1 tree without a superblock
+    "root_hash",          # artifact: lowercase hexadecimal digest
+    "metadata",           # artifact: buckos.dm-verity.v1 JSON
+    "algorithm",          # str: sha256 | sha512
+    "data_block_size",    # int
+    "hash_block_size",    # int
+    "corruption_policy",  # str: eio | panic | restart
+])
+
 # No accessor for `hermetic` lives here on purpose.  The two consumers of
 # that field -- buildroot_local_only() and buildroot_cache_upload() in
 # defs/buildroot_helpers.bzl -- are the whole remote-execution policy, and
@@ -148,6 +163,11 @@ BootInfo = provider(fields = [
     # Image policy remains on iso_image.kernel_args; the image rule combines
     # the two without making a downstream kernel family part of its API.
     "boot_args",        # list[str]
+])
+
+InitramfsInfo = provider(fields = [
+    "image",       # artifact: generated initramfs
+    "dm_verity",   # bool: contains BuckOS live-root activation support
 ])
 
 # A typed EFI executable prevents the ISO rule from treating an arbitrary file

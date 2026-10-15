@@ -71,6 +71,8 @@ from _rpm import (
     resolve_in_buildroot,
     scratch_dir,
 )
+from _verity import kernel_arguments as verity_kernel_arguments
+from _verity import load_metadata as load_verity_metadata
 
 _ISO_ROOT = "iso"
 _OUT = "out.iso"
@@ -118,18 +120,21 @@ _LAYOUTS = {
         "kernel": "isolinux/vmlinuz",
         "initramfs": "isolinux/initrd.img",
         "squashfs": "LiveOS/squashfs.img",
+        "verity": "LiveOS/squashfs.img.verity",
         "root_args": "root=live:CDLABEL={label} rd.live.image",
     },
     "debian": {
         "kernel": "live/vmlinuz",
         "initramfs": "live/initrd.img",
         "squashfs": "live/filesystem.squashfs",
+        "verity": "live/filesystem.squashfs.verity",
         "root_args": "boot=live components",
     },
     "ubuntu": {
         "kernel": "casper/vmlinuz",
         "initramfs": "casper/initrd.img",
         "squashfs": "casper/filesystem.squashfs",
+        "verity": "casper/filesystem.squashfs.verity",
         "root_args": "boot=casper",
     },
 }
@@ -528,6 +533,8 @@ def main():
     ap.add_argument("--additional-kernel-version-file", action="append", default=[])
     ap.add_argument("--additional-initramfs", action="append", default=[])
     ap.add_argument("--squashfs", required=True, help="root filesystem image")
+    ap.add_argument("--verity-hash", help="dm-verity hash tree for the root image")
+    ap.add_argument("--verity-metadata", help="buckos.dm-verity.v1 metadata")
     ap.add_argument("--out", required=True, help="ISO to write")
     ap.add_argument("--buildroot-tree", default=None,
                     help="tree providing xorriso, grub2-mkimage and mtools")
@@ -568,6 +575,8 @@ def main():
         ap.error("--uefi-boot-image requires a UEFI-capable boot mode")
     if args.uefi_boot_image and args.additional_kernel:
         ap.error("a signed UKI currently supports one kernel per ISO")
+    if bool(args.verity_hash) != bool(args.verity_metadata):
+        ap.error("--verity-hash and --verity-metadata must be supplied together")
     require_target_execution(args.target_cpu)
     isolation = resolve_isolation(args.isolation)
     if isolation == "none":
@@ -629,9 +638,30 @@ def _build(args, isolation, label, work, out):
     layout = _LAYOUTS[args.layout]
     entries = _stage_boot_entries(args, iso_root, layout)
     _stage(os.path.abspath(args.squashfs), os.path.join(iso_root, layout["squashfs"]))
+    verity_metadata = None
+    if args.verity_metadata:
+        verity_metadata = load_verity_metadata(args.verity_metadata)
+        _stage(
+            os.path.abspath(args.verity_hash),
+            os.path.join(iso_root, layout["verity"]),
+        )
 
     root_args = layout["root_args"].format(label=label)
+    if verity_metadata and args.layout == "rpm":
+        # The early-boot BuckOS hook creates this device from the two files on
+        # the ISO before dmsquash-live sees the root device.
+        root_args = "root=live:/dev/mapper/buckos-root rd.live.image"
     kernel_args = "{} {}".format(root_args, args.kernel_args).strip()
+    if verity_metadata:
+        if any(character.isspace() for character in label):
+            raise ValueError("dm-verity ISO labels must not contain whitespace")
+        verity_args = verity_kernel_arguments(
+            verity_metadata,
+            "CDLABEL={}".format(label),
+            layout["squashfs"],
+            layout["verity"],
+        )
+        kernel_args = "{} {}".format(kernel_args, " ".join(verity_args))
 
     _write(os.path.join(iso_root, "isolinux", "isolinux.cfg"),
            _isolinux_cfg(entries, kernel_args, args.timeout * 10))

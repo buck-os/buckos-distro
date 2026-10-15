@@ -69,10 +69,13 @@ one kernel per ISO because it does not include a signed boot manager or menu.
 
 Secure Boot authenticates the UKI, including its kernel, initramfs, and command
 line. The live SquashFS remains a separate ISO payload and is not authenticated
-by Secure Boot alone. Deployments that require runtime file authenticity must
-also enable the repository's IMA path or add a measured root mechanism such as
-dm-verity. The BIOS path on hybrid media is likewise outside the UEFI Secure
-Boot trust chain.
+by Secure Boot alone. Enable the repository's dm-verity path to embed the live
+root's root hash and table parameters in that signed command line. The matching
+data image and hash tree remain separate ISO payloads, but modification of
+either is then detected against an authenticated trust anchor. See
+[DM_VERITY.md](DM_VERITY.md). The BIOS path on hybrid media is still outside
+the UEFI Secure Boot trust chain, and IMA remains available for appraisal
+policies that extend beyond the immutable SquashFS.
 
 With IMA enabled, the final rootfs's regular files are signed and emitted as
 `security.ima` xattrs in the SquashFS. The exact public certificate is placed

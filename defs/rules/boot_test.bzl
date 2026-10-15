@@ -86,6 +86,8 @@ def _iso_boot_test_impl(ctx: AnalysisContext) -> list[Provider]:
         cmd.add("--expect-ima")
     if ctx.attrs.expect_secure_boot:
         cmd.add("--expect-secure-boot")
+    if ctx.attrs.expect_verity:
+        cmd.add("--expect-verity")
 
     return [
         DefaultInfo(),
@@ -110,6 +112,7 @@ _iso_boot_test = rule(
         "expect_selinux": attrs.bool(default = False),
         "expect_ima": attrs.bool(default = False),
         "expect_secure_boot": attrs.bool(default = False),
+        "expect_verity": attrs.bool(default = False),
         "production_iso": attrs.dep(),
         "production_milestone": attrs.string(default = "login:"),
         "qemu": attrs.string(),

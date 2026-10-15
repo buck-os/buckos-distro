@@ -57,5 +57,11 @@ if [ -d /sys/kernel/security/ima ]; then
     esac
 fi
 
-echo "BUCKOS_VERIFY flavor=$flavor version=${VERSION_ID:-unknown} arch=$arch pid1=$pid1 failed=$failed selinux=$selinux avc=$avc secure_boot=$secure_boot ima=$ima"
+verity=unavailable
+if command -v dmsetup >/dev/null 2>&1 &&
+        dmsetup table buckos-root 2>/dev/null | grep -q ' verity '; then
+    verity=enabled
+fi
+
+echo "BUCKOS_VERIFY flavor=$flavor version=${VERSION_ID:-unknown} arch=$arch pid1=$pid1 failed=$failed selinux=$selinux avc=$avc secure_boot=$secure_boot ima=$ima verity=$verity"
 systemctl poweroff --force --force

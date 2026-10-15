@@ -20,11 +20,17 @@ load(
     "target_platform",
 )
 load("//defs:releases.bzl", "iso_volume_label", "release_suffix")
-load("//defs:secure_boot.bzl", "configured_ima", "configured_secure_boot", "signed_uki")
+load(
+    "//defs:secure_boot.bzl",
+    "configured_dm_verity",
+    "configured_ima",
+    "configured_secure_boot",
+    "signed_uki",
+)
 load("//defs/rules:boot.bzl", "initramfs", "kernel_image")
 load("//defs/rules:buildroot.bzl", "host_buildroot", "seeded_buildroot")
 load("//defs/rules:srpm.bzl", "prebuilt_rpm")
-load("//defs/rules:image.bzl", "iso_image", "squashfs")
+load("//defs/rules:image.bzl", "dm_verity_image", "iso_image", "squashfs")
 load(
     "//defs/rules:kernel.bzl",
     "configured_kernel_set",
@@ -1170,6 +1176,7 @@ def rpm_boot(flavor, data, suffix, platform, exec_constraints):
     """
     buildroot = rpm_buildroot_target(flavor, suffix)
     signing_key = configured_ima().signing_key
+    verity = configured_dm_verity()
     kernel_set = configured_kernel_set()
     if signing_key and not kernel_set.targets:
         fail("IMA signing requires a configured KernelInfo target that declares its trusted certificate")
@@ -1213,6 +1220,7 @@ def rpm_boot(flavor, data, suffix, platform, exec_constraints):
                         rootfs = rootfs_target,
                         add_modules = _INITRAMFS_MODULES.get(name, []),
                         ima_signing_key = signing_key if signing_key else None,
+                        dm_verity = verity.enabled,
                         default_target_platform = platform,
                         exec_compatible_with = exec_constraints,
                         visibility = ["PUBLIC"],
@@ -1245,6 +1253,7 @@ def rpm_boot(flavor, data, suffix, platform, exec_constraints):
                     rootfs = rootfs_target,
                     add_modules = _INITRAMFS_MODULES.get(name, []),
                     ima_signing_key = signing_key if signing_key else None,
+                    dm_verity = verity.enabled,
                     default_target_platform = platform,
                     exec_compatible_with = exec_constraints,
                     visibility = ["PUBLIC"],
@@ -1272,6 +1281,7 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
     squashfs_tools = ":buildroot-squashfs-tools" + suffix if old_squashfs else tools
     squashfs_source = "//tools:squashfs-tools-4.6.1-source" if old_squashfs else None
     ima = configured_ima()
+    verity = configured_dm_verity()
     signing_key = ima.signing_key
     kernel_set = configured_kernel_set()
     secure_boot = configured_secure_boot(data.TARGET_CPU)
@@ -1316,6 +1326,21 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
                 exec_compatible_with = exec_constraints,
                 visibility = ["PUBLIC"],
             )
+            verity_target = None
+            if verity.enabled:
+                verity_name = "verity-" + name + variant + suffix
+                dm_verity_image(
+                    name = verity_name,
+                    image = ":squashfs-" + name + variant + suffix,
+                    algorithm = verity.algorithm,
+                    corruption_policy = verity.corruption_policy,
+                    data_block_size = verity.data_block_size,
+                    hash_block_size = verity.hash_block_size,
+                    salt = verity.salt,
+                    default_target_platform = platform,
+                    visibility = ["PUBLIC"],
+                )
+                verity_target = ":" + verity_name
 
             # Uppercase because the volume id is what ends up in the kernel
             # command line as CDLABEL=, and genisoimage-style volume ids
@@ -1357,6 +1382,7 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
                     kernel_args = kernel_args,
                     layout = "rpm",
                     rootfs = rootfs_target,
+                    verity = verity_target,
                     signing_key = secure_boot.signing_key,
                     volume_label = label,
                     default_target_platform = platform,
@@ -1379,6 +1405,7 @@ def rpm_images(flavor, data, release, suffix, platform, exec_constraints):
                     for index in kernel_set.additional_indices
                 ],
                 squashfs = ":squashfs-" + name + variant + suffix,
+                verity = verity_target,
                 secure_boot_image = secure_boot_image,
                 volume_label = label,
                 kernel_args = kernel_args,
