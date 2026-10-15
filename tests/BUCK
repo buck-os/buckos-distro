@@ -1,6 +1,8 @@
 load("//defs:flavor.bzl", "package")
 load("//defs:iso_tests.bzl", "all_live_iso_boot_tests")
+load("//defs:rpm_sdk.bzl", "rpm_sdk")
 load("//defs/rules:image.bzl", "dm_verity_image")
+load("//defs/rules:rpm_bundle.bzl", "pinned_local_rpm", "rpm_payload_bundle")
 
 export_file(
     name = "verity-data",
@@ -11,6 +13,37 @@ dm_verity_image(
     name = "verity-fixture",
     image = ":verity-data",
     salt = "00" * 32,
+)
+
+pinned_local_rpm(
+    name = "pinned-sdk-fixture",
+    source = "fixtures/sdk-1.0-1.x86_64.rpm",
+    sha256 = "c24a3e1b702f4ec4c8f811640f3cd420476a90dafb862d631422024c3d4ce069",
+)
+
+rpm_payload_bundle(
+    name = "rpm-payload-bundle",
+    architecture = "x86_64",
+    rpms = [":pinned-sdk-fixture"],
+    exports = {"library": "opt/buckos-sdk/lib/libfixture.a", "headers": "opt/buckos-sdk/include"},
+    export_directories = ["headers"],
+    visibility = ["PUBLIC"],
+)
+
+cxx_test(
+    name = "rpm-sdk-consumer",
+    srcs = ["fixtures/sdk-consumer.c"],
+    deps = [":rpm-sdk-macro-fixture-fixture"],
+    linker_flags = ["-static"],
+)
+
+# Exercise the public macro with a declared, checked-in RPM artifact.
+rpm_sdk(
+    name = "rpm-sdk-macro-fixture",
+    rpms = ["fixtures/sdk-1.0-1.x86_64.rpm"],
+    architecture = "x86_64",
+    libraries = {"fixture": {"archive": "opt/buckos-sdk/lib/libfixture.a", "headers": ["opt/buckos-sdk/include"]}},
+    visibility = ["PUBLIC"],
 )
 
 python_test(

@@ -6,6 +6,10 @@ Optional Ubuntu PPA, EPEL, and other public package repositories can be pinned
 as separate, opt-in rootfs overlays without changing the base flavor locks or
 default images. See [UPSTREAMS.md](UPSTREAMS.md).
 
+Vendor binary RPMs can also become SDK archives and Buck static-library
+dependencies without a container or chroot. These payloads can be staged for
+standalone applications. See [RPM_BUNDLES.md](RPM_BUNDLES.md).
+
 This project is licensed under the GNU General Public License, version 2 only (`GPL-2.0-only`). See [LICENSE](LICENSE). Upstream packages, generated distribution metadata, and other third-party materials retain their respective licenses.
 
 Fedora 44 and 45, CentOS Stream 9 and 10, CentOS Hyperscale 9 and 10, Debian 13, and Ubuntu 26.04 have checked-in package graphs for both x86_64 and AArch64. Every one has binary-seeded buildroots, source replay targets, bootable root filesystems, and live ISO targets. BuckOS remains a declared flavor without a build frontend.

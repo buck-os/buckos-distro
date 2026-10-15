@@ -1,0 +1,11 @@
+load("//defs:rpm_sdk.bzl", "rpm_sdk")
+load(":libraries.bzl", "LIBRARIES")
+load(":packages.bzl", "PACKAGES")
+
+rpm_sdk(
+    name = "sdk",
+    architecture = "aarch64",
+    packages = PACKAGES,
+    libraries = LIBRARIES,
+    visibility = ["PUBLIC"],
+)

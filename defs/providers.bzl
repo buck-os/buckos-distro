@@ -25,6 +25,13 @@ upstream distro a package came from.
 # Deliberately the same shape as buckos-build's PackageInfo so its native
 # recipes and rootfs/image rules port over without edits.
 
+RpmBundleInfo = provider(fields = [
+    "tree",             # artifact: extracted payload with relative symlinks
+    "archive",          # artifact: deterministic tar for external staging
+    "manifest",         # artifact: package digests and payload inventory
+    "architecture",     # str: intended consumer CPU, not a compatibility proof
+])
+
 PackageInfo = provider(fields = [
     # Identity
     "name",             # str

@@ -14,6 +14,7 @@
 /downloads/
 /vendor/
 /distfiles/
+/sdks/*/rpms/
 
 # Content-addressed caches written by whatever serves the blob endpoint.
 # Gigabytes of rpms, all reproducible from the pins in flavors/*/lock/.
