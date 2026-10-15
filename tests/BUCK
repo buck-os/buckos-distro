@@ -1,5 +1,17 @@
 load("//defs:flavor.bzl", "package")
 load("//defs:iso_tests.bzl", "all_live_iso_boot_tests")
+load("//defs/rules:image.bzl", "dm_verity_image")
+
+export_file(
+    name = "verity-data",
+    src = "fixtures/verity-data.img",
+)
+
+dm_verity_image(
+    name = "verity-fixture",
+    image = ":verity-data",
+    salt = "00" * 32,
+)
 
 python_test(
     name = "rootfs_contract_test",

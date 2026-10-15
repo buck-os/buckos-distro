@@ -5,6 +5,7 @@ import hashlib
 import io
 import os
 import signal
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -45,9 +46,11 @@ from iso_boot_test import (
     validate_verification_capture,
 )
 from initramfs_build import (
+    _VERITY_MAP,
     _dracut_script,
     _initramfs_tools_script,
     _install_image_tool_script,
+    install_verity_support,
     stage_image_tool,
     write_ima_certificate_der,
 )
@@ -81,8 +84,9 @@ def repo_root():
     raise AssertionError("cannot locate repository root")
 
 
-def load_iso_test_graph(kernel_set=None, secure_boot=None, ima=None):
+def load_iso_test_graph(kernel_set=None, secure_boot=None, ima=None, verity=None):
     rules = {
+        "dm_verity_image": [],
         "ima_manifest": [],
         "iso_boot_test": [],
         "iso_image": [],
@@ -113,6 +117,14 @@ def load_iso_test_graph(kernel_set=None, secure_boot=None, ima=None):
             mode="all",
             signing_key=None,
         ),
+        "configured_dm_verity": lambda: verity or SimpleNamespace(
+            algorithm="sha256",
+            corruption_policy="eio",
+            data_block_size=4096,
+            enabled=False,
+            hash_block_size=4096,
+            salt="auto",
+        ),
         "configured_secure_boot": lambda _architecture: secure_boot or SimpleNamespace(
             efi_stub=None,
             enabled=False,
@@ -120,6 +132,7 @@ def load_iso_test_graph(kernel_set=None, secure_boot=None, ima=None):
         ),
         "execution_compatible_with": lambda architecture: [architecture],
         "fail": fail,
+        "dm_verity_image": recorder("dm_verity_image"),
         "iso_boot_test": recorder("iso_boot_test"),
         "ima_manifest": recorder("ima_manifest"),
         "iso_image": recorder("iso_image"),
@@ -356,6 +369,145 @@ class TestInitramfsTools(unittest.TestCase):
         )
         self.assertIn("/etc/initramfs-tools/hooks/buckos-ima", script)
         self.assertIn("$DESTDIR/etc/keys/x509_ima.der", script)
+
+    def test_installs_a_complete_dracut_verity_module(self):
+        with tempfile.TemporaryDirectory() as root:
+            install_verity_support(root, "dracut")
+
+            module = os.path.join(
+                root, "usr/lib/dracut/modules.d/91buckos-verity"
+            )
+            with open(os.path.join(module, "module-setup.sh"), encoding="utf-8") as stream:
+                setup = stream.read()
+            with open(os.path.join(module, "parse-buckos-verity.sh"), encoding="utf-8") as stream:
+                parser = stream.read()
+
+            self.assertIn("instmods dm-verity loop iso9660", setup)
+            self.assertIn("inst_hook cmdline", setup)
+            self.assertIn("wait_for_dev", parser)
+            for name in (
+                "module-setup.sh",
+                "buckos-verity-map",
+                "buckos-verity-live",
+                "parse-buckos-verity.sh",
+            ):
+                self.assertTrue(os.access(os.path.join(module, name), os.X_OK))
+
+    def test_patches_casper_to_mount_the_verified_mapper(self):
+        with tempfile.TemporaryDirectory() as root:
+            script = os.path.join(
+                root, "usr/share/initramfs-tools/scripts/casper"
+            )
+            os.makedirs(os.path.dirname(script))
+            with open(script, "w", encoding="utf-8") as stream:
+                stream.write('backdev=$(get_backing_device "$image")\n')
+
+            install_verity_support(root, "casper")
+
+            with open(script, encoding="utf-8") as stream:
+                patched = stream.read()
+            self.assertIn("rd.buckos.verity=1", patched)
+            self.assertIn(
+                'backdev=$(/sbin/buckos-verity-map "$image" "${image}.verity")',
+                patched,
+            )
+            self.assertIn('backdev=$(get_backing_device "$image")', patched)
+            self.assertTrue(os.path.isfile(os.path.join(
+                root, "usr/share/initramfs-tools/hooks/buckos-verity"
+            )))
+
+    def test_patches_live_boot_to_mount_the_verified_mapper(self):
+        with tempfile.TemporaryDirectory() as root:
+            script = os.path.join(
+                root, "usr/share/initramfs-tools/scripts/live"
+            )
+            os.makedirs(os.path.dirname(script))
+            original = 'loopdevname=$(setup_loop "${image}" "loop" "/sys/block/loop*" 0)'
+            with open(script, "w", encoding="utf-8") as stream:
+                stream.write(original + "\n")
+
+            install_verity_support(root, "live-boot")
+
+            with open(script, encoding="utf-8") as stream:
+                patched = stream.read()
+            self.assertIn(
+                'loopdevname=$(/sbin/buckos-verity-map "$image" "${image}.verity")',
+                patched,
+            )
+            self.assertIn(original, patched)
+
+    def test_verity_helper_builds_the_kernel_table_from_the_command_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            helper = os.path.join(tmp, "buckos-verity-map")
+            data = os.path.join(tmp, "filesystem.squashfs")
+            tree = data + ".verity"
+            capture = os.path.join(tmp, "table")
+            binaries = os.path.join(tmp, "bin")
+            os.makedirs(binaries)
+            with open(helper, "w", encoding="utf-8") as stream:
+                stream.write(_VERITY_MAP)
+            os.chmod(helper, 0o755)
+            for path in (data, tree):
+                with open(path, "wb") as stream:
+                    stream.write(b"x")
+
+            command_line = " ".join((
+                "rd.buckos.verity.root_hash=" + "12" * 32,
+                "rd.buckos.verity.salt=" + "34" * 32,
+                "rd.buckos.verity.algorithm=sha256",
+                "rd.buckos.verity.data_blocks=1",
+                "rd.buckos.verity.data_block_size=4096",
+                "rd.buckos.verity.hash_block_size=4096",
+                "rd.buckos.verity.hash_start_block=0",
+                "rd.buckos.verity.corruption=panic",
+                "rd.buckos.verity.mapper=buckos-root",
+            ))
+            mocks = {
+                "cat": """#!/bin/sh
+if [ "${1:-}" = /proc/cmdline ]; then
+    printf '%s\\n' "$BUCKOS_TEST_CMDLINE"
+else
+    /bin/cat "$@"
+fi
+""",
+                "dmsetup": """#!/bin/sh
+if [ "$1" = info ]; then exit 1; fi
+[ "$1" = create ]
+/bin/cat > "$BUCKOS_TEST_TABLE"
+""",
+                "losetup": "#!/bin/sh\nprintf '/dev/loop7\\n'\n",
+                "modprobe": "#!/bin/sh\nexit 0\n",
+            }
+            for name, source in mocks.items():
+                path = os.path.join(binaries, name)
+                with open(path, "w", encoding="utf-8") as stream:
+                    stream.write(source)
+                os.chmod(path, 0o755)
+
+            env = os.environ.copy()
+            env.update({
+                "BUCKOS_TEST_CMDLINE": command_line,
+                "BUCKOS_TEST_TABLE": capture,
+                "PATH": binaries + ":/usr/bin:/bin",
+            })
+            result = subprocess.run(
+                [helper, data, tree],
+                check=True,
+                capture_output=True,
+                env=env,
+                text=True,
+            )
+
+            self.assertEqual("/dev/mapper/buckos-root\n", result.stdout)
+            with open(capture, encoding="utf-8") as stream:
+                table = stream.read().strip()
+            self.assertEqual(
+                "0 8 verity 1 /dev/loop7 /dev/loop7 4096 4096 1 0 "
+                "sha256 {} {} 1 panic_on_corruption".format(
+                    "12" * 32, "34" * 32
+                ),
+                table,
+            )
 
     def test_stages_binary_seeded_construction_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1046,6 +1198,33 @@ class TestIsoBootMatrix(unittest.TestCase):
         )
         self.assertFalse(boots["boot-fedora-44-x86_64-bios"]["expect_secure_boot"])
         self.assertTrue(boots["boot-fedora-44-x86_64-uefi"]["expect_secure_boot"])
+
+    def test_dm_verity_protects_verification_media_and_is_checked_at_boot(self):
+        verity = SimpleNamespace(
+            algorithm="sha512",
+            corruption_policy="restart",
+            data_block_size=4096,
+            enabled=True,
+            hash_block_size=4096,
+            salt="ab" * 32,
+        )
+        rules = load_iso_test_graph(verity=verity)
+        images = {rule["name"]: rule for rule in rules["dm_verity_image"]}
+        isos = {rule["name"]: rule for rule in rules["iso_image"]}
+        name = "verity-verify-fedora-44-x86_64"
+        self.assertEqual(
+            ":squashfs-verify-fedora-44-x86_64",
+            images[name]["image"],
+        )
+        self.assertEqual("sha512", images[name]["algorithm"])
+        self.assertEqual("restart", images[name]["corruption_policy"])
+        self.assertEqual(
+            ":" + name,
+            isos["iso-verify-fedora-44-x86_64"]["verity"],
+        )
+        self.assertTrue(all(
+            boot["expect_verity"] for boot in rules["iso_boot_test"]
+        ))
 
     def test_ima_signs_verification_overlay_and_checks_every_boot(self):
         ima = SimpleNamespace(

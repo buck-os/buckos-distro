@@ -108,6 +108,16 @@
 # signer and keep private bytes out of Buck's inputs and shared caches.
 #
 [buckos.security]
+  # Protect the complete live SquashFS through a deterministic dm-verity tree.
+  # A signed UKI authenticates the root hash; an unsigned boot detects damage
+  # but cannot prevent an attacker from replacing both media and boot config.
+  dm_verity = false
+  dm_verity_algorithm = sha256
+  dm_verity_data_block_size = 4096
+  dm_verity_hash_block_size = 4096
+  dm_verity_salt = auto
+  # eio returns an I/O error; panic and restart are deployment policy choices.
+  dm_verity_corruption_policy = eio
   # Empty keeps existing images unsigned. For a local proof, put this in
   # .buckconfig.local:
   #   [buckos.security]

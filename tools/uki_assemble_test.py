@@ -5,8 +5,10 @@ import struct
 import tempfile
 import unittest
 
+from _verity import format_image
 from uki_assemble import (
     _objcopy_command,
+    append_verity_command_line,
     maximum_section_end,
     pe_architecture,
     section_layout,
@@ -80,6 +82,40 @@ Idx Name          Size      VMA               LMA
         )
         self.assertIn(".linux=contents,alloc,load,readonly,data", command)
         self.assertEqual(["stub.efi", "uki.efi"], command[-2:])
+
+    def test_verity_root_hash_is_bound_into_the_embedded_command_line(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = os.path.join(temporary, "source.img")
+            outputs = [
+                os.path.join(temporary, name)
+                for name in ("data.img", "hash.img", "verity.json", "roothash")
+            ]
+            with open(source, "wb") as stream:
+                stream.write(b"verified live root")
+            metadata = format_image(
+                source,
+                *outputs,
+                salt_value="ab" * 32,
+            )
+
+            command_line = append_verity_command_line(
+                "quiet",
+                outputs[2],
+                "CDLABEL=BUCKOS",
+                "LiveOS/squashfs.img",
+                "LiveOS/squashfs.img.verity",
+            )
+
+            self.assertIn("quiet rd.buckos.verity=1", command_line)
+            self.assertIn(
+                "rd.buckos.verity.root_hash=" + metadata["root_hash"],
+                command_line,
+            )
+            self.assertIn("rd.buckos.verity.data_blocks=1", command_line)
+
+    def test_rejects_a_partial_verity_binding(self):
+        with self.assertRaisesRegex(ValueError, "all --verity"):
+            append_verity_command_line("quiet", "metadata.json")
 
 
 if __name__ == "__main__":

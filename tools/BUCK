@@ -176,6 +176,13 @@ python_library(
 )
 
 python_library(
+    name = "_verity",
+    srcs = ["_verity.py"],
+    base_module = "",
+    visibility = ["PUBLIC"],
+)
+
+python_library(
     name = "_lockfile",
     srcs = ["_lockfile.py"],
     base_module = "",
@@ -293,7 +300,15 @@ python_binary(
         ":_isolation",
         ":_kernel",
         ":_rpm",
+        ":_verity",
     ],
+    visibility = ["PUBLIC"],
+)
+
+python_binary(
+    name = "verity_image",
+    main = "verity_image.py",
+    deps = [":_verity"],
     visibility = ["PUBLIC"],
 )
 
@@ -321,6 +336,7 @@ python_binary(
     deps = [
         ":_isolation",
         ":_rpm",
+        ":_verity",
     ],
     visibility = ["PUBLIC"],
 )
@@ -336,6 +352,13 @@ python_test(
     srcs = ["image_test.py"],
     base_module = "",
     deps = [":_image"],
+)
+
+python_test(
+    name = "verity_test",
+    srcs = ["verity_test.py"],
+    base_module = "",
+    deps = [":_verity"],
 )
 
 python_test(
@@ -380,6 +403,7 @@ python_test(
         ":_kernel",
         ":_repo",
         ":_rpm",
+        ":_verity",
     ],
 )
 
@@ -454,6 +478,7 @@ python_test(
     deps = [
         ":_isolation",
         ":_rpm",
+        ":_verity",
     ],
 )
 

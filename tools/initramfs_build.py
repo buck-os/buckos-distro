@@ -67,6 +67,222 @@ _IMAGE = "initramfs.img"
 _IMA_CERTIFICATE = "x509_ima.der"
 
 
+_VERITY_MAP = r'''#!/bin/sh
+set -eu
+
+value() {
+    key="$1"
+    for word in $(cat /proc/cmdline); do
+        case "$word" in
+            "$key"=*) printf '%s\n' "${word#*=}"; return 0 ;;
+        esac
+    done
+    return 1
+}
+
+data=${1:?usage: buckos-verity-map DATA [HASH]}
+hash=${2:-${data}.verity}
+[ -f "$data" ] || { echo "buckos-verity: data image missing: $data" >&2; exit 1; }
+[ -f "$hash" ] || { echo "buckos-verity: hash tree missing: $hash" >&2; exit 1; }
+
+root_hash=$(value rd.buckos.verity.root_hash)
+salt=$(value rd.buckos.verity.salt)
+algorithm=$(value rd.buckos.verity.algorithm)
+data_blocks=$(value rd.buckos.verity.data_blocks)
+data_block_size=$(value rd.buckos.verity.data_block_size)
+hash_block_size=$(value rd.buckos.verity.hash_block_size)
+hash_start_block=$(value rd.buckos.verity.hash_start_block)
+policy=$(value rd.buckos.verity.corruption)
+mapper=$(value rd.buckos.verity.mapper)
+
+case "$root_hash" in ''|*[!0-9a-fA-F]*) exit 2;; esac
+case "$salt" in ''|*[!0-9a-fA-F]*) exit 2;; esac
+[ $(( ${#salt} % 2 )) -eq 0 ] && [ "${#salt}" -le 512 ] || exit 2
+case "$algorithm" in
+    sha256) [ "${#root_hash}" -eq 64 ] || exit 2 ;;
+    sha512) [ "${#root_hash}" -eq 128 ] || exit 2 ;;
+    *) exit 2 ;;
+esac
+for number in "$data_blocks" "$data_block_size" "$hash_block_size" "$hash_start_block"; do
+    case "$number" in ''|*[!0-9]*) exit 2;; esac
+done
+[ "$data_blocks" -gt 0 ] || exit 2
+case "$mapper" in ''|*[!a-zA-Z0-9_.+-]*) exit 2;; esac
+
+if dmsetup info "$mapper" >/dev/null 2>&1; then
+    printf '/dev/mapper/%s\n' "$mapper"
+    exit 0
+fi
+
+modprobe dm-verity 2>/dev/null || modprobe dm_verity
+data_loop=$(losetup --find --show --read-only "$data")
+hash_loop=
+cleanup() {
+    [ -z "$hash_loop" ] || losetup -d "$hash_loop" 2>/dev/null || :
+    [ -z "$data_loop" ] || losetup -d "$data_loop" 2>/dev/null || :
+}
+trap cleanup EXIT HUP INT TERM
+if [ -s "$hash" ]; then
+    hash_loop=$(losetup --find --show --read-only "$hash")
+else
+    # A one-data-block verity device has no hash-tree blocks. The target still
+    # requires a block-device argument but never reads it.
+    hash_loop=$data_loop
+fi
+sectors=$((data_blocks * data_block_size / 512))
+table="0 $sectors verity 1 $data_loop $hash_loop $data_block_size $hash_block_size $data_blocks $hash_start_block $algorithm $root_hash $salt"
+case "$policy" in
+    eio) ;;
+    panic) table="$table 1 panic_on_corruption" ;;
+    restart) table="$table 1 restart_on_corruption" ;;
+    *) echo "buckos-verity: invalid corruption policy: $policy" >&2; exit 2 ;;
+esac
+printf '%s\n' "$table" | dmsetup create --readonly "$mapper"
+data_loop=
+hash_loop=
+trap - EXIT HUP INT TERM
+printf '/dev/mapper/%s\n' "$mapper"
+'''
+
+
+_VERITY_LIVE = r'''#!/bin/sh
+command -v getarg >/dev/null || . /lib/dracut-lib.sh
+getargbool 0 rd.buckos.verity || exit 0
+
+media=$(getarg rd.buckos.verity.media=)
+data=$(getarg rd.buckos.verity.data=)
+hash=$(getarg rd.buckos.verity.hash=)
+case "$data" in ''|/*|..|../*|*/../*|*/..) exit 2;; esac
+case "$hash" in ''|/*|..|../*|*/../*|*/..) exit 2;; esac
+case "$media" in CDLABEL=*) label=${media#CDLABEL=};; *) exit 2;; esac
+case "$label" in ''|*[!a-zA-Z0-9_.-]*) exit 2;; esac
+device="/dev/disk/by-label/$label"
+[ -e "$device" ] || exit 1
+mountpoint=/run/initramfs/buckos-verity-media
+mkdir -p "$mountpoint"
+mountpoint -q "$mountpoint" || mount -o ro "$device" "$mountpoint"
+/sbin/buckos-verity-map "$mountpoint/$data" "$mountpoint/$hash" >/dev/null
+need_shutdown
+'''
+
+
+_VERITY_PARSE = r'''#!/bin/sh
+getargbool 0 rd.buckos.verity || return 0
+/sbin/initqueue --settled --onetime --unique /sbin/buckos-verity-live
+mapper=$(getarg rd.buckos.verity.mapper=)
+[ -n "$mapper" ] || mapper=buckos-root
+wait_for_dev -n "/dev/mapper/$mapper"
+'''
+
+
+_VERITY_DRACUT_MODULE = r'''#!/bin/sh
+check() { return 0; }
+depends() { echo "dm"; return 0; }
+installkernel() { hostonly='' instmods dm-verity loop iso9660; }
+install() {
+    inst_multiple dmsetup losetup mount mountpoint modprobe
+    inst_simple "$moddir/buckos-verity-map" /sbin/buckos-verity-map
+    inst_simple "$moddir/buckos-verity-live" /sbin/buckos-verity-live
+    inst_hook cmdline 29 "$moddir/parse-buckos-verity.sh"
+}
+'''
+
+
+_VERITY_INITRAMFS_HOOK = r'''#!/bin/sh -e
+PREREQS=""
+prereqs() { echo "$PREREQS"; }
+case "$1" in prereqs) prereqs; exit 0;; esac
+. /usr/share/initramfs-tools/hook-functions
+manual_add_modules dm-verity
+manual_add_modules loop
+copy_exec /usr/lib/buckos/buckos-verity-map /sbin/buckos-verity-map
+copy_exec /sbin/dmsetup /sbin
+copy_exec /sbin/losetup /sbin
+copy_exec /sbin/modprobe /sbin
+'''
+
+
+def _write_executable(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as stream:
+        stream.write(content)
+    os.chmod(path, 0o755)
+
+
+def _patch_initramfs_tools_verity(root, generator):
+    """Route the primary live SquashFS through buckos-verity-map."""
+    candidates = []
+    for relative in (
+        "usr/share/initramfs-tools/scripts",
+        "usr/lib/live/boot",
+        "lib/live/boot",
+    ):
+        directory = os.path.join(root, relative)
+        if not os.path.isdir(directory):
+            continue
+        for parent, _directories, names in os.walk(directory):
+            candidates += [os.path.join(parent, name) for name in names]
+
+    patterns = (
+        ('backdev=$(get_backing_device "$image")', "backdev"),
+        ('loopdevname=$(setup_loop "${image}" "loop" "/sys/block/loop*" 0)', "loopdevname"),
+        ('loopdevname=$(setup_loop "$image" "loop" "/sys/block/loop*" 0)', "loopdevname"),
+    )
+    replacements = 0
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as stream:
+                source = stream.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        updated = source
+        for pattern, variable in patterns:
+            fallback = pattern
+            replacement = (
+                "if grep -qw 'rd.buckos.verity=1' /proc/cmdline "
+                "&& [ \"$(basename \"$image\")\" = filesystem.squashfs ]; then\n"
+                "    {variable}=$(/sbin/buckos-verity-map \"$image\" \"${{image}}.verity\")\n"
+                "else\n"
+                "    {fallback}\n"
+                "fi"
+            ).format(variable=variable, fallback=fallback)
+            count = updated.count(pattern)
+            if count:
+                updated = updated.replace(pattern, replacement)
+                replacements += count
+        if updated != source:
+            mode = os.stat(path).st_mode
+            os.chmod(path, mode | 0o200)
+            with open(path, "w", encoding="utf-8") as stream:
+                stream.write(updated)
+            os.chmod(path, mode)
+    if not replacements:
+        raise RuntimeError(
+            "{} live-boot scripts have no supported SquashFS mapping site".format(
+                generator
+            )
+        )
+
+
+def install_verity_support(root, generator):
+    """Install the generator-specific bridge into the ephemeral image tree."""
+    if generator == "dracut":
+        module = os.path.join(root, "usr/lib/dracut/modules.d/91buckos-verity")
+        _write_executable(os.path.join(module, "module-setup.sh"), _VERITY_DRACUT_MODULE)
+        _write_executable(os.path.join(module, "buckos-verity-map"), _VERITY_MAP)
+        _write_executable(os.path.join(module, "buckos-verity-live"), _VERITY_LIVE)
+        _write_executable(os.path.join(module, "parse-buckos-verity.sh"), _VERITY_PARSE)
+        return
+
+    helper = os.path.join(root, "usr/lib/buckos/buckos-verity-map")
+    hook = os.path.join(root, "usr/share/initramfs-tools/hooks/buckos-verity")
+    _write_executable(helper, _VERITY_MAP)
+    _write_executable(hook, _VERITY_INITRAMFS_HOOK)
+    _patch_initramfs_tools_verity(root, generator)
+
+
 def stage_image_tool(buildroot, work, name):
     """Stage one binary-seeded construction tool outside the image root.
 
@@ -169,6 +385,8 @@ def _dracut_script(args, kver, image, ima_certificate=None):
     ]
     for module in args.add_module:
         cmd += ["--add", module]
+    if getattr(args, "dm_verity", False):
+        cmd += ["--add", "buckos-verity"]
     for module in args.omit_module:
         cmd += ["--omit", module]
     if args.no_compress:
@@ -271,6 +489,8 @@ def main():
     ap.add_argument("--ima-certificate", default=None,
                     help="PEM or DER public certificate to install as "
                          "/etc/keys/x509_ima.der in the initramfs")
+    ap.add_argument("--dm-verity", action="store_true",
+                    help="install live-root dm-verity activation support")
     ap.add_argument("--generator", default="dracut",
                     choices=("dracut", "live-boot", "casper"))
     ap.add_argument("--no-compress", action="store_true",
@@ -384,6 +604,11 @@ def _build(args, isolation, rootfs, kver, work, out):
         ),
         isolation, work, work, sysroot, env=env,
     )
+    if args.dm_verity:
+        try:
+            install_verity_support(root, args.generator)
+        except (OSError, RuntimeError) as error:
+            sys.exit("buckos-distro: cannot install dm-verity support: {}".format(error))
 
     print(
         "buckos-distro: running the image's own {} generator (kver={}, "

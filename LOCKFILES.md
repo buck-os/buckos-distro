@@ -5,6 +5,19 @@ metadata and the Buck graph. Use the repository's `lockfiles` command to work wi
 it accepts plain `.lock.json` and compressed `.lock.json.gz` files without
 making callers care which representation is present.
 
+The repository-root wrapper invokes the checked-in Buck binary target. These
+forms are equivalent; the wrapper is shorter and is preferred for examples in
+this document:
+
+```sh
+./lockfiles list
+./buck2 run //tools:lockfile -- list
+```
+
+Do not decompress a lockfile just to inspect or modify it. The commands below
+decode compressed locks transparently and preserve their representation when
+writing them back.
+
 Lockfiles are selected by `FLAVOR[:RELEASE[:ARCH]]`. A selector can name one
 lock (`fedora:45:x86_64`), both architectures of a release (`fedora:45`), or
 an entire flavor (`fedora`). Commands that must operate on exactly one lock

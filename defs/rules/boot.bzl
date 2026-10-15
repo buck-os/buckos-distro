@@ -31,7 +31,13 @@ load(
     "buildroot_local_only",
     "buildroot_sysroot_args",
 )
-load("//defs:providers.bzl", "BootInfo", "KernelInfo", "SigningKeyInfo")
+load(
+    "//defs:providers.bzl",
+    "BootInfo",
+    "InitramfsInfo",
+    "KernelInfo",
+    "SigningKeyInfo",
+)
 load("//defs/rules:rootfs.bzl", "rootfs_artifact")
 
 def _kernel_image_impl(ctx: AnalysisContext) -> list[Provider]:
@@ -196,6 +202,8 @@ def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
             "--ima-certificate",
             ctx.attrs.ima_signing_key[SigningKeyInfo].certificate,
         )
+    if ctx.attrs.dm_verity:
+        cmd.add("--dm-verity")
     cmd.add("--generator", ctx.attrs.generator)
     cmd.add("--source-date-epoch", ctx.attrs.source_date_epoch)
 
@@ -222,6 +230,7 @@ def _initramfs_impl(ctx: AnalysisContext) -> list[Provider]:
             efi_stub = None,
             boot_args = [],
         ),
+        InitramfsInfo(image = out, dm_verity = ctx.attrs.dm_verity),
     ]
 
 initramfs = rule(
@@ -232,6 +241,10 @@ initramfs = rule(
         # find a squashfs on a CD and the boot stops at a dracut shell.
         "add_modules": attrs.list(attrs.string(), default = []),
         "dracut_args": attrs.list(attrs.string(), default = []),
+        # Installs the dm-verity kernel module and the appropriate early-boot
+        # adapter for dracut, live-boot, or casper. iso_image rejects a verity
+        # root paired with an initramfs that does not carry this capability.
+        "dm_verity": attrs.bool(default = False),
         "generator": attrs.enum(["dracut", "live-boot", "casper"], default = "dracut"),
         # Public certificate for the IMA signing identity.  Custom kernels
         # should set CONFIG_IMA_LOAD_X509=y and

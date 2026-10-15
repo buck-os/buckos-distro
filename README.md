@@ -78,6 +78,23 @@ Debian and Ubuntu use the corresponding `tools/deb_lock.py` and `tools/deb_gener
 
 The lockfile records exact package locations, SHA-256 digests, repository origins, source recipes, bootstrap stages, overrides, and image sets. Buck verifies each downloaded package against its recorded digest. Lockfile tools accept plain `.lock.json` and gzip-compressed `.lock.json.gz` files. `[buckos.lockfiles] compression = gzip` selects compressed canonical names; `none` keeps plain JSON. An existing lockfile retains its encoding when refreshed, and an explicitly named output uses its extension. Gzip output has a pinned header and is deterministic. See [LOCKFILES.md](LOCKFILES.md) for selector-based inspection, validation, editing, conversion, regeneration, and mirror-audit commands.
 
+Use the repository-root `lockfiles` command instead of opening or invoking
+`gzip` on a lock directly. It resolves selectors independently of the stored
+compression format and runs the checked-in Buck tool:
+
+```sh
+./lockfiles path fedora:44:x86_64
+./lockfiles show fedora:44:x86_64 | jq '.solve.problems'
+./lockfiles get fedora:44:x86_64 /packages/expat
+./lockfiles check fedora:44:x86_64
+```
+
+The equivalent direct Buck form is:
+
+```sh
+./buck2 run //tools:lockfile -- show fedora:44:x86_64
+```
+
 `tools/relock.py` refreshes an existing release from Fedora's release and update repositories. It reuses the build list, overrides, and image roots already recorded in the lockfile.
 
 ```sh
@@ -202,6 +219,15 @@ Every rootfs target also provides the producer-neutral `RootfsInfo` contract and
 
 The live squashfs is used directly as the root filesystem. x86_64 ISOs contain BIOS and UEFI boot entries. AArch64 ISOs contain the removable-media `BOOTAA64.EFI` UEFI path. Images use unsigned GRUB by default; configuring Secure Boot replaces the UEFI entry point with a signed Unified Kernel Image while retaining the x86_64 BIOS path.
 
+Set `[buckos.security] dm_verity = true` to protect the complete live
+SquashFS with a deterministic version 1 hash tree. The RPM, Debian, and Ubuntu
+pipelines install generator-specific early-boot activation, place the separate
+tree on the ISO, and require the guest to report a live verity mapper in boot
+tests. A signed UKI authenticates the root hash and table parameters; unsigned
+BIOS and GRUB paths provide corruption detection without an adversarial trust
+anchor. See [DM_VERITY.md](DM_VERITY.md) for configuration, artifacts, kernel
+requirements, and the trust model.
+
 ### Custom kernels
 
 Custom kernels are selected as ordinary Buck targets through `[buckos.kernel]`. Each target provides the public `KernelInfo` contract: a boot image, an artifact containing `kernelrelease`, its architecture, optional additive `boot_args`, an optional normalized module tree, and optional development and trust artifacts. Image rules do not depend on the producer's source layout, build rule, toolchain, or repository.
@@ -275,7 +301,7 @@ RPM package signatures authenticate the package archive and are independent of
 IMA signatures on files installed into a root filesystem; deployments that
 need both should enable both transformations.
 
-### Secure Boot, signing, and IMA
+### Secure Boot, dm-verity, signing, and IMA
 
 Signing is opt-in. Signing identities are Buck targets providing `SigningKeyInfo` and `RunInfo`; image rules invoke the target rather than reading a private key directly. `file_signing_key` supports test and local PEM keys, while `external_signing_key` lets a deployment select an HSM/KMS client implementing the same command interface. `authenticode_signing_key` adapts a remote Authenticode client to `efi_sign`, keeps the action local and non-cacheable, and verifies the result against the declared public certificate.
 
@@ -291,6 +317,11 @@ Set `secure_boot_signing_key` and an architecture-appropriate systemd EFI stub t
 The UKI embeds the kernel, initramfs, OS metadata, and the complete additive command line, is assembled with the target architecture's pinned binutils, and is signed through the selected key target. `iso_image` accepts only an `EfiImageInfo` marked signed, checks its architecture, and installs it at the UEFI removable-media path. That input is loader-neutral: `efi_image` can adapt another self-contained signed EFI executable. A shim/GRUB chain has multiple signed components and mutable configuration, so it needs a richer chain contract before it can make the same verified claim.
 
 Direct UKI boot currently supports one kernel per ISO. Unsigned GRUB remains the default and retains the multi-kernel menu. See [SECURE_BOOT.md](SECURE_BOOT.md) for the trust boundary, configuration, and validation flow.
+
+With dm-verity enabled, the UKI command line also contains the root hash and
+complete table parameters for the ISO's live SquashFS. Those values are inside
+the signed executable, while the matching data image and hash tree remain
+separate ISO payloads. See [DM_VERITY.md](DM_VERITY.md).
 
 When `[buckos.security] ima_signing_key` is set, each live rootfs receives an IMA manifest after its package-manager transaction. Every regular file, including executables and shared libraries, is signed by default to match the built-in `appraise_tcb` policy. The signatures are written into the SquashFS as `security.ima` xattrs, the public X.509 certificate is included in every selected kernel's initramfs as `/etc/keys/x509_ima.der`, and IMA appraisal arguments are added to the kernel command line. IMA requires a configured custom kernel target; using an unmodified distro kernel would provide no trustworthy way to assert that a deployment certificate can enter its restricted IMA keyring. Each custom kernel must declare the same public certificate in `KernelInfo`; rootfs composition compares the certificates and fails before producing an image if they differ. That declaration attests that a prebuilt kernel has `CONFIG_IMA_APPRAISE`, `CONFIG_IMA_LOAD_X509`, `CONFIG_IMA_READ_POLICY`, and the matching `CONFIG_IMA_X509_PATH` enabled. `linux_kernel` enables those settings itself, fails if Kconfig dependency resolution drops them, and adds the public certificate to the system trust roots required to authorize its early load into the dedicated IMA keyring. The narrower `executables` signing mode is available only for deployments that install a matching custom IMA policy.
 
@@ -338,7 +369,7 @@ buck2 build //flavors/ubuntu:iso-live-26.04-x86_64
 
 ## Boot validation
 
-Each `//tests:boot-*` target performs two QEMU boots. It first boots the exact architecture-qualified production ISO through the requested firmware, reports that artifact's SHA-256, and requires the serial getty's `login:` prompt. The prompt is the common late normal-boot milestone because every image selects a serial kernel console and carries systemd plus util-linux. It then boots the matching instrumented verification ISO and checks flavor, release, architecture, systemd as PID 1, zero failed units, zero SELinux AVC denials, and enforcing mode for RPM-family images. For CentOS Hyperscale that clean result includes the compatibility module the live rootfs ships, described in SPEC.md, without which its systemd raises denials against the base policy. x86_64 is tested through both BIOS and UEFI; AArch64 is tested through UEFI. When IMA is configured, the verification overlay is signed too and every firmware test requires the IMA subsystem plus the enforcing appraisal command line. When Secure Boot is configured, the UEFI tests use explicitly configured enrolled firmware code and variable stores and also require the guest `SecureBoot` EFI variable to equal one; ordinary firmware is never accepted as proof of enforcement.
+Each `//tests:boot-*` target performs two QEMU boots. It first boots the exact architecture-qualified production ISO through the requested firmware, reports that artifact's SHA-256, and requires the serial getty's `login:` prompt. The prompt is the common late normal-boot milestone because every image selects a serial kernel console and carries systemd plus util-linux. It then boots the matching instrumented verification ISO and checks flavor, release, architecture, systemd as PID 1, zero failed units, zero SELinux AVC denials, and enforcing mode for RPM-family images. For CentOS Hyperscale that clean result includes the compatibility module the live rootfs ships, described in SPEC.md, without which its systemd raises denials against the base policy. x86_64 is tested through both BIOS and UEFI; AArch64 is tested through UEFI. When dm-verity is configured, every firmware test also requires the guest's `buckos-root` device-mapper table to report the verity target. When IMA is configured, the verification overlay is signed too and every firmware test requires the IMA subsystem plus the enforcing appraisal command line. When Secure Boot is configured, the UEFI tests use explicitly configured enrolled firmware code and variable stores and also require the guest `SecureBoot` EFI variable to equal one; ordinary firmware is never accepted as proof of enforcement.
 
 ```sh
 buck2 test //tests:boot-fedora-44-x86_64-bios
